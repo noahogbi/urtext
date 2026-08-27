@@ -29,4 +29,19 @@ jobs:
       # The built artifact is what installs ship, so it gets its own run:
       # a green suite proves src/, not dist/. On a pull request HEAD is the
       # merge commit and HEAD~1 the base branch, so this reviews the PR.
-      - run: node dist/bin.js review HEAD~1 --no-llm
+      #
+      # HEAD~1 does not exist in a repository whose history is a single root
+      # commit, which is what this one began as. Falling back to the no-range
+      # form rather than skipping: it resolves the working tree against the
+      # merge base and still exercises the built binary end to end, so the
+      # step keeps proving what it exists to prove instead of quietly
+      # proving nothing.
+      - name: Smoke-test the built binary
+        shell: bash
+        run: |
+          if git rev-parse --verify --quiet HEAD~1 > /dev/null; then
+            node dist/bin.js review HEAD~1 --no-llm
+          else
+            echo "::notice::HEAD~1 does not exist; smoke-testing against the working tree instead."
+            node dist/bin.js review --no-llm
+          fi
