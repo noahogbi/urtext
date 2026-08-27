@@ -90,6 +90,86 @@ export async function defaultBranch(cwd: string): Promise<string> {
   );
 }
 
+/**
+ * Resolves one named revision, or explains why it cannot be.
+ *
+ * `git()` rejects with the command it ran, and handing that to the CLI's
+ * error printer answers a request for a parent revision with
+ * "Command failed: git rev-parse ..." — the tool's internals in place of the
+ * reader's problem, and the first thing anyone meets on a shallow or
+ * single-commit clone. (The revision is spelled without its numeral here:
+ * this repository's comment contract reads a bare small integer in a comment
+ * as a restated constant.)
+ *
+ * The message names the cause it can establish rather than listing the
+ * causes it cannot tell apart: a shallow repository genuinely may have the
+ * revision upstream and simply not have fetched it, which is a different
+ * problem with a different fix from a revision that does not exist. See
+ * `test/extract/git.test.ts`, "names the missing revision instead of the git
+ * command that failed".
+ */
+async function resolveRev(cwd: string, rev: string): Promise<string> {
+  try {
+    return (await git(["rev-parse", `${rev}^{commit}`], cwd)).trim();
+  } catch {
+    throw new Error(await unresolvedMessage(cwd, rev));
+  }
+}
+
+/**
+ * Why one revision did not resolve, saying only what can be established.
+ *
+ * Each clause is earned separately. A shallow clone genuinely may hold the
+ * revision upstream, which is a different problem with a different fix from
+ * a revision that does not exist. A history of one commit genuinely has no
+ * parent — but that answers `HEAD~n`, and answers nothing about a mistyped
+ * branch name, where it would be a true fact about the repository offered as
+ * a false explanation. So the parent clause is earned by the shape of the
+ * revision, not by the fact that something failed. See
+ * `test/extract/git.test.ts`, "explains a parent reference with the
+ * history's length only when that is why it failed".
+ */
+async function unresolvedMessage(cwd: string, rev: string): Promise<string> {
+  const named = `No revision \`${rev}\` in this repository.`;
+
+  const shallow = await git(["rev-parse", "--is-shallow-repository"], cwd)
+    .then((out) => out.trim() === "true")
+    .catch(() => false);
+  if (shallow) {
+    return `${named} This is a shallow clone, so it may exist upstream and simply not have been fetched — deepen it with \`git fetch --unshallow\`, or pass a range this clone has.`;
+  }
+
+  // `~` and `^` are the only spellings that ask for an ancestor, so they are
+  // the only ones a parentless history explains.
+  if (/[~^]/.test(rev)) {
+    const rootOnly = await git(["rev-list", "--count", "HEAD"], cwd)
+      .then((out) => out.trim() === "1")
+      .catch(() => false);
+    if (rootOnly) {
+      return `${named} This repository's history is a single commit, so it has no ancestor to compare against.`;
+    }
+  }
+
+  return named;
+}
+
+/**
+ * The merge base of two revisions that have already been resolved.
+ *
+ * Reached only once both names are known to exist, so a failure here is the
+ * one thing it can still be: histories with no commit in common. Saying that
+ * is only honest because the typo case was ruled out first.
+ */
+async function mergeBaseOf(cwd: string, a: string, b: string): Promise<string> {
+  try {
+    return (await git(["merge-base", a, b], cwd)).trim();
+  } catch {
+    throw new Error(
+      `\`${a}\` and \`${b}\` have no commit in common, so there is no merge base to review from. Use a two-dot range to compare them literally, e.g. \`${a}..${b}\`.`,
+    );
+  }
+}
+
 export async function resolveRange(
   cwd: string,
   spec?: string,
@@ -105,26 +185,28 @@ export async function resolveRange(
       // meanwhile. Treating the second as the first reports every commit A
       // made since the fork as a reversal in B, which is a false finding
       // about files the branch never touched.
-      const from =
-        separator === "..."
-          ? (await git(["merge-base", a, b], cwd)).trim()
-          : (await git(["rev-parse", a], cwd)).trim();
-      return {
-        from,
-        to: (await git(["rev-parse", b], cwd)).trim(),
-        label: spec,
-      };
+      // Both sides are resolved before either is used, so a range naming a
+      // revision this repository does not have is answered about that
+      // revision. Without it, a three-dot range's typo reaches `merge-base`
+      // and comes back as a claim about the histories having no common
+      // ancestor — a confident wrong answer about the repository.
+      const left = await resolveRev(cwd, a);
+      const to = await resolveRev(cwd, b);
+      const from = separator === "..." ? await mergeBaseOf(cwd, a, b) : left;
+      return { from, to, label: spec };
     }
     // A bare revision means "from there to the working tree".
     return {
-      from: (await git(["rev-parse", spec], cwd)).trim(),
+      from: await resolveRev(cwd, spec),
       to: WORKTREE,
       label: `vs ${spec}`,
     };
   }
 
   const base = await defaultBranch(cwd);
-  const mergeBase = (await git(["merge-base", "HEAD", base], cwd)).trim();
+  await resolveRev(cwd, "HEAD");
+  await resolveRev(cwd, base);
+  const mergeBase = await mergeBaseOf(cwd, "HEAD", base);
   return { from: mergeBase, to: WORKTREE, label: `vs ${base}` };
 }
 
