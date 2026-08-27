@@ -119,10 +119,25 @@ deliberately failed artifact upload left the job green with the comment intact; 
 same failure without the upload guard took the job red. Read those as the author's
 report, not as something this repository lets you check.
 
-Two behaviours remain unverified anywhere and are not claimed — a pull request from a
-fork, where `GITHUB_TOKEN` is read-only and the post is expected to fail visibly, and
-the `pull_request_target` refusal, which cannot be observed from a branch because that
-trigger reads the base branch's workflow definition.
+**The `pull_request_target` refusal has been observed.** It cannot be tested from a
+branch of this repository — that trigger reads its workflow definition from the base
+branch — so it was exercised in a throwaway repository carrying the misconfiguration on
+its default branch. The action failed its guard step and **every later step of the
+composite was skipped**: nothing fetched, nothing built, no attacker-authored code
+parsed. Refusing before doing anything is the property that matters, and it is what the
+run showed. That evidence was also in a private repository, so it is the author's report
+on the same terms as the four above.
+
+Worth correcting an earlier version of this paragraph, which said that refusal could not
+be observed "from a branch" and was read — including by its author — as needing a fork.
+It does not. `pull_request_target` fires for pull requests from branches in the same
+repository too; the only requirement is that the workflow live on the default branch.
+
+**One behaviour remains unverified and is not claimed:** a pull request from a fork,
+where `GITHUB_TOKEN` is read-only and the post is expected to fail visibly. That one
+genuinely needs a second account, and it is being left for the first real fork pull
+request rather than manufactured — its failure mode is a visible, harmless warning on
+somebody's pull request, not a silent one.
 
 The `permissions:` block sits at the job level, not the workflow level, so adopting
 this does not widen the token for a repository's other jobs. `issues: write` is not
