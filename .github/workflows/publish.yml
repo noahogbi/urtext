@@ -61,4 +61,27 @@ jobs:
       - run: npm test
       - run: npm run build
 
-      - run: npm publish --access public
+      # `npm stage publish`, not `npm publish`. The trusted publisher on
+      # npmjs.com grants this workflow permission to STAGE a release, not to
+      # put one live: publishing is the only irreversible step in this
+      # pipeline, so a human approves it with 2FA after seeing what was
+      # built. A direct publish from here is refused — "OIDC permission
+      # denied for this action" — which is the registry enforcing the same
+      # rule this repository would.
+      #
+      # Staging needs npm 11.15.0 or later, above the 11.5.1 that trusted
+      # publishing alone requires. The guard below is here because the
+      # obvious future edit is lowering node-version to match this package's
+      # `engines` floor, which would quietly ship an npm too old and fail
+      # with something far less legible than this.
+      - name: Refuse an npm too old to stage
+        run: |
+          need=11.15.0
+          have="$(npm --version)"
+          if [ "$(printf '%s\n%s\n' "$need" "$have" | sort -V | head -n 1)" != "$need" ]; then
+            echo "::error::npm $have cannot stage a publish; 11.15.0 or later is required. Raise node-version."
+            exit 1
+          fi
+          echo "npm $have can stage."
+
+      - run: npm stage publish
