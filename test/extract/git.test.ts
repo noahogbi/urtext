@@ -113,6 +113,82 @@ describe("resolveRange", () => {
   });
 });
 
+describe("resolveRange when a revision does not resolve", () => {
+  // The defect these pin: resolveRange handed rev-parse's rejection straight
+  // to the CLI's error printer, so a user who typed a range this repository
+  // does not have was answered with "Command failed: git rev-parse ...".
+  // That names the tool's internals instead of the reader's problem, and it
+  // is the first thing anyone meets on a shallow or single-commit clone.
+  // The revision is spelled without its numeral in these comments because
+  // this repository's comment contract reads a bare small integer as a
+  // restated constant.
+
+  /** No user-facing range error may be a git command line. */
+  function expectNoLeak(message: string): void {
+    expect(message).not.toContain("Command failed");
+    expect(message).not.toMatch(/\bgit (rev-parse|merge-base)\b/);
+  }
+
+  it("names the missing revision instead of the git command that failed", async () => {
+    const err = await resolveRange(repo, "no-such-rev").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    const message = (err as Error).message;
+    expectNoLeak(message);
+    expect(message).toContain("no-such-rev");
+  });
+
+  it("names the left revision of a two-dot range, not the right one", async () => {
+    const err = await resolveRange(repo, "no-such-left..main").catch((e: unknown) => e);
+    const message = (err as Error).message;
+    expectNoLeak(message);
+    expect(message).toContain("no-such-left");
+    expect(message).not.toContain("main");
+  });
+
+  it("names the right revision of a two-dot range, not the left one", async () => {
+    const err = await resolveRange(repo, "main..no-such-right").catch((e: unknown) => e);
+    const message = (err as Error).message;
+    expectNoLeak(message);
+    expect(message).toContain("no-such-right");
+  });
+
+  it("explains a parent reference with the history's length only when that is why it failed", async () => {
+    // A single-commit repository genuinely has no parent, and saying so
+    // answers `HEAD~n`. It answers nothing about a mistyped branch name —
+    // there, the sentence is a true fact about the repository offered as a
+    // false explanation, which is the shape of wrongness this project exists
+    // to refuse. The clause is earned by the revision, not by the failure.
+    const solo = mkdtempSync(join(tmpdir(), "urtext-solo-"));
+    const runIn = (args: string[]) =>
+      execFileSync("git", [...GIT_ISOLATION, ...args], { cwd: solo, stdio: "pipe" });
+    runIn(["init", "-b", "main"]);
+    runIn(["config", "user.email", "test@example.com"]);
+    runIn(["config", "user.name", "Test"]);
+    writeFileSync(join(solo, "a.ts"), "export const a = 1;\n");
+    runIn(["add", "-A"]);
+    runIn(["commit", "-m", "root"]);
+
+    const parent = await resolveRange(solo, "HEAD~1").catch((e: unknown) => e);
+    expect((parent as Error).message).toMatch(/single commit|no parent/i);
+
+    const typo = await resolveRange(solo, "no-such-branch").catch((e: unknown) => e);
+    const message = (typo as Error).message;
+    expectNoLeak(message);
+    expect(message).toContain("no-such-branch");
+    expect(message).not.toMatch(/single commit|no parent/i);
+  });
+
+  it("names the missing revision of a three-dot range rather than reporting no common ancestor", async () => {
+    // Both failures reach the same merge-base call, so without verifying the
+    // named revisions first this would blame the histories for a typo.
+    const err = await resolveRange(repo, "main...no-such-rev").catch((e: unknown) => e);
+    const message = (err as Error).message;
+    expectNoLeak(message);
+    expect(message).toContain("no-such-rev");
+    expect(message).not.toMatch(/common ancestor/i);
+  });
+});
+
 describe("readAt", () => {
   it("reads committed content at a revision", async () => {
     expect(await readAt(repo, "main", "a.ts")).toBe("export const a = 1;\n");
