@@ -1,7 +1,17 @@
 {
   "name": "urtext",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Diff review with evidence tiers: deterministic analysis, LLM interpretation, every claim labeled",
+  "keywords": [
+    "code-review",
+    "diff",
+    "git",
+    "static-analysis",
+    "typescript",
+    "cli",
+    "github-action",
+    "llm"
+  ],
   "license": "MIT",
   "author": "Noah Ogbi",
   "repository": {
