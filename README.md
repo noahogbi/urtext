@@ -99,12 +99,21 @@ jobs:
 ```
 
 `@v1` is a tag, so the action cannot change under you between runs the way `@master`
-can. It was cut after the action was verified against a live pull request: the
-workflow ran, posted one marked comment carrying a real review, uploaded the report
-artifact, and a re-run edited that same comment rather than adding a second. Two
-behaviours are still unverified and not claimed — a pull request from a fork, where
-`GITHUB_TOKEN` is read-only and the post is expected to fail visibly, and the
-`pull_request_target` refusal, which cannot be observed from a branch because that
+can. It was cut on a green cross-platform CI run — the check you can see for yourself
+on this repository.
+
+Four of the action's behaviours were verified against live pull requests, and it is
+worth being exact about where that evidence sits: it was recorded during development,
+in a private repository this one does not descend from, so **you cannot follow it from
+here.** What was observed there — the workflow posted one marked comment carrying a
+real review; a re-run edited that same comment rather than adding a second; a
+deliberately failed artifact upload left the job green with the comment intact; and the
+same failure without the upload guard took the job red. Read those as the author's
+report, not as something this repository lets you check.
+
+Two behaviours remain unverified anywhere and are not claimed — a pull request from a
+fork, where `GITHUB_TOKEN` is read-only and the post is expected to fail visibly, and
+the `pull_request_target` refusal, which cannot be observed from a branch because that
 trigger reads the base branch's workflow definition.
 
 The `permissions:` block sits at the job level, not the workflow level, so adopting
@@ -206,7 +215,9 @@ one place to read it and one place to change it.
 - `action/` — the action's comment composer, plain ESM run by the runner's `node`
 - `archive/prototype/` — the klar-era IR prototype, kept for provenance
 
-Design: `docs/superpowers/specs/2026-08-15-urtext-diff-review-design.md`
+Design: `docs/superpowers/specs/2026-08-15-urtext-diff-review-design.md`, and
+`docs/superpowers/README.md` for how to read the rest of them — including which
+citations in them no longer resolve here, and why they were left that way.
 
 ## Provenance
 
