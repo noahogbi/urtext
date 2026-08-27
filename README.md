@@ -1,6 +1,7 @@
 # Urtext
 
 [![CI](https://github.com/noahogbi/urtext/actions/workflows/ci.yml/badge.svg)](https://github.com/noahogbi/urtext/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/urtext)](https://www.npmjs.com/package/urtext)
 
 **A diff reviewer that shows its evidence.** Point `urtext` at a git range and it reports what
 changed and why it matters — ranked, and with every claim labeled by the kind of evidence behind
@@ -60,16 +61,23 @@ the analyzers' findings and says in the report that the model was never asked.
 
 ## Install
 
-Not on npm yet. Install straight from GitHub — the build runs automatically
-on install — and `urtext` is on your PATH:
-
 ```bash
-npm install -g github:noahogbi/urtext
+npm install -g urtext
 urtext review          # from any git repository
 ```
 
-Or from a local checkout: `npm install -g path/to/urtext`. The
-`npm run review` form above is the dev loop inside this repository; it runs
+The published package ships its build, so nothing compiles on install and no
+lifecycle script runs — which matters under npm v12, where dependency scripts
+and git dependencies are both off by default.
+
+**Installing from GitHub needs those defaults relaxed.** `npm install -g
+github:noahogbi/urtext` is refused outright by npm v12 (`EALLOWGIT`), and even
+allowed through it would fetch a tree with no `dist/`, whose build runs from a
+`prepare` script that v12 also disables. Use the registry unless you have a
+reason not to; from a local checkout, `npm install -g path/to/urtext` still
+works.
+
+The `npm run review` form above is the dev loop inside this repository; it runs
 `src/` directly and needs no build.
 
 PDF export embeds the bundled DejaVu fonts, which cover Latin, Cyrillic, and
