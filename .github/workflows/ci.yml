@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The dist smoke test below reviews HEAD~1, so the parent commit
+          # must exist locally; a depth-1 clone has no parent to diff against.
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx vitest run
+      - run: npm run build
+      # The built artifact is what installs ship, so it gets its own run:
+      # a green suite proves src/, not dist/. On a pull request HEAD is the
+      # merge commit and HEAD~1 the base branch, so this reviews the PR.
+      - run: node dist/bin.js review HEAD~1 --no-llm

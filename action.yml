@@ -1,0 +1,409 @@
+name: urtext review
+description: >-
+  Review this pull request's change with urtext and post the result as one
+  comment, edited in place on every push. Deterministic by default.
+author: noahogbi
+
+inputs:
+  range:
+    description: >-
+      The git range to review, passed to `urtext review` verbatim. Empty means
+      the action derives <base sha>...<head sha> from the pull_request payload.
+    required: false
+    default: ""
+  anthropic-api-key:
+    description: >-
+      Key for the interpretation stage, passed to the CLI as an environment
+      variable and never as an argument. Empty runs --no-llm; it never fails.
+    required: false
+    default: ""
+  model:
+    description: >-
+      Passed as --model when non-empty. Has no effect without
+      anthropic-api-key.
+    required: false
+    default: ""
+  github-token:
+    description: "The token gh authenticates with. Needs pull-requests: write."
+    required: false
+    default: ${{ github.token }}
+  comment-marker:
+    description: >-
+      The hidden marker identifying this action's comment. Change it to keep
+      two independent urtext comments on one pull request.
+    required: false
+    default: "<!-- urtext-review -->"
+  comment-limit:
+    description: >-
+      Maximum comment body length in characters. GitHub's own limit, carried
+      as data rather than compiled into urtext. Lowering it makes a shorter
+      comment; raising it above what the API accepts does not make a longer
+      one, and the action says so and uses the API's number instead.
+    required: false
+    default: "65536"
+  upload-report:
+    description: >-
+      Upload the run's .urtext/ directory and the Markdown review as a build
+      artifact, and link it from the comment.
+    required: false
+    default: "true"
+  artifact-name:
+    description: The name of that artifact.
+    required: false
+    default: urtext-review
+  fail-on-error:
+    description: >-
+      When true, the last step exits nonzero if the review could not be
+      produced or could not be posted. Default is that neither ever fails the
+      workflow.
+    required: false
+    default: "false"
+
+outputs:
+  outcome:
+    description: reviewed when urtext produced a review, failed when it did not.
+    value: ${{ steps.compose.outputs.outcome }}
+  posted:
+    description: >-
+      created, edited, or none. none collapses three causes — a composed body
+      this API would reject on length, a body that could not be composed at
+      all, and a post the API refused — and the run's warning names which.
+    value: ${{ steps.upsert.outputs.posted }}
+  comment-id:
+    description: The id of the created or edited comment; empty when posted is none.
+    value: ${{ steps.upsert.outputs.comment-id }}
+  comment-url:
+    description: The comment's html_url; empty when posted is none.
+    value: ${{ steps.upsert.outputs.comment-url }}
+  exit-code:
+    description: urtext's own exit code, verbatim. The action interprets it; it never rewrites it.
+    value: ${{ steps.urtext.outputs.exit-code }}
+  omitted-findings:
+    description: How many findings the character cap left out. 0 when nothing was omitted.
+    value: ${{ steps.compose.outputs.omitted-findings }}
+  report-artifact-url:
+    description: >-
+      The uploaded artifact's URL; empty when upload-report is false, and also
+      when the upload failed, which after this action's upload guard no longer
+      fails the job.
+    value: ${{ steps.upload.outputs.artifact-url }}
+
+runs:
+  using: composite
+  steps:
+    - name: Refuse pull_request_target
+      id: guard
+      shell: bash
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+      run: |
+        if [ "$EVENT_NAME" = "pull_request_target" ]; then
+          echo "urtext does not run on pull_request_target. That trigger grants a write token and repository secrets to a workflow that then reads the head revision, and urtext parses attacker-authored TypeScript and resolves an attacker-authored tsconfig. Use pull_request." >&2
+          exit 1
+        fi
+
+    - name: Resolve the range
+      id: range
+      if: ${{ inputs.range == '' }}
+      shell: bash
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        have() { git cat-file -e "$1^{commit}" 2>/dev/null; }
+        if ! have "$BASE_SHA" || ! have "$HEAD_SHA"; then
+          git fetch --no-tags origin "$BASE_SHA" "$HEAD_SHA" || true
+        fi
+        if ! have "$BASE_SHA" || ! have "$HEAD_SHA"; then
+          {
+            echo "resolved="
+            echo "reason=urtext could not resolve this pull request's base and head commits. The likeliest cause is a shallow checkout: use actions/checkout with fetch-depth: 0, because a three-dot range asks git for the merge base first."
+          } >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        # Three dots, not two: pull_request.base.sha is the base branch's tip
+        # when the event fired, not the merge base, so base..head would report
+        # every commit the base gained since the fork as a change of this pull
+        # request's. base...head is what the Files Changed tab shows.
+        echo "resolved=$BASE_SHA...$HEAD_SHA" >> "$GITHUB_OUTPUT"
+        echo "reason=" >> "$GITHUB_OUTPUT"
+
+    - name: Build urtext
+      id: build
+      shell: bash
+      run: |
+        set +e
+        # In the action's own checkout, never the consumer's workspace:
+        # nothing in the reviewed repository is installed and no script from
+        # it is executed. This runs the repository's own prepare script, so
+        # dist/bin.js is what an install ships.
+        npm ci --prefix "$GITHUB_ACTION_PATH"
+        echo "code=$?" >> "$GITHUB_OUTPUT"
+
+    - name: Run urtext
+      id: urtext
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        MODEL: ${{ inputs.model }}
+        EXPLICIT_RANGE: ${{ inputs.range }}
+        DERIVED_RANGE: ${{ steps.range.outputs.resolved }}
+        RANGE_REASON: ${{ steps.range.outputs.reason }}
+        BUILD_CODE: ${{ steps.build.outputs.code }}
+      run: |
+        RANGE="$EXPLICIT_RANGE"
+        if [ -z "$RANGE" ]; then RANGE="$DERIVED_RANGE"; fi
+        echo "range=$RANGE" >> "$GITHUB_OUTPUT"
+        : > "$RUNNER_TEMP/urtext-review.md"
+        : > "$RUNNER_TEMP/urtext-review.log"
+        if [ -z "$RANGE" ]; then
+          printf '%s\n' "$RANGE_REASON" > "$RUNNER_TEMP/urtext-review.log"
+          echo "exit-code=1" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        if [ "$BUILD_CODE" != "0" ]; then
+          printf '%s\n' "urtext could not be built on this runner; npm ci exited $BUILD_CODE." > "$RUNNER_TEMP/urtext-review.log"
+          echo "exit-code=1" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        LLM_ARGS=()
+        if [ -n "$ANTHROPIC_API_KEY" ]; then
+          if [ -n "$MODEL" ]; then LLM_ARGS=(--model "$MODEL"); fi
+        else
+          LLM_ARGS=(--no-llm)
+        fi
+        set +e
+        node "$GITHUB_ACTION_PATH/dist/bin.js" review "$RANGE" "${LLM_ARGS[@]}" --stdout md \
+          > "$RUNNER_TEMP/urtext-review.md" 2> "$RUNNER_TEMP/urtext-review.log"
+        code=$?
+        set -e
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+
+    - name: Write the job summary
+      shell: bash
+      run: |
+        # The full, untruncated review. GitHub caps the job summary at 1 MiB
+        # and a larger review is cut by GitHub, not by urtext; the artifact is
+        # the uncapped copy, and the action's documentation says so.
+        if [ -s "$RUNNER_TEMP/urtext-review.md" ]; then
+          cat "$RUNNER_TEMP/urtext-review.md" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Upload the report
+      id: upload
+      if: ${{ inputs.upload-report == 'true' }}
+      # The action's only `uses:` step, and therefore the only one that
+      # cannot capture its own status in the shell the way every run step
+      # does. Without this, a failed upload fails the composite and takes the
+      # pull request red whatever fail-on-error says.
+      #
+      # A literal, never an expression. This key is reported to fail on
+      # expressions referencing an input, which are evaluated in the
+      # composite context where they are undefined; see the design.
+      continue-on-error: true
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: |
+          .urtext/
+          ${{ runner.temp }}/urtext-review.md
+        if-no-files-found: ignore
+
+    - name: Compose the comment
+      id: compose
+      shell: bash
+      env:
+        MARKER: ${{ inputs.comment-marker }}
+        LIMIT: ${{ inputs.comment-limit }}
+        EXIT_CODE: ${{ steps.urtext.outputs.exit-code }}
+        RANGE: ${{ steps.urtext.outputs.range }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        # The largest body this forge's comment API accepts. It appears here
+        # and as comment-limit's default, and nowhere else in the repository:
+        # the composer takes a budget and honours it, and which budget is true
+        # of which forge is the action's knowledge, not urtext's.
+        FORGE_LIMIT: "65536"
+      run: |
+        # comment-limit is a string a workflow wrote, and an expression over an
+        # undefined variable expands to "" — the same accident the key input
+        # turns into a feature. The composer reads it with parseInt, and a NaN
+        # budget is one that nothing fits: an unset comment-limit would turn a
+        # perfectly good review into "the review could not be produced". A
+        # budget above what the API accepts is the other direction of the same
+        # error, and buys a rejected POST. Both are substituted, neither
+        # silently.
+        BUDGET="$LIMIT"
+        case "$BUDGET" in
+          "" | *[!0-9]*)
+            echo "::warning::comment-limit must be a whole number of characters and is \"$LIMIT\"; urtext used $FORGE_LIMIT instead."
+            BUDGET="$FORGE_LIMIT"
+            ;;
+          *)
+            if [ "$BUDGET" -gt "$FORGE_LIMIT" ]; then
+              echo "::warning::comment-limit is $BUDGET, above the $FORGE_LIMIT characters this API accepts; urtext used $FORGE_LIMIT instead."
+              BUDGET="$FORGE_LIMIT"
+            fi
+            ;;
+        esac
+        # A run step captures its own status rather than aborting the
+        # composite, for two reasons — neither of which is that
+        # continue-on-error is unavailable. It is available, and the upload
+        # step above uses it. But it reports only pass or fail, and this step
+        # needs the composer's exit code; and it runs under -e, so a bare
+        # failure would kill this script at the failing line and the lines
+        # below that write outcome, body-length and over-cap would never run.
+        # Tolerating a dead step cannot resurrect them.
+        set +e
+        node "$GITHUB_ACTION_PATH/action/compose-comment-bin.mjs" \
+          --marker "$MARKER" \
+          --limit "$BUDGET" \
+          --review "$RUNNER_TEMP/urtext-review.md" \
+          --log "$RUNNER_TEMP/urtext-review.log" \
+          --exit-code "$EXIT_CODE" \
+          --range "$RANGE" \
+          --run-url "$RUN_URL" \
+          --artifact-url "$ARTIFACT_URL" \
+          --body-out "$RUNNER_TEMP/urtext-comment.md" \
+          --summary-out "$RUNNER_TEMP/urtext-summary.json"
+        compose_code=$?
+        # Measured in the units the composer budgeted in — JavaScript string
+        # length — which is why node counts it and wc does not. The composer's
+        # failure body is allowed to exceed its budget, because the headline,
+        # the reason, the closing sentence and the footer are fixed copy this
+        # design forbids shortening, and it returns no signal when that
+        # happens. This step holds both the body and the number, so this step
+        # is where the overflow becomes visible.
+        length="$(node -p "require('fs').readFileSync(process.argv[1],'utf8').length" "$RUNNER_TEMP/urtext-comment.md" 2>/dev/null)"
+        outcome="$(jq -r '.outcome' "$RUNNER_TEMP/urtext-summary.json" 2>/dev/null)"
+        omitted="$(jq -r '.omitted' "$RUNNER_TEMP/urtext-summary.json" 2>/dev/null)"
+        set -e
+        # A body this step cannot measure is a body it cannot promise will
+        # fit, so over-cap is the default and only a measurement clears it.
+        #
+        # A crashed composer leaves behind whatever was on disk already, which
+        # is nothing on a fresh runner and the previous job's body on a reused
+        # one — a real number measured off the wrong document. Dropping it
+        # rather than publishing it is what lets the upsert say the comment
+        # could not be composed instead of quoting a length at the reader as
+        # if that were the reason.
+        if [ "$compose_code" != "0" ]; then length=""; fi
+        over=true
+        case "$length" in
+          "" | *[!0-9]*) length="" ;;
+          *) if [ "$length" -le "$FORGE_LIMIT" ]; then over=false; fi ;;
+        esac
+        if [ -z "$outcome" ] || [ "$outcome" = "null" ]; then outcome=failed; fi
+        if [ -z "$omitted" ] || [ "$omitted" = "null" ]; then omitted=0; fi
+        {
+          echo "outcome=$outcome"
+          echo "omitted-findings=$omitted"
+          echo "body-length=$length"
+          echo "over-cap=$over"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Upsert the comment
+      id: upsert
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        GH_REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        MARKER: ${{ inputs.comment-marker }}
+        OVER_CAP: ${{ steps.compose.outputs.over-cap }}
+        BODY_LENGTH: ${{ steps.compose.outputs.body-length }}
+        ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+      run: |
+        # Where the review actually is. Before the upload step was guarded, a
+        # failed upload reddened the job before this step ran, so naming the
+        # report unconditionally could not be wrong. It can be now.
+        WHERE="in this run's job summary"
+        if [ -n "$ARTIFACT_URL" ]; then WHERE="$WHERE and in the uploaded report"; fi
+        # The one body this action will not send. Posting it would be answered
+        # with a 422 whose text is about a field length rather than about
+        # urtext, so the failure would arrive misattributed; and the review is
+        # already in two uncapped places. This is the same not-posted path a
+        # read-only token takes, deliberately, so there is only one shape for
+        # "the comment did not happen" and fail-on-error already reads it.
+        if [ "$OVER_CAP" = "true" ]; then
+          # Two causes, and the warning names which one rather than reporting
+          # a length that was never measured.
+          if [ -n "$BODY_LENGTH" ]; then
+            echo "::warning::urtext could not post its review: the composed comment is $BODY_LENGTH characters, which this API will not accept. The full review is $WHERE."
+          else
+            echo "::warning::urtext could not post its review: the comment could not be composed at all. Whatever the run did produce is $WHERE."
+          fi
+          {
+            echo "posted=none"
+            echo "comment-id="
+            echo "comment-url="
+          } >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        # --paginate without --jq so gh emits a stream of page arrays, and a
+        # real jq with --arg so the marker is data rather than text spliced
+        # into a filter. startswith, not contains: the marker is the first
+        # line of every body this action writes, so it matches exactly those
+        # and not a human comment quoting the marker while discussing it.
+        # Never matched on author: a repository that swaps github.token for an
+        # App token must not thereby orphan its own comment.
+        #
+        # set +e covers the search as well as the post. head -n 1 closes the
+        # pipe on the first id, so gh or jq can die of SIGPIPE on a pull
+        # request with enough comments to paginate — and bash runs these steps
+        # with pipefail, which would abort the composite over a search that
+        # actually succeeded. No prior comment found is the create branch, not
+        # a reason to fail a pull request.
+        set +e
+        id="$(gh api --paginate "repos/$GH_REPO/issues/$PR_NUMBER/comments" \
+              | jq -r --arg m "$MARKER" '.[] | select(.body | startswith($m)) | .id' \
+              | head -n 1)"
+        # jq -Rs is the only correct form for arbitrary review text: backticks,
+        # quotes, backslashes, and control characters all appear in excerpts.
+        jq -Rs '{body: .}' < "$RUNNER_TEMP/urtext-comment.md" > "$RUNNER_TEMP/urtext-comment.json"
+        # post_code is read immediately after the call and not after the fi:
+        # the branch's last command is the assignment to action, whose status
+        # is always zero, and reading $? there would report every 403 as a
+        # successful create with an empty id — the exact fork case section 5
+        # requires a warning for.
+        if [ -n "$id" ]; then
+          response="$(gh api -X PATCH "repos/$GH_REPO/issues/comments/$id" \
+                      --input "$RUNNER_TEMP/urtext-comment.json" 2> "$RUNNER_TEMP/urtext-post.log")"
+          post_code=$?
+          action=edited
+        else
+          response="$(gh api -X POST "repos/$GH_REPO/issues/$PR_NUMBER/comments" \
+                      --input "$RUNNER_TEMP/urtext-comment.json" 2> "$RUNNER_TEMP/urtext-post.log")"
+          post_code=$?
+          action=created
+        fi
+        set -e
+        if [ "$post_code" != "0" ]; then
+          echo "::warning::urtext could not post its review (the workflow's token may be read-only, which is the case on pull requests from forks). The full review is in this run's job summary."
+          cat "$RUNNER_TEMP/urtext-post.log" >&2
+          {
+            echo "posted=none"
+            echo "comment-id="
+            echo "comment-url="
+          } >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        {
+          echo "posted=$action"
+          echo "comment-id=$(printf '%s' "$response" | jq -r '.id')"
+          echo "comment-url=$(printf '%s' "$response" | jq -r '.html_url')"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Report
+      shell: bash
+      env:
+        FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
+        OUTCOME: ${{ steps.compose.outputs.outcome }}
+        POSTED: ${{ steps.upsert.outputs.posted }}
+      run: |
+        # The comment is posted first and the failure happens last, so a red
+        # run still carries its explanation.
+        if [ "$FAIL_ON_ERROR" = "true" ] && { [ "$OUTCOME" = "failed" ] || [ "$POSTED" = "none" ]; }; then
+          echo "urtext: outcome=$OUTCOME, posted=$POSTED, and fail-on-error is true." >&2
+          exit 1
+        fi

@@ -1,0 +1,44 @@
+{
+  "name": "urtext",
+  "version": "0.1.0",
+  "description": "Diff review with evidence tiers: deterministic analysis, LLM interpretation, every claim labeled",
+  "license": "MIT",
+  "author": "Noah Ogbi",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/noahogbi/urtext.git"
+  },
+  "homepage": "https://github.com/noahogbi/urtext#readme",
+  "bugs": "https://github.com/noahogbi/urtext/issues",
+  "type": "module",
+  "bin": {
+    "urtext": "dist/bin.js"
+  },
+  "files": [
+    "dist",
+    "fonts"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "review": "npx tsx src/bin.ts review"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1",
+    "pdfkit": "^0.19.1",
+    "typescript": "^5.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@types/pdfkit": "^0.17.6",
+    "tsx": "^4.7.0",
+    "unpdf": "^1.8.1",
+    "vitest": "^2.1.9",
+    "yaml": "^2.9.0"
+  }
+}

@@ -1,0 +1,67 @@
+# UserAuthAPI
+# Pseudocode projection from KLAR-IR
+
+model User:
+  id: str
+  email: str where matches /^[^@]+@[^@]+\.[^@]+$/, length >= 1
+  name: str where length >= 2, length <= 100
+  password: str where length >= 8
+  role: str where one of ["user","admin"]
+  createdAt: timestamp
+  updatedAt: timestamp
+  index(email) unique
+
+model Post:
+  id: str
+  title: str where length >= 1, length <= 200
+  body: str where length >= 1
+  authorId: str where length >= 1
+  published: bool
+  createdAt: timestamp
+  updatedAt: timestamp
+
+route POST /auth/register(email: str, name: str, password: str):
+  effects: DB, DB
+  User = db.findOne(User, where: {"email":"$body.email"})
+  if found: ...
+  password = hash(password, bcrypt)
+  record = db.insert(User, body)
+  → respond 201: { id: record.id, email: record.email, name: record.name, role: record.role }
+
+route POST /auth/login(email: str, password: str):
+  effects: DB
+  User = db.findOne(User, where: {"email":"$body.email"})
+  if !found: ...
+  assert hash_matches(body.password, found.password)
+  token = sign_jwt({"sub":"$found.id","email":"$found.email","role":"$found.role"}, expires: 24h)
+  → respond 200: { token, user: { id: found.id, email: found.email, name: found.name, role: found.role } }
+
+route GET /users/me:
+  effects: DB
+  User = db.findOne(User, where: {"id":"$c.get('user').sub"})
+  if !found: ...
+  → respond 200: { id: found.id, email: found.email, name: found.name, role: found.role }
+
+route GET /posts:
+  effects: DB
+  Post = db.findMany(Post)
+  → respond 200: results.filter(p => p.published)
+
+route POST /posts(title: str, body: str):
+  effects: DB
+  record = db.insert(Post, { ...body, authorId: c.get('user').sub, published: false })
+  → respond 201: record
+
+route GET /posts/:id(id: str):
+  effects: DB
+  Post = db.findOne(Post, where: {"id":"$id"})
+  if !found: ...
+  → respond 200: found
+
+route DELETE /posts/:id(id: str):
+  effects: DB, DB
+  Post = db.findOne(Post, where: {"id":"$id"})
+  if !found: ...
+  if found.authorId !== c.get('user').sub: ...
+  db.delete(Post, where: {"id":"$id"})
+  → respond 200: { message: "Post deleted" }

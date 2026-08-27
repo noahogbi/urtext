@@ -1,0 +1,610 @@
+import {
+  ANALYZERS,
+  citationsAnalyzer,
+  makeCitationsAnalyzer,
+  runAnalyzers,
+} from "./analyze/index.js";
+import { createContext, extract, repoRoot } from "./extract/index.js";
+import { collectIntent } from "./extract/intent.js";
+import { DEFAULT_MODEL, interpret } from "./interpret/index.js";
+import { labelConcealed } from "./report/conceal.js";
+import { deletedFilesNote, deletedTypeScriptFiles } from "./report/coverage.js";
+import { renderHtml } from "./report/html.js";
+import { renderMarkdown } from "./report/markdown.js";
+import { buildReportModel, type ReportModel } from "./report/model.js";
+import { renderPdf } from "./report/pdf.js";
+import { renderTerminal } from "./report/terminal.js";
+import {
+  EXPORT_FORMATS,
+  openReport,
+  shouldSuggestGitignore,
+  writeExport,
+  writeReport,
+  type ExportFormat,
+} from "./report/write.js";
+import { reconcile } from "./score/reconcile.js";
+import type { Analyzer, Tier } from "./types.js";
+
+/**
+ * Every format `--stdout` can carry. One member today, and a union rather
+ * than a boolean for the same reason `IntentSource` is one: a second member
+ * is a compile error at every site that decides what stdout holds, instead
+ * of a boolean that quietly means "the one other thing". Lives here and not
+ * beside EXPORT_FORMATS in `./report/write.js`: that constant belongs to the
+ * writer because the writer owns the filenames, and nothing outside this
+ * file decides what a stream carries.
+ */
+export const STDOUT_FORMATS = ["md"] as const;
+
+export type StdoutFormat = (typeof STDOUT_FORMATS)[number];
+
+export interface CliOptions {
+  command: string;
+  range?: string;
+  json: boolean;
+  noLlm: boolean;
+  /** Optional like `range`, not defaulted like the other flags: every
+   * pre-existing caller of `review` — this CLI's own tests included —
+   * predates `--open` and constructs a `CliOptions` literal without it. */
+  open?: boolean;
+  /**
+   * The formats `--export` asked for, deduplicated, in first-mention order.
+   * Optional for the same reason as `open`: pre-existing callers construct
+   * `CliOptions` literals without it. Undefined and empty mean the same
+   * thing — write no exports.
+   */
+  exportFormats?: ExportFormat[];
+  /**
+   * Model for the interpretation stage. Undefined means the flag was not
+   * given, which `requestClaims` reads as `DEFAULT_MODEL` — the default lives
+   * there, in the one place that talks to the API, rather than being copied
+   * into this parser as well.
+   */
+  model?: string;
+  /**
+   * The format `--stdout` asked for. Optional for the same reason as `open`
+   * and `exportFormats`: pre-existing callers construct `CliOptions`
+   * literals without it. Undefined means the terminal render owns stdout, as
+   * it always has.
+   */
+  stdout?: StdoutFormat;
+  /**
+   * Sweep every citation in the repository rather than only those pointing
+   * into changed files. Optional like `open` and `exportFormats`: every
+   * pre-existing caller constructs a `CliOptions` literal without it.
+   */
+  citations?: boolean;
+  help: boolean;
+}
+
+/** Exported so a test can check that it names the real default model. */
+export const USAGE = `
+urtext — diff review with evidence tiers
+
+Usage:
+  urtext review [<rev-range>]     Review a change (default: working tree vs
+                                  merge-base with the default branch)
+
+Options:
+  --no-llm    Deterministic analysis only; no API key required. Every
+              finding is [verified]; no [inferred] or [model] findings.
+  --model ID  Model for the interpretation stage (default: ${DEFAULT_MODEL})
+  --citations Check every path:line citation in this repository, not only the
+              ones pointing into files this range touched
+  --json      Emit findings as JSON
+  --open      Open the written report with the platform's default handler
+  --export FORMATS
+              Also write the review in these formats beside the HTML report,
+              sharing its name: a comma-separated list of ${EXPORT_FORMATS.join(" and ")},
+              e.g. --export md,pdf
+  --stdout md Write the Markdown review to stdout and nothing else; the
+              terminal render and every note move to stderr. Cannot be
+              combined with --json.
+  --help      Show this message
+`;
+
+/**
+ * One wording for every way `--export` can be misused — an unknown format,
+ * an empty list, a swallowed flag — so the user always sees the full list of
+ * what the flag does accept, in the example-led style of the `--model`
+ * errors above.
+ */
+function exportUsageError(problem: string): Error {
+  return new Error(
+    `--export ${problem}; it takes a comma-separated list of ${EXPORT_FORMATS.join(" and ")}, e.g. --export md,pdf.`,
+  );
+}
+
+/**
+ * Folds one `--export` value into the accumulated formats: comma lists,
+ * single values, and a repeated flag all land in the same deduplicated,
+ * first-mention-ordered array — a user who writes `--export md --export pdf`
+ * is not making a mistake, and `--export md,md` is not asking for two files.
+ */
+function addExportFormats(opts: CliOptions, value: string): void {
+  const parts = value
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part !== "");
+  if (parts.length === 0) throw exportUsageError("got an empty format list");
+  for (const part of parts) {
+    if (!(EXPORT_FORMATS as readonly string[]).includes(part)) {
+      throw exportUsageError(`cannot write "${part}"`);
+    }
+    opts.exportFormats ??= [];
+    const format = part as ExportFormat;
+    if (!opts.exportFormats.includes(format)) opts.exportFormats.push(format);
+  }
+}
+
+/**
+ * One wording for every way `--stdout` can be misused — an unknown format, a
+ * missing value, a swallowed flag — so the user always sees the full list of
+ * what the flag does accept, exactly as `exportUsageError` above does.
+ */
+function stdoutUsageError(problem: string): Error {
+  return new Error(
+    `--stdout ${problem}; it takes ${STDOUT_FORMATS.join(" and ")}, e.g. --stdout md.`,
+  );
+}
+
+/** Both spellings fold through here, so neither can accept what the other rejects. */
+function setStdoutFormat(opts: CliOptions, value: string): void {
+  if (!(STDOUT_FORMATS as readonly string[]).includes(value)) {
+    throw stdoutUsageError(`cannot write "${value}"`);
+  }
+  opts.stdout = value as StdoutFormat;
+}
+
+export function parseArgs(argv: string[]): CliOptions {
+  const opts: CliOptions = {
+    command: "review",
+    json: false,
+    noLlm: false,
+    open: false,
+    help: false,
+  };
+  const positional: string[] = [];
+
+  // Indexed rather than for-of because `--model` takes a value, and its
+  // separated form (`--model ID`) has to consume the next argument. Both forms
+  // are accepted: a user who writes `--model=ID` is not making a mistake.
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--json") opts.json = true;
+    else if (arg === "--no-llm") opts.noLlm = true;
+    else if (arg === "--open") opts.open = true;
+    else if (arg === "--citations") opts.citations = true;
+    else if (arg === "--help" || arg === "-h") opts.help = true;
+    else if (arg.startsWith("--model=")) {
+      const value = arg.slice("--model=".length);
+      // An empty value is a mistake, not a request for the default: silently
+      // defaulting would run a different model than the command line names.
+      if (!value) throw new Error(`--model needs a model id, e.g. --model ${DEFAULT_MODEL}.`);
+      opts.model = value;
+    } else if (arg === "--model") {
+      const value = argv[i + 1];
+      // A following flag is the next option, not this one's value — `--model
+      // --json` must not silently review with a model called "--json".
+      if (!value || value.startsWith("-")) {
+        throw new Error(`--model needs a model id, e.g. --model ${DEFAULT_MODEL}.`);
+      }
+      opts.model = value;
+      i++;
+    } else if (arg.startsWith("--export=")) {
+      addExportFormats(opts, arg.slice("--export=".length));
+    } else if (arg === "--export") {
+      const value = argv[i + 1];
+      // A following flag is the next option, not this one's value — the
+      // same rule as `--model` above.
+      if (!value || value.startsWith("-")) throw exportUsageError("needs a format list");
+      addExportFormats(opts, value);
+      i++;
+    } else if (arg.startsWith("--stdout=")) {
+      setStdoutFormat(opts, arg.slice("--stdout=".length));
+    } else if (arg === "--stdout") {
+      const value = argv[i + 1];
+      // A following flag is the next option, not this one's value — the same
+      // rule `--model` and `--export` already apply.
+      if (!value || value.startsWith("-")) throw stdoutUsageError("needs a format");
+      setStdoutFormat(opts, value);
+      i++;
+    } else if (arg.startsWith("-")) {
+      // Falling through to the positional slot made a typo'd flag the range,
+      // and the user got a raw `git diff` usage dump instead of an answer.
+      throw new Error(
+        `Unknown option: ${arg}. Run \`urtext --help\` for usage.`,
+      );
+    } else positional.push(arg);
+  }
+
+  // After the loop on purpose: `--json --stdout md` and `--stdout md --json`
+  // are the same request, and a check inside the loop would only catch one
+  // order. See `test/cli.test.ts`, "refuses to put two documents on one
+  // stream, in either order".
+  if (opts.stdout !== undefined && opts.json) {
+    throw new Error(`--stdout ${opts.stdout} and --json cannot both own stdout; pick one.`);
+  }
+
+  if (positional.length > 0 && positional[0] === "review") positional.shift();
+  if (positional.length > 0) opts.range = positional[0];
+
+  return opts;
+}
+
+/**
+ * The renderers behind `--export`, one per format. `renderPdf` keeps its
+ * lazy pdfkit import internally, so carrying it in this default costs a run
+ * without `--export pdf` nothing.
+ */
+export interface Exporters {
+  md: (model: ReportModel) => string;
+  pdf: (model: ReportModel) => Promise<Buffer>;
+}
+
+export async function review(
+  cwd: string,
+  opts: CliOptions,
+  // Defaulted rather than folded into `CliOptions`: every other field here
+  // is something a command-line flag sets, and this one varies in three
+  // tests that control analyzer failure directly rather than by breaking a
+  // real repository — see `test/cli.test.ts`, "exits non-zero when every
+  // analyzer fails, even though the output says 'No findings'", "exits
+  // zero when some analyzers fail but at least one still produces
+  // findings", and "exits non-zero when some analyzers fail and none of
+  // them, nor any other, produced a finding".
+  analyzers: Analyzer[] = ANALYZERS,
+  // Defaulted for the same reason as `analyzers`: the export renderers are
+  // static imports a test cannot make fail from outside, and the
+  // degrades-to-a-warning contract needs a failing one — see
+  // `test/cli.test.ts`, "degrades a failing export to a warning, leaving
+  // findings, exit code, and the other export untouched".
+  exporters: Exporters = { md: renderMarkdown, pdf: renderPdf },
+): Promise<{
+  output: string;
+  exitCode: number;
+  reportPath: string | undefined;
+  /**
+   * The Markdown review, present exactly when `--stdout md` was given and the
+   * run produced one. `output` keeps its meaning — the human render and every
+   * path line — and `main` decides which stream each goes to. See
+   * `test/cli.test.ts`, "--stdout md puts the Markdown on stdout and every
+   * other line on stderr".
+   */
+  markdown?: string;
+}> {
+  // Anchor at the repository root so `urtext review` behaves the same from
+  // any directory inside the repo; every path in play is root-relative.
+  const root = await repoRoot(cwd);
+  const changeset = await extract(root, opts.range);
+  const ctx = createContext(root, changeset.range);
+  // A failed analyzer degrades the review rather than ending it, so the
+  // failure has to be said out loud — otherwise a partial review is
+  // indistinguishable from a clean one.
+  const warnings: string[] = [];
+  // Swapped in by identity, which keeps the `analyzers` parameter's existing
+  // default and every test that passes its own list working untouched: a
+  // hand-built list contains no `citationsAnalyzer`, so the map is a no-op for
+  // it, and the list's length — which the exit-code rule below compares
+  // against — is unchanged either way.
+  //
+  // `onNote` is the whole reason the swap exists. An analyzer returns facts
+  // and nothing else, so a citation run that hit a cap, could not read a
+  // line's history, or skipped a shallow repository has no way to say so on
+  // its own; without this the caps would bite in silence, which is the one
+  // thing this check must never do. The channel is the same `warnings` array
+  // every other shortfall uses — no new key anywhere.
+  const runnable = analyzers.map((a) =>
+    a === citationsAnalyzer
+      ? makeCitationsAnalyzer({
+          sweep: opts.citations === true,
+          onNote: (note) => warnings.push(note),
+        })
+      : a,
+  );
+  let failureCount = 0;
+  const facts = await runAnalyzers(changeset, ctx, runnable, (f) => {
+    failureCount++;
+    warnings.push(
+      `the ${f.analyzer} analyzer failed, so this review is partial: ${f.message}`,
+    );
+  });
+  // Skipped entirely under `--no-llm`: the stage will not run, so the git
+  // calls would buy nothing, and `interpret` returns no `intentNote` on that
+  // path anyway.
+  const intent = opts.noLlm ? undefined : await collectIntent(root, changeset.range);
+  const result = await interpret(changeset, facts, {
+    disabled: opts.noLlm,
+    model: opts.model,
+    intent,
+  });
+  // Whatever stopped the model — the flag, a missing key, a refusal, a
+  // truncated response — the review still ran on analyzer facts alone, and
+  // that is exactly the "partial" case the analyzer warnings above already
+  // exist to announce. One list, one rule: any reason the review fell short
+  // of its full pipeline belongs in `warnings`.
+  if (result.skipped) warnings.push(result.skipped);
+  // The same channel as the skip note above, and for the same reason: a
+  // review that could not compare the change against a stated intent fell
+  // short of its full pipeline, exactly as a skipped interpretation stage
+  // did. `interpret` decides the wording; this only carries it.
+  if (result.intentNote) warnings.push(result.intentNote);
+  // How many claim-free standalone reach rows reconcile's filter removed.
+  // Not a warning — the filter ran as designed, the review is not partial —
+  // but both output surfaces state it, because a single-caller change can
+  // otherwise reach the report as nothing at all.
+  let suppressed = 0;
+  const findings = reconcile(
+    facts,
+    result.claims,
+    (dropped) => {
+      // First-claim-wins is deterministic, but the losing claims are model
+      // output the reader never sees — and a review that silently discarded
+      // part of what the model said is partial in exactly the sense this list
+      // exists to disclose.
+      warnings.push(
+        `the model made ${dropped} further claim${dropped === 1 ? "" : "s"} about already-explained findings; ${dropped === 1 ? "it is" : "they are"} not shown`,
+      );
+    },
+    (count) => {
+      suppressed = count;
+    },
+  );
+
+  // Two independent reasons a review has to fail loudly rather than exit
+  // clean, both about the same hazard at different sizes: a report that
+  // looks successful to a script when nothing trustworthy backs it.
+  //
+  // `allAnalyzersFailed` is unconditional on `findings` — `interpret` is not
+  // skipped merely because `facts` came back empty (only `--no-llm`, a
+  // missing API key, or an empty changeset skip it), so every analyzer
+  // dying does not by itself stop the model from being asked and producing
+  // a standalone claim, which `reconcile` still turns into a finding. A
+  // model claim with no analyzer fact behind it is exactly what the "no
+  // evidence" case exists to distrust — the deterministic half is the part
+  // that has to work, and a review whose findings are entirely unverified
+  // is not a clean review.
+  //
+  // `someFailedNothingShown` covers the same hazard at partial failure: a
+  // script sees exit 0 and "No findings", which reads as "this range is
+  // clean" when the truer reading is "some of what would have found
+  // something never ran". A partial failure that still produced real
+  // findings is not this case, and stays exit 0 — the findings are real and
+  // the shortfall is already stated in `warnings`, so failing it would
+  // throw away good output over a degradation the tool already discloses.
+  const allAnalyzersFailed = analyzers.length > 0 && failureCount === analyzers.length;
+  const someFailedNothingShown = failureCount > 0 && findings.length === 0;
+  const exitCode = allAnalyzersFailed || someFailedNothingShown ? 1 : 0;
+
+  // A review this broken does not get a report: the whole reason a nonzero
+  // exit code exists here is that a report sitting on disk looks like a
+  // successful run to anyone who only checks whether one was produced, and
+  // writing one here would recreate that exact appearance under the fix
+  // that was supposed to remove it.
+  let reportPath: string | undefined;
+  let markdown: string | undefined;
+  const exportFormats = opts.exportFormats ?? [];
+  const exportPaths: { md?: string; pdf?: string } = {};
+  if (exitCode === 0) {
+    try {
+      reportPath = await writeReport(
+        root,
+        // `warnings` already carries `result.skipped` (pushed above, where
+        // every reason a review fell short goes). Passing it separately as
+        // well is what printed the skipped-stage line twice in the banner of
+        // every `--no-llm` run.
+        renderHtml(changeset, findings, { model: result.model, warnings, suppressed }),
+      );
+    } catch (err) {
+      // A degraded review beats no review, the same rule `runAnalyzers`
+      // already applies to a single dead analyzer above — the findings and
+      // everything else this run computed are real regardless of whether
+      // the report describing them made it to disk, and rejecting here
+      // would discard all of it over a filesystem problem this review's
+      // own content had nothing to do with.
+      warnings.push(
+        `could not write the report: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    // Gated on `reportPath`, not just the exit code: the exports share the
+    // HTML report's stem (see `writeExport`), so a run whose report failed
+    // to write has nothing to anchor them to — and the same
+    // no-report-on-broken-runs reasoning applies to every format equally.
+    if (!reportPath && exportFormats.length > 0) {
+      // That gate is a mechanism the user cannot see: without this line,
+      // asked-for exports simply never appear, with only the report's own
+      // warning printed — an output that silently fails to exist is the
+      // exact opposite of what this tool is for. A second warning beside the
+      // report's rather than a rewording of it, so a user who asked for no
+      // exports never finds this sentence in their failure story — see
+      // `test/cli.test.ts`, "discloses that requested exports were skipped
+      // when the report itself could not be written".
+      warnings.push(
+        `could not write the ${exportFormats.join(", ")} export${exportFormats.length === 1 ? "" : "s"}: no report was written to anchor ${exportFormats.length === 1 ? "it" : "them"}`,
+      );
+    }
+    // One model, one renderer, one string: `--stdout md` and `--export md`
+    // cannot diverge. The gate widens past `reportPath` for the stream and
+    // only for the stream — the export loop below keeps its own gate, because
+    // the stem argument is about files pairing on disk and a stream is not a
+    // file. See `test/cli.test.ts`, "gives the stream and the file
+    // byte-identical Markdown from one model".
+    if (exportFormats.length > 0 || opts.stdout !== undefined) {
+      // Built once, and every requested export walks this one instance.
+      // `renderHtml` above still builds its own internally — its public
+      // signature takes the raw pieces and is out of this change's scope.
+      const exportModel = buildReportModel(changeset, findings, {
+        model: result.model,
+        warnings,
+        suppressed,
+      });
+      if (opts.stdout === "md") {
+        try {
+          markdown = exporters.md(exportModel);
+        } catch (err) {
+          // The same degradation rule the exports below apply: a renderer
+          // that threw costs the run that one document, never the findings or
+          // the exit code. stdout is then empty on a zero-exit run, which the
+          // action reads as a failed review rather than as a clean one.
+          warnings.push(
+            `could not render the md review for stdout: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+      if (reportPath) {
+        for (const format of exportFormats) {
+          try {
+            const content =
+              format === "md" ? exporters.md(exportModel) : await exporters.pdf(exportModel);
+            exportPaths[format] = await writeExport(reportPath, format, content);
+          } catch (err) {
+            // The same degradation rule as the HTML report above: an export
+            // that failed to render or write costs the run that one file,
+            // never the findings or the exit code.
+            warnings.push(
+              `could not write the ${format} export: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+      }
+    }
+  }
+
+  if (opts.json) {
+    const counts: Record<Tier, number> = { verified: 0, inferred: 0, model: 0 };
+    for (const f of findings) counts[f.tier]++;
+    // What the analyzers did not look at, in the machine-readable output too.
+    // Both renderers say it (see `deletedFilesNote`); a script reading `--json`
+    // could not see it at all, which made "stated the same way on every
+    // surface" false and left the one consumer that cannot read prose blind to
+    // the gap. The array is always present so a consumer can test it without
+    // branching on the key; the sentence is there only when there is one.
+    const deleted = deletedTypeScriptFiles(changeset);
+    return {
+      output: JSON.stringify(
+        {
+          range: changeset.range,
+          counts,
+          findings,
+          // Always present, zero included, so a consumer can test it
+          // without branching on the key — the same rule as `coverage`'s
+          // array below. Nonzero means reconcile's standalone-reach filter
+          // removed that many claim-free low-signal rows.
+          suppressed,
+          warnings,
+          coverage: {
+            deletedTypeScriptFiles: deleted,
+            ...(deleted.length > 0 ? { note: deletedFilesNote(deleted) } : {}),
+          },
+          model: result.model,
+          skipped: result.skipped,
+          reportPath,
+          // Present exactly when `--export` was given — a consumer that
+          // asked can test the object without branching on the key, and one
+          // that did not ask never sees a field about a feature it did not
+          // use. A requested export that failed (or a nonzero-exit run,
+          // which writes nothing) is a missing key inside the object, with
+          // the reason in `warnings`.
+          ...(exportFormats.length > 0 ? { exportPaths } : {}),
+        },
+        null,
+        2,
+      ),
+      exitCode,
+      reportPath,
+      markdown,
+    };
+  }
+
+  let output = renderTerminal(changeset, findings, reportPath, warnings, result.model, suppressed);
+  // One path line per written export, right under the "Full report" line the
+  // walker prints — labeled like every other path this surface shows, and
+  // only for exports that were actually written: a failed one already has
+  // its warning in the notes above.
+  for (const format of exportFormats) {
+    const written = exportPaths[format];
+    if (written) output += `  ${format} export: ${labelConcealed(written)}\n`;
+  }
+  // Detection without action: urtext asks git whether the repository already
+  // ignores `.urtext/` (see `shouldSuggestGitignore` in report/write.ts,
+  // which also absorbs a git failure at this late stage — the review has
+  // already succeeded) but never writes to any ignore file itself — editing
+  // a file the repository's owner tracks is not this tool's call to make.
+  if (reportPath && (await shouldSuggestGitignore(root))) {
+    output += `  Tip: add ".urtext/" to this repository's .gitignore — review reports otherwise show up as untracked files.\n`;
+  }
+
+  return { output, exitCode, reportPath, markdown };
+}
+
+/**
+ * Acts on `--open`. `openReport` ignores an absent path, which is right for it
+ * and wrong as the whole behaviour: a user who asked for the report to be
+ * opened and gets no window is owed the reason. There are two — the review
+ * failed hard enough that no report is written, and the write itself failed —
+ * and the output above states whichever applies, so this points at that rather
+ * than guessing which one it was.
+ *
+ * Separate from `main` because `main` reads `process.argv` and writes to the
+ * real stderr, so neither branch could be reached from a test through it. See
+ * `test/cli.test.ts`, "--open".
+ */
+export function openOrExplain(
+  reportPath: string | undefined,
+  onMessage: (message: string) => void,
+  open: (path: string) => void = openReport,
+): void {
+  if (reportPath) {
+    open(reportPath);
+    return;
+  }
+  onMessage("urtext: --open had nothing to open; no report was written (see the notes above).\n");
+}
+
+/**
+ * Which stream carries which document. Extracted from `main` for the reason
+ * `openOrExplain` was: `main` reads `process.argv` and writes to the real
+ * process streams, so neither branch is reachable from a test through it.
+ * Under `--stdout md` the Markdown owns stdout alone and the human render —
+ * notes, path lines, tip — moves to stderr; otherwise nothing moves. An
+ * absent `markdown` empties stdout rather than falling back to `output`: a
+ * review body sitting in a pipe looks like a successful review to anyone who
+ * only checks whether one arrived. See `test/cli.test.ts`, "--stdout md puts
+ * the Markdown on stdout and every other line on stderr" and "empties stdout
+ * entirely when the run produced no Markdown".
+ */
+export function streamsFor(
+  result: { output: string; markdown?: string },
+  opts: CliOptions,
+): { stdout: string; stderr: string } {
+  if (opts.stdout === undefined) return { stdout: result.output, stderr: "" };
+  return { stdout: result.markdown ?? "", stderr: result.output };
+}
+
+export async function main(): Promise<void> {
+  try {
+    // Inside the try: argument parsing now rejects unknown flags, and that
+    // message deserves the same one-line treatment as any other failure.
+    const opts = parseArgs(process.argv.slice(2));
+    if (opts.help) {
+      process.stdout.write(USAGE);
+      return;
+    }
+    const result = await review(process.cwd(), opts);
+    const { stdout, stderr } = streamsFor(result, opts);
+    // Guarded on non-empty, which is what "and nothing else" costs: the
+    // normalization below would otherwise turn an empty stdout into a lone
+    // newline on a broken `--stdout md` run. `output` is never empty — the
+    // terminal walker always prints a banner — so the default path writes
+    // exactly the bytes it wrote before this change.
+    if (stdout) process.stdout.write(stdout.endsWith("\n") ? stdout : stdout + "\n");
+    if (stderr) process.stderr.write(stderr.endsWith("\n") ? stderr : stderr + "\n");
+    process.exitCode = result.exitCode;
+    if (opts.open) openOrExplain(result.reportPath, (m) => process.stderr.write(m));
+  } catch (err) {
+    process.stderr.write(
+      `urtext: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    process.exitCode = 1;
+  }
+}

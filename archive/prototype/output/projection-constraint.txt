@@ -1,0 +1,118 @@
+╔══════════════════════════════════════════╗
+║       KLAR-IR CONSTRAINT MANIFEST        ║
+╚══════════════════════════════════════════╝
+
+── MODEL INVARIANTS ──
+
+  User:
+    id: str
+    email: str
+      ├─ matches: matches /^[^@]+@[^@]+\.[^@]+$/
+      │  enforcement: boundary
+      ├─ length_between: length >= 1
+      │  enforcement: boundary
+    name: str
+      ├─ length_between: length >= 2
+      │  enforcement: boundary
+      ├─ length_between: length <= 100
+      │  enforcement: boundary
+    password: str
+      ├─ length_between: length >= 8
+      │  enforcement: boundary
+    role: str
+      ├─ in: one of ["user","admin"]
+      │  enforcement: boundary
+    createdAt: timestamp
+    updatedAt: timestamp
+
+  Post:
+    id: str
+    title: str
+      ├─ length_between: length >= 1
+      │  enforcement: boundary
+      ├─ length_between: length <= 200
+      │  enforcement: boundary
+    body: str
+      ├─ length_between: length >= 1
+      │  enforcement: boundary
+    authorId: str
+      ├─ length_between: length >= 1
+      │  enforcement: boundary
+    published: bool
+    createdAt: timestamp
+    updatedAt: timestamp
+
+── ROUTE CONTRACTS ──
+
+  POST /auth/register
+    INPUTS:
+      email: str [body]
+        └─ matches /^[^@]+@[^@]+\.[^@]+$/
+      name: str [body]
+        └─ length >= 2
+      password: str [body]
+        └─ length >= 8
+    EFFECTS:
+      └─ DB: findOne on User
+      └─ DB: insert into User
+    PROOFS:
+      ✓ no_plaintext_password: Password is hashed before storage via bcrypt [by_construction]
+      ✓ unique_email: Email uniqueness enforced by DB index + pre-check [by_constraint]
+    OUTPUT: User
+
+  POST /auth/login
+    INPUTS:
+      email: str [body]
+      password: str [body]
+    EFFECTS:
+      └─ DB: findOne on User
+    PROOFS:
+      ✓ timing_safe: Hash comparison is constant-time via bcrypt.compare [by_construction]
+    OUTPUT: Token
+
+  GET /users/me
+    EFFECTS:
+      └─ DB: findOne on User
+    PROOFS:
+      ✓ auth_required: JWT middleware validates token before handler executes [by_constraint]
+      ✓ no_password_leak: Response explicitly excludes password field [by_construction]
+    OUTPUT: User
+
+  GET /posts
+    EFFECTS:
+      └─ DB: findMany on Post
+    PROOFS: ⚠ none
+    OUTPUT: [Post]
+
+  POST /posts
+    INPUTS:
+      title: str [body]
+        └─ length >= 1
+        └─ length <= 200
+      body: str [body]
+        └─ length >= 1
+    EFFECTS:
+      └─ DB: insert into Post
+    PROOFS:
+      ✓ auth_required: JWT middleware validates token before handler executes [by_constraint]
+      ✓ author_binding: authorId is set from JWT payload, not user input [by_construction]
+    OUTPUT: Post
+
+  GET /posts/:id
+    INPUTS:
+      id: str [param]
+    EFFECTS:
+      └─ DB: findOne on Post
+    PROOFS: ⚠ none
+    OUTPUT: Post
+
+  DELETE /posts/:id
+    INPUTS:
+      id: str [param]
+    EFFECTS:
+      └─ DB: findOne on Post
+      └─ DB: delete from Post
+    PROOFS:
+      ✓ auth_required: JWT middleware validates token [by_constraint]
+      ✓ owner_only: Handler checks authorId matches JWT subject before deletion [by_construction]
+    OUTPUT: void

@@ -1,0 +1,1768 @@
+{
+  "id": "graph_0067",
+  "name": "UserAuthAPI",
+  "version": "0.1.0",
+  "config": {
+    "port": 3000,
+    "host": "0.0.0.0",
+    "cors": {
+      "origins": [
+        "http://localhost:5173"
+      ],
+      "methods": [
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE"
+      ]
+    },
+    "rateLimit": {
+      "windowMs": 60000,
+      "maxRequests": 100
+    }
+  },
+  "models": {
+    "User": {
+      "id": "model_0008",
+      "name": "User",
+      "fields": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "primitive",
+            "name": "str"
+          },
+          "constraints": []
+        },
+        {
+          "name": "email",
+          "type": {
+            "kind": "primitive",
+            "name": "str"
+          },
+          "constraints": [
+            {
+              "id": "c_0009",
+              "op": "matches",
+              "field": "email",
+              "pattern": "^[^@]+@[^@]+\\.[^@]+$",
+              "message": "Must be a valid email address",
+              "enforcement": "boundary"
+            },
+            {
+              "id": "c_0010",
+              "op": "length_between",
+              "field": "email",
+              "min": 1,
+              "message": "email must not be empty",
+              "enforcement": "boundary"
+            }
+          ]
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "primitive",
+            "name": "str"
+          },
+          "constraints": [
+            {
+              "id": "c_0011",
+              "op": "length_between",
+              "field": "name",
+              "min": 2,
+              "message": "Name must be at least 2 characters",
+              "enforcement": "boundary"
+            },
+            {
+              "id": "c_0012",
+              "op": "length_between",
+              "field": "name",
+              "max": 100,
+              "message": "Name must be at most 100 characters",
+              "enforcement": "boundary"
+            }
+          ]
+        },
+        {
+          "name": "password",
+          "type": {
+            "kind": "primitive",
+            "name": "str"
+          },
+          "constraints": [
+            {
+              "id": "c_0013",
+              "op": "length_between",
+              "field": "password",
+              "min": 8,
+              "message": "Password must be at least 8 characters",
+              "enforcement": "boundary"
+            }
+          ]
+        },
+        {
+          "name": "role",
+          "type": {
+            "kind": "primitive",
+            "name": "str"
+          },
+          "constraints": [
+            {
+              "id": "c_0014",
+              "op": "in",
+              "field": "role",
+              "value": [
+                "user",
+                "admin"
+              ],
+              "message": "Role must be 'user' or 'admin'",
+              "enforcement": "boundary"
+            }
+          ],
+          "defaultValue": "user"
+        },
+        {
+          "name": "createdAt",
+          "type": {
+            "kind": "primitive",
+            "name": "timestamp"
+          },
+          "constraints": []
+        },
+        {
+          "name": "updatedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "timestamp"
+          },
+          "constraints": []
+        }
+      ],
+      "constraints": [],
+      "indexes": [
+        {
+          "fields": [
+            "email"
+          ],
+          "unique": true
+        }
+      ],
+      "provenance": {
+        "createdBy": "klar_builder",
+        "instruction": "Define model User",
+        "timestamp": "2026-03-13T00:54:54.651Z"
+      }
+    },
+    "Post": {
+      "id": "model_0016",
+      "name": "Post",
+      "fields": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "primitive",
+            "name": "str"
+          },
+          "constraints": []
+        },
+        {
+          "name": "title",
+          "type": {
+            "kind": "primitive",
+            "name": "str"
+          },
+          "constraints": [
+            {
+              "id": "c_0017",
+              "op": "length_between",
+              "field": "title",
+              "min": 1,
+              "message": "Title is required",
+              "enforcement": "boundary"
+            },
+            {
+              "id": "c_0018",
+              "op": "length_between",
+              "field": "title",
+              "max": 200,
+              "message": "Title must be under 200 characters",
+              "enforcement": "boundary"
+            }
+          ]
+        },
+        {
+          "name": "body",
+          "type": {
+            "kind": "primitive",
+            "name": "str"
+          },
+          "constraints": [
+            {
+              "id": "c_0019",
+              "op": "length_between",
+              "field": "body",
+              "min": 1,
+              "message": "Post body is required",
+              "enforcement": "boundary"
+            }
+          ]
+        },
+        {
+          "name": "authorId",
+          "type": {
+            "kind": "primitive",
+            "name": "str"
+          },
+          "constraints": [
+            {
+              "id": "c_0020",
+              "op": "length_between",
+              "field": "authorId",
+              "min": 1,
+              "message": "Author ID is required",
+              "enforcement": "boundary"
+            }
+          ]
+        },
+        {
+          "name": "published",
+          "type": {
+            "kind": "primitive",
+            "name": "bool"
+          },
+          "constraints": [],
+          "defaultValue": false
+        },
+        {
+          "name": "createdAt",
+          "type": {
+            "kind": "primitive",
+            "name": "timestamp"
+          },
+          "constraints": []
+        },
+        {
+          "name": "updatedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "timestamp"
+          },
+          "constraints": []
+        }
+      ],
+      "constraints": [],
+      "indexes": [],
+      "provenance": {
+        "createdBy": "klar_builder",
+        "instruction": "Define model Post",
+        "timestamp": "2026-03-13T00:54:54.651Z"
+      }
+    }
+  },
+  "routes": [
+    {
+      "id": "route_0022",
+      "method": "POST",
+      "path": "/auth/register",
+      "effects": [
+        {
+          "kind": "DB",
+          "detail": "findOne on User"
+        },
+        {
+          "kind": "DB",
+          "detail": "insert into User"
+        }
+      ],
+      "constraints": [],
+      "proofs": [
+        {
+          "property": "no_plaintext_password",
+          "kind": "by_construction",
+          "detail": "Password is hashed before storage via bcrypt"
+        },
+        {
+          "property": "unique_email",
+          "kind": "by_constraint",
+          "detail": "Email uniqueness enforced by DB index + pre-check"
+        }
+      ],
+      "input": {
+        "body": [
+          {
+            "name": "email",
+            "type": {
+              "kind": "primitive",
+              "name": "str"
+            },
+            "constraints": [
+              {
+                "id": "c_0023",
+                "op": "matches",
+                "field": "email",
+                "pattern": "^[^@]+@[^@]+\\.[^@]+$",
+                "message": "Valid email required",
+                "enforcement": "boundary"
+              }
+            ]
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "primitive",
+              "name": "str"
+            },
+            "constraints": [
+              {
+                "id": "c_0024",
+                "op": "length_between",
+                "field": "name",
+                "min": 2,
+                "message": "name must be at least 2 characters",
+                "enforcement": "boundary"
+              }
+            ]
+          },
+          {
+            "name": "password",
+            "type": {
+              "kind": "primitive",
+              "name": "str"
+            },
+            "constraints": [
+              {
+                "id": "c_0025",
+                "op": "length_between",
+                "field": "password",
+                "min": 8,
+                "message": "Password must be at least 8 characters",
+                "enforcement": "boundary"
+              }
+            ]
+          }
+        ]
+      },
+      "output": {
+        "kind": "ref",
+        "structName": "User"
+      }
+    },
+    {
+      "id": "route_0032",
+      "method": "POST",
+      "path": "/auth/login",
+      "effects": [
+        {
+          "kind": "DB",
+          "detail": "findOne on User"
+        }
+      ],
+      "constraints": [],
+      "proofs": [
+        {
+          "property": "timing_safe",
+          "kind": "by_construction",
+          "detail": "Hash comparison is constant-time via bcrypt.compare"
+        }
+      ],
+      "input": {
+        "body": [
+          {
+            "name": "email",
+            "type": {
+              "kind": "primitive",
+              "name": "str"
+            },
+            "constraints": []
+          },
+          {
+            "name": "password",
+            "type": {
+              "kind": "primitive",
+              "name": "str"
+            },
+            "constraints": []
+          }
+        ]
+      },
+      "output": {
+        "kind": "ref",
+        "structName": "Token"
+      }
+    },
+    {
+      "id": "route_0039",
+      "method": "GET",
+      "path": "/users/me",
+      "effects": [
+        {
+          "kind": "DB",
+          "detail": "findOne on User"
+        }
+      ],
+      "constraints": [],
+      "proofs": [
+        {
+          "property": "auth_required",
+          "kind": "by_constraint",
+          "detail": "JWT middleware validates token before handler executes"
+        },
+        {
+          "property": "no_password_leak",
+          "kind": "by_construction",
+          "detail": "Response explicitly excludes password field"
+        }
+      ],
+      "input": {},
+      "output": {
+        "kind": "ref",
+        "structName": "User"
+      }
+    },
+    {
+      "id": "route_0044",
+      "method": "GET",
+      "path": "/posts",
+      "effects": [
+        {
+          "kind": "DB",
+          "detail": "findMany on Post"
+        }
+      ],
+      "constraints": [],
+      "proofs": [],
+      "input": {},
+      "output": {
+        "kind": "array",
+        "element": {
+          "kind": "ref",
+          "structName": "Post"
+        }
+      }
+    },
+    {
+      "id": "route_0048",
+      "method": "POST",
+      "path": "/posts",
+      "effects": [
+        {
+          "kind": "DB",
+          "detail": "insert into Post"
+        }
+      ],
+      "constraints": [],
+      "proofs": [
+        {
+          "property": "auth_required",
+          "kind": "by_constraint",
+          "detail": "JWT middleware validates token before handler executes"
+        },
+        {
+          "property": "author_binding",
+          "kind": "by_construction",
+          "detail": "authorId is set from JWT payload, not user input"
+        }
+      ],
+      "input": {
+        "body": [
+          {
+            "name": "title",
+            "type": {
+              "kind": "primitive",
+              "name": "str"
+            },
+            "constraints": [
+              {
+                "id": "c_0049",
+                "op": "length_between",
+                "field": "title",
+                "min": 1,
+                "message": "title must not be empty",
+                "enforcement": "boundary"
+              },
+              {
+                "id": "c_0050",
+                "op": "length_between",
+                "field": "title",
+                "max": 200,
+                "message": "title must be at most 200 characters",
+                "enforcement": "boundary"
+              }
+            ]
+          },
+          {
+            "name": "body",
+            "type": {
+              "kind": "primitive",
+              "name": "str"
+            },
+            "constraints": [
+              {
+                "id": "c_0051",
+                "op": "length_between",
+                "field": "body",
+                "min": 1,
+                "message": "body must not be empty",
+                "enforcement": "boundary"
+              }
+            ]
+          }
+        ]
+      },
+      "output": {
+        "kind": "ref",
+        "structName": "Post"
+      }
+    },
+    {
+      "id": "route_0055",
+      "method": "GET",
+      "path": "/posts/:id",
+      "effects": [
+        {
+          "kind": "DB",
+          "detail": "findOne on Post"
+        }
+      ],
+      "constraints": [],
+      "proofs": [],
+      "input": {
+        "params": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "primitive",
+              "name": "str"
+            },
+            "constraints": []
+          }
+        ]
+      },
+      "output": {
+        "kind": "ref",
+        "structName": "Post"
+      }
+    },
+    {
+      "id": "route_0060",
+      "method": "DELETE",
+      "path": "/posts/:id",
+      "effects": [
+        {
+          "kind": "DB",
+          "detail": "findOne on Post"
+        },
+        {
+          "kind": "DB",
+          "detail": "delete from Post"
+        }
+      ],
+      "constraints": [],
+      "proofs": [
+        {
+          "property": "auth_required",
+          "kind": "by_constraint",
+          "detail": "JWT middleware validates token"
+        },
+        {
+          "property": "owner_only",
+          "kind": "by_construction",
+          "detail": "Handler checks authorId matches JWT subject before deletion"
+        }
+      ],
+      "input": {
+        "params": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "primitive",
+              "name": "str"
+            },
+            "constraints": []
+          }
+        ]
+      },
+      "output": {
+        "kind": "primitive",
+        "name": "void"
+      }
+    }
+  ],
+  "middleware": [
+    {
+      "id": "mw_0001",
+      "name": "cors",
+      "order": 0,
+      "effects": [],
+      "config": {
+        "origins": [
+          "http://localhost:5173"
+        ],
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ]
+      }
+    },
+    {
+      "id": "mw_0003",
+      "name": "logger",
+      "order": 1,
+      "effects": [
+        {
+          "kind": "Log",
+          "detail": "request logging"
+        },
+        {
+          "kind": "Time",
+          "detail": "request timing"
+        }
+      ],
+      "config": {}
+    },
+    {
+      "id": "mw_0005",
+      "name": "rateLimit",
+      "order": 10,
+      "effects": [
+        {
+          "kind": "State",
+          "detail": "request counter"
+        }
+      ],
+      "config": {
+        "windowMs": 60000,
+        "maxRequests": 100
+      }
+    },
+    {
+      "id": "mw_0001",
+      "name": "auth",
+      "order": 20,
+      "effects": [
+        {
+          "kind": "IO",
+          "detail": "reads auth header"
+        }
+      ],
+      "config": {
+        "secret": "process.env.JWT_SECRET",
+        "headerName": "Authorization",
+        "scheme": "Bearer"
+      }
+    }
+  ],
+  "journal": [
+    {
+      "id": "j_0002",
+      "timestamp": "2026-03-13T00:54:54.650Z",
+      "op": {
+        "kind": "AddMiddleware",
+        "middleware": {
+          "id": "mw_0001",
+          "name": "cors",
+          "scope": "mw_0001_scope",
+          "appliesTo": "all",
+          "order": 0,
+          "config": {
+            "origins": [
+              "http://localhost:5173"
+            ],
+            "methods": [
+              "GET",
+              "POST",
+              "PUT",
+              "DELETE"
+            ]
+          },
+          "effects": [],
+          "provenance": {
+            "createdBy": "klar_builder",
+            "instruction": "Middleware: cors",
+            "timestamp": "2026-03-13T00:54:54.649Z"
+          },
+          "_type": "cors"
+        }
+      },
+      "reason": "Add middleware cors"
+    },
+    {
+      "id": "j_0004",
+      "timestamp": "2026-03-13T00:54:54.650Z",
+      "op": {
+        "kind": "AddMiddleware",
+        "middleware": {
+          "id": "mw_0003",
+          "name": "logger",
+          "scope": "mw_0003_scope",
+          "appliesTo": "all",
+          "order": 1,
+          "config": {},
+          "effects": [
+            {
+              "kind": "Log",
+              "detail": "request logging"
+            },
+            {
+              "kind": "Time",
+              "detail": "request timing"
+            }
+          ],
+          "provenance": {
+            "createdBy": "klar_builder",
+            "instruction": "Middleware: logger",
+            "timestamp": "2026-03-13T00:54:54.650Z"
+          },
+          "_type": "logger"
+        }
+      },
+      "reason": "Add middleware logger"
+    },
+    {
+      "id": "j_0006",
+      "timestamp": "2026-03-13T00:54:54.650Z",
+      "op": {
+        "kind": "AddMiddleware",
+        "middleware": {
+          "id": "mw_0005",
+          "name": "rateLimit",
+          "scope": "mw_0005_scope",
+          "appliesTo": "all",
+          "order": 10,
+          "config": {
+            "windowMs": 60000,
+            "maxRequests": 100
+          },
+          "effects": [
+            {
+              "kind": "State",
+              "detail": "request counter"
+            }
+          ],
+          "provenance": {
+            "createdBy": "klar_builder",
+            "instruction": "Middleware: rateLimit",
+            "timestamp": "2026-03-13T00:54:54.650Z"
+          },
+          "_type": "rate_limit"
+        }
+      },
+      "reason": "Add middleware rateLimit"
+    },
+    {
+      "id": "j_0007",
+      "timestamp": "2026-03-13T00:54:54.650Z",
+      "op": {
+        "kind": "AddMiddleware",
+        "middleware": {
+          "id": "mw_0001",
+          "name": "auth",
+          "scope": "mw_0001_scope",
+          "appliesTo": "all",
+          "order": 20,
+          "config": {
+            "secret": "process.env.JWT_SECRET",
+            "headerName": "Authorization",
+            "scheme": "Bearer"
+          },
+          "effects": [
+            {
+              "kind": "IO",
+              "detail": "reads auth header"
+            }
+          ],
+          "provenance": {
+            "createdBy": "klar_builder",
+            "instruction": "Middleware: auth",
+            "timestamp": "2026-03-13T00:54:54.650Z"
+          },
+          "_type": "jwt_auth"
+        }
+      },
+      "reason": "Add middleware auth"
+    },
+    {
+      "id": "j_0015",
+      "timestamp": "2026-03-13T00:54:54.651Z",
+      "op": {
+        "kind": "AddModel",
+        "model": {
+          "id": "model_0008",
+          "name": "User",
+          "fields": [
+            {
+              "name": "id",
+              "type": {
+                "kind": "primitive",
+                "name": "str"
+              },
+              "constraints": []
+            },
+            {
+              "name": "email",
+              "type": {
+                "kind": "primitive",
+                "name": "str"
+              },
+              "constraints": [
+                {
+                  "id": "c_0009",
+                  "op": "matches",
+                  "field": "email",
+                  "pattern": "^[^@]+@[^@]+\\.[^@]+$",
+                  "message": "Must be a valid email address",
+                  "enforcement": "boundary"
+                },
+                {
+                  "id": "c_0010",
+                  "op": "length_between",
+                  "field": "email",
+                  "min": 1,
+                  "message": "email must not be empty",
+                  "enforcement": "boundary"
+                }
+              ]
+            },
+            {
+              "name": "name",
+              "type": {
+                "kind": "primitive",
+                "name": "str"
+              },
+              "constraints": [
+                {
+                  "id": "c_0011",
+                  "op": "length_between",
+                  "field": "name",
+                  "min": 2,
+                  "message": "Name must be at least 2 characters",
+                  "enforcement": "boundary"
+                },
+                {
+                  "id": "c_0012",
+                  "op": "length_between",
+                  "field": "name",
+                  "max": 100,
+                  "message": "Name must be at most 100 characters",
+                  "enforcement": "boundary"
+                }
+              ]
+            },
+            {
+              "name": "password",
+              "type": {
+                "kind": "primitive",
+                "name": "str"
+              },
+              "constraints": [
+                {
+                  "id": "c_0013",
+                  "op": "length_between",
+                  "field": "password",
+                  "min": 8,
+                  "message": "Password must be at least 8 characters",
+                  "enforcement": "boundary"
+                }
+              ]
+            },
+            {
+              "name": "role",
+              "type": {
+                "kind": "primitive",
+                "name": "str"
+              },
+              "constraints": [
+                {
+                  "id": "c_0014",
+                  "op": "in",
+                  "field": "role",
+                  "value": [
+                    "user",
+                    "admin"
+                  ],
+                  "message": "Role must be 'user' or 'admin'",
+                  "enforcement": "boundary"
+                }
+              ],
+              "defaultValue": "user"
+            },
+            {
+              "name": "createdAt",
+              "type": {
+                "kind": "primitive",
+                "name": "timestamp"
+              },
+              "constraints": []
+            },
+            {
+              "name": "updatedAt",
+              "type": {
+                "kind": "primitive",
+                "name": "timestamp"
+              },
+              "constraints": []
+            }
+          ],
+          "constraints": [],
+          "indexes": [
+            {
+              "fields": [
+                "email"
+              ],
+              "unique": true
+            }
+          ],
+          "provenance": {
+            "createdBy": "klar_builder",
+            "instruction": "Define model User",
+            "timestamp": "2026-03-13T00:54:54.651Z"
+          }
+        }
+      },
+      "reason": "Define model User"
+    },
+    {
+      "id": "j_0021",
+      "timestamp": "2026-03-13T00:54:54.651Z",
+      "op": {
+        "kind": "AddModel",
+        "model": {
+          "id": "model_0016",
+          "name": "Post",
+          "fields": [
+            {
+              "name": "id",
+              "type": {
+                "kind": "primitive",
+                "name": "str"
+              },
+              "constraints": []
+            },
+            {
+              "name": "title",
+              "type": {
+                "kind": "primitive",
+                "name": "str"
+              },
+              "constraints": [
+                {
+                  "id": "c_0017",
+                  "op": "length_between",
+                  "field": "title",
+                  "min": 1,
+                  "message": "Title is required",
+                  "enforcement": "boundary"
+                },
+                {
+                  "id": "c_0018",
+                  "op": "length_between",
+                  "field": "title",
+                  "max": 200,
+                  "message": "Title must be under 200 characters",
+                  "enforcement": "boundary"
+                }
+              ]
+            },
+            {
+              "name": "body",
+              "type": {
+                "kind": "primitive",
+                "name": "str"
+              },
+              "constraints": [
+                {
+                  "id": "c_0019",
+                  "op": "length_between",
+                  "field": "body",
+                  "min": 1,
+                  "message": "Post body is required",
+                  "enforcement": "boundary"
+                }
+              ]
+            },
+            {
+              "name": "authorId",
+              "type": {
+                "kind": "primitive",
+                "name": "str"
+              },
+              "constraints": [
+                {
+                  "id": "c_0020",
+                  "op": "length_between",
+                  "field": "authorId",
+                  "min": 1,
+                  "message": "Author ID is required",
+                  "enforcement": "boundary"
+                }
+              ]
+            },
+            {
+              "name": "published",
+              "type": {
+                "kind": "primitive",
+                "name": "bool"
+              },
+              "constraints": [],
+              "defaultValue": false
+            },
+            {
+              "name": "createdAt",
+              "type": {
+                "kind": "primitive",
+                "name": "timestamp"
+              },
+              "constraints": []
+            },
+            {
+              "name": "updatedAt",
+              "type": {
+                "kind": "primitive",
+                "name": "timestamp"
+              },
+              "constraints": []
+            }
+          ],
+          "constraints": [],
+          "indexes": [],
+          "provenance": {
+            "createdBy": "klar_builder",
+            "instruction": "Define model Post",
+            "timestamp": "2026-03-13T00:54:54.651Z"
+          }
+        }
+      },
+      "reason": "Define model Post"
+    },
+    {
+      "id": "j_0031",
+      "timestamp": "2026-03-13T00:54:54.651Z",
+      "op": {
+        "kind": "AddRoute",
+        "route": {
+          "id": "route_0022",
+          "method": "POST",
+          "path": "/auth/register",
+          "handler": "route_0022_handler",
+          "middleware": [],
+          "input": {
+            "body": [
+              {
+                "name": "email",
+                "type": {
+                  "kind": "primitive",
+                  "name": "str"
+                },
+                "constraints": [
+                  {
+                    "id": "c_0023",
+                    "op": "matches",
+                    "field": "email",
+                    "pattern": "^[^@]+@[^@]+\\.[^@]+$",
+                    "message": "Valid email required",
+                    "enforcement": "boundary"
+                  }
+                ]
+              },
+              {
+                "name": "name",
+                "type": {
+                  "kind": "primitive",
+                  "name": "str"
+                },
+                "constraints": [
+                  {
+                    "id": "c_0024",
+                    "op": "length_between",
+                    "field": "name",
+                    "min": 2,
+                    "message": "name must be at least 2 characters",
+                    "enforcement": "boundary"
+                  }
+                ]
+              },
+              {
+                "name": "password",
+                "type": {
+                  "kind": "primitive",
+                  "name": "str"
+                },
+                "constraints": [
+                  {
+                    "id": "c_0025",
+                    "op": "length_between",
+                    "field": "password",
+                    "min": 8,
+                    "message": "Password must be at least 8 characters",
+                    "enforcement": "boundary"
+                  }
+                ]
+              }
+            ]
+          },
+          "output": {
+            "kind": "ref",
+            "structName": "User"
+          },
+          "effects": [
+            {
+              "kind": "DB",
+              "detail": "findOne on User"
+            },
+            {
+              "kind": "DB",
+              "detail": "insert into User"
+            }
+          ],
+          "constraints": [],
+          "proofs": [
+            {
+              "property": "no_plaintext_password",
+              "kind": "by_construction",
+              "detail": "Password is hashed before storage via bcrypt"
+            },
+            {
+              "property": "unique_email",
+              "kind": "by_constraint",
+              "detail": "Email uniqueness enforced by DB index + pre-check"
+            }
+          ],
+          "provenance": {
+            "createdBy": "klar_builder",
+            "instruction": "Register a new user account",
+            "timestamp": "2026-03-13T00:54:54.651Z"
+          },
+          "_handlerLogic": [
+            {
+              "action": "db_query",
+              "detail": {
+                "operation": "findOne",
+                "model": "User",
+                "where": {
+                  "email": "$body.email"
+                }
+              },
+              "id": "step_0026"
+            },
+            {
+              "action": "branch",
+              "detail": {
+                "condition": "found",
+                "then": [
+                  {
+                    "id": "s1",
+                    "action": "respond_error",
+                    "detail": {
+                      "status": 409,
+                      "message": "Email already registered"
+                    }
+                  }
+                ]
+              },
+              "id": "step_0027"
+            },
+            {
+              "action": "hash",
+              "detail": {
+                "field": "password",
+                "algorithm": "bcrypt"
+              },
+              "id": "step_0028"
+            },
+            {
+              "action": "db_insert",
+              "detail": {
+                "model": "User",
+                "data": "body"
+              },
+              "id": "step_0029"
+            },
+            {
+              "action": "respond",
+              "detail": {
+                "status": 201,
+                "body": "{ id: record.id, email: record.email, name: record.name, role: record.role }"
+              },
+              "id": "step_0030"
+            }
+          ]
+        }
+      },
+      "reason": "Add route POST /auth/register"
+    },
+    {
+      "id": "j_0038",
+      "timestamp": "2026-03-13T00:54:54.651Z",
+      "op": {
+        "kind": "AddRoute",
+        "route": {
+          "id": "route_0032",
+          "method": "POST",
+          "path": "/auth/login",
+          "handler": "route_0032_handler",
+          "middleware": [],
+          "input": {
+            "body": [
+              {
+                "name": "email",
+                "type": {
+                  "kind": "primitive",
+                  "name": "str"
+                },
+                "constraints": []
+              },
+              {
+                "name": "password",
+                "type": {
+                  "kind": "primitive",
+                  "name": "str"
+                },
+                "constraints": []
+              }
+            ]
+          },
+          "output": {
+            "kind": "ref",
+            "structName": "Token"
+          },
+          "effects": [
+            {
+              "kind": "DB",
+              "detail": "findOne on User"
+            }
+          ],
+          "constraints": [],
+          "proofs": [
+            {
+              "property": "timing_safe",
+              "kind": "by_construction",
+              "detail": "Hash comparison is constant-time via bcrypt.compare"
+            }
+          ],
+          "provenance": {
+            "createdBy": "klar_builder",
+            "instruction": "Authenticate and receive a JWT token",
+            "timestamp": "2026-03-13T00:54:54.651Z"
+          },
+          "_handlerLogic": [
+            {
+              "action": "db_query",
+              "detail": {
+                "operation": "findOne",
+                "model": "User",
+                "where": {
+                  "email": "$body.email"
+                }
+              },
+              "id": "step_0033"
+            },
+            {
+              "action": "branch",
+              "detail": {
+                "condition": "!found",
+                "then": [
+                  {
+                    "id": "s2",
+                    "action": "respond_error",
+                    "detail": {
+                      "status": 401,
+                      "message": "Invalid credentials"
+                    }
+                  }
+                ]
+              },
+              "id": "step_0034"
+            },
+            {
+              "action": "compare_hash",
+              "detail": {
+                "input": "body.password",
+                "stored": "found.password"
+              },
+              "id": "step_0035"
+            },
+            {
+              "action": "sign_token",
+              "detail": {
+                "payload": {
+                  "sub": "$found.id",
+                  "email": "$found.email",
+                  "role": "$found.role"
+                },
+                "expiresIn": "24h"
+              },
+              "id": "step_0036"
+            },
+            {
+              "action": "respond",
+              "detail": {
+                "status": 200,
+                "body": "{ token, user: { id: found.id, email: found.email, name: found.name, role: found.role } }"
+              },
+              "id": "step_0037"
+            }
+          ]
+        }
+      },
+      "reason": "Add route POST /auth/login"
+    },
+    {
+      "id": "j_0043",
+      "timestamp": "2026-03-13T00:54:54.651Z",
+      "op": {
+        "kind": "AddRoute",
+        "route": {
+          "id": "route_0039",
+          "method": "GET",
+          "path": "/users/me",
+          "handler": "route_0039_handler",
+          "middleware": [
+            "mw_0001"
+          ],
+          "input": {},
+          "output": {
+            "kind": "ref",
+            "structName": "User"
+          },
+          "effects": [
+            {
+              "kind": "DB",
+              "detail": "findOne on User"
+            }
+          ],
+          "constraints": [],
+          "proofs": [
+            {
+              "property": "auth_required",
+              "kind": "by_constraint",
+              "detail": "JWT middleware validates token before handler executes"
+            },
+            {
+              "property": "no_password_leak",
+              "kind": "by_construction",
+              "detail": "Response explicitly excludes password field"
+            }
+          ],
+          "provenance": {
+            "createdBy": "klar_builder",
+            "instruction": "Get the currently authenticated user's profile",
+            "timestamp": "2026-03-13T00:54:54.651Z"
+          },
+          "_handlerLogic": [
+            {
+              "action": "db_query",
+              "detail": {
+                "operation": "findOne",
+                "model": "User",
+                "where": {
+                  "id": "$c.get('user').sub"
+                }
+              },
+              "id": "step_0040"
+            },
+            {
+              "action": "branch",
+              "detail": {
+                "condition": "!found",
+                "then": [
+                  {
+                    "id": "s3",
+                    "action": "respond_error",
+                    "detail": {
+                      "status": 404,
+                      "message": "User not found"
+                    }
+                  }
+                ]
+              },
+              "id": "step_0041"
+            },
+            {
+              "action": "respond",
+              "detail": {
+                "status": 200,
+                "body": "{ id: found.id, email: found.email, name: found.name, role: found.role }"
+              },
+              "id": "step_0042"
+            }
+          ]
+        }
+      },
+      "reason": "Add route GET /users/me"
+    },
+    {
+      "id": "j_0047",
+      "timestamp": "2026-03-13T00:54:54.651Z",
+      "op": {
+        "kind": "AddRoute",
+        "route": {
+          "id": "route_0044",
+          "method": "GET",
+          "path": "/posts",
+          "handler": "route_0044_handler",
+          "middleware": [],
+          "input": {},
+          "output": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "structName": "Post"
+            }
+          },
+          "effects": [
+            {
+              "kind": "DB",
+              "detail": "findMany on Post"
+            }
+          ],
+          "constraints": [],
+          "proofs": [],
+          "provenance": {
+            "createdBy": "klar_builder",
+            "instruction": "List all published posts",
+            "timestamp": "2026-03-13T00:54:54.651Z"
+          },
+          "_handlerLogic": [
+            {
+              "action": "db_query",
+              "detail": {
+                "operation": "findMany",
+                "model": "Post"
+              },
+              "id": "step_0045"
+            },
+            {
+              "action": "respond",
+              "detail": {
+                "status": 200,
+                "body": "results.filter(p => p.published)"
+              },
+              "id": "step_0046"
+            }
+          ]
+        }
+      },
+      "reason": "Add route GET /posts"
+    },
+    {
+      "id": "j_0054",
+      "timestamp": "2026-03-13T00:54:54.652Z",
+      "op": {
+        "kind": "AddRoute",
+        "route": {
+          "id": "route_0048",
+          "method": "POST",
+          "path": "/posts",
+          "handler": "route_0048_handler",
+          "middleware": [
+            "mw_0001"
+          ],
+          "input": {
+            "body": [
+              {
+                "name": "title",
+                "type": {
+                  "kind": "primitive",
+                  "name": "str"
+                },
+                "constraints": [
+                  {
+                    "id": "c_0049",
+                    "op": "length_between",
+                    "field": "title",
+                    "min": 1,
+                    "message": "title must not be empty",
+                    "enforcement": "boundary"
+                  },
+                  {
+                    "id": "c_0050",
+                    "op": "length_between",
+                    "field": "title",
+                    "max": 200,
+                    "message": "title must be at most 200 characters",
+                    "enforcement": "boundary"
+                  }
+                ]
+              },
+              {
+                "name": "body",
+                "type": {
+                  "kind": "primitive",
+                  "name": "str"
+                },
+                "constraints": [
+                  {
+                    "id": "c_0051",
+                    "op": "length_between",
+                    "field": "body",
+                    "min": 1,
+                    "message": "body must not be empty",
+                    "enforcement": "boundary"
+                  }
+                ]
+              }
+            ]
+          },
+          "output": {
+            "kind": "ref",
+            "structName": "Post"
+          },
+          "effects": [
+            {
+              "kind": "DB",
+              "detail": "insert into Post"
+            }
+          ],
+          "constraints": [],
+          "proofs": [
+            {
+              "property": "auth_required",
+              "kind": "by_constraint",
+              "detail": "JWT middleware validates token before handler executes"
+            },
+            {
+              "property": "author_binding",
+              "kind": "by_construction",
+              "detail": "authorId is set from JWT payload, not user input"
+            }
+          ],
+          "provenance": {
+            "createdBy": "klar_builder",
+            "instruction": "Create a new post (authenticated)",
+            "timestamp": "2026-03-13T00:54:54.652Z"
+          },
+          "_handlerLogic": [
+            {
+              "action": "db_insert",
+              "detail": {
+                "model": "Post",
+                "data": "{ ...body, authorId: c.get('user').sub, published: false }"
+              },
+              "id": "step_0052"
+            },
+            {
+              "action": "respond",
+              "detail": {
+                "status": 201,
+                "body": "record"
+              },
+              "id": "step_0053"
+            }
+          ]
+        }
+      },
+      "reason": "Add route POST /posts"
+    },
+    {
+      "id": "j_0059",
+      "timestamp": "2026-03-13T00:54:54.652Z",
+      "op": {
+        "kind": "AddRoute",
+        "route": {
+          "id": "route_0055",
+          "method": "GET",
+          "path": "/posts/:id",
+          "handler": "route_0055_handler",
+          "middleware": [],
+          "input": {
+            "params": [
+              {
+                "name": "id",
+                "type": {
+                  "kind": "primitive",
+                  "name": "str"
+                },
+                "constraints": []
+              }
+            ]
+          },
+          "output": {
+            "kind": "ref",
+            "structName": "Post"
+          },
+          "effects": [
+            {
+              "kind": "DB",
+              "detail": "findOne on Post"
+            }
+          ],
+          "constraints": [],
+          "proofs": [],
+          "provenance": {
+            "createdBy": "klar_builder",
+            "instruction": "Get a single post by ID",
+            "timestamp": "2026-03-13T00:54:54.652Z"
+          },
+          "_handlerLogic": [
+            {
+              "action": "db_query",
+              "detail": {
+                "operation": "findOne",
+                "model": "Post",
+                "where": {
+                  "id": "$id"
+                }
+              },
+              "id": "step_0056"
+            },
+            {
+              "action": "branch",
+              "detail": {
+                "condition": "!found",
+                "then": [
+                  {
+                    "id": "s4",
+                    "action": "respond_error",
+                    "detail": {
+                      "status": 404,
+                      "message": "Post not found"
+                    }
+                  }
+                ]
+              },
+              "id": "step_0057"
+            },
+            {
+              "action": "respond",
+              "detail": {
+                "status": 200,
+                "body": "found"
+              },
+              "id": "step_0058"
+            }
+          ]
+        }
+      },
+      "reason": "Add route GET /posts/:id"
+    },
+    {
+      "id": "j_0066",
+      "timestamp": "2026-03-13T00:54:54.652Z",
+      "op": {
+        "kind": "AddRoute",
+        "route": {
+          "id": "route_0060",
+          "method": "DELETE",
+          "path": "/posts/:id",
+          "handler": "route_0060_handler",
+          "middleware": [
+            "mw_0001"
+          ],
+          "input": {
+            "params": [
+              {
+                "name": "id",
+                "type": {
+                  "kind": "primitive",
+                  "name": "str"
+                },
+                "constraints": []
+              }
+            ]
+          },
+          "output": {
+            "kind": "primitive",
+            "name": "void"
+          },
+          "effects": [
+            {
+              "kind": "DB",
+              "detail": "findOne on Post"
+            },
+            {
+              "kind": "DB",
+              "detail": "delete from Post"
+            }
+          ],
+          "constraints": [],
+          "proofs": [
+            {
+              "property": "auth_required",
+              "kind": "by_constraint",
+              "detail": "JWT middleware validates token"
+            },
+            {
+              "property": "owner_only",
+              "kind": "by_construction",
+              "detail": "Handler checks authorId matches JWT subject before deletion"
+            }
+          ],
+          "provenance": {
+            "createdBy": "klar_builder",
+            "instruction": "Delete a post (authenticated, owner only)",
+            "timestamp": "2026-03-13T00:54:54.652Z"
+          },
+          "_handlerLogic": [
+            {
+              "action": "db_query",
+              "detail": {
+                "operation": "findOne",
+                "model": "Post",
+                "where": {
+                  "id": "$id"
+                }
+              },
+              "id": "step_0061"
+            },
+            {
+              "action": "branch",
+              "detail": {
+                "condition": "!found",
+                "then": [
+                  {
+                    "id": "s5",
+                    "action": "respond_error",
+                    "detail": {
+                      "status": 404,
+                      "message": "Post not found"
+                    }
+                  }
+                ]
+              },
+              "id": "step_0062"
+            },
+            {
+              "action": "branch",
+              "detail": {
+                "condition": "found.authorId !== c.get('user').sub",
+                "then": [
+                  {
+                    "id": "s6",
+                    "action": "respond_error",
+                    "detail": {
+                      "status": 403,
+                      "message": "Not authorized to delete this post"
+                    }
+                  }
+                ]
+              },
+              "id": "step_0063"
+            },
+            {
+              "action": "db_delete",
+              "detail": {
+                "model": "Post",
+                "where": {
+                  "id": "$id"
+                }
+              },
+              "id": "step_0064"
+            },
+            {
+              "action": "respond",
+              "detail": {
+                "status": 200,
+                "body": "{ message: \"Post deleted\" }"
+              },
+              "id": "step_0065"
+            }
+          ]
+        }
+      },
+      "reason": "Add route DELETE /posts/:id"
+    }
+  ]
+}

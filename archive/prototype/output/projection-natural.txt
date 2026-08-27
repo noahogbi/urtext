@@ -1,0 +1,45 @@
+## UserAuthAPI
+
+This application is a web server running on port 3000.
+
+### Data Models
+
+A **User** has: **id** (str), **email** (str) — Must be a valid email address; email must not be empty, **name** (str) — Name must be at least 2 characters; Name must be at most 100 characters, **password** (str) — Password must be at least 8 characters, **role** (str) — Role must be 'user' or 'admin', **createdAt** (timestamp), **updatedAt** (timestamp).
+Indexed by: unique index on email.
+
+A **Post** has: **id** (str), **title** (str) — Title is required; Title must be under 200 characters, **body** (str) — Post body is required, **authorId** (str) — Author ID is required, **published** (bool), **createdAt** (timestamp), **updatedAt** (timestamp).
+
+### Middleware Pipeline
+
+0. **cors**: Allows cross-origin requests from: http://localhost:5173.
+1. **logger**: Logs every request with method, path, status, and response time.
+10. **rateLimit**: Limits clients to 100 requests per 60 seconds.
+20. **auth**: Requires a valid JWT token in the Authorization header.
+
+### API Endpoints
+
+**POST /auth/register**
+Looks up a User from the database. Securely hashes the password using bcrypt. Creates a new User record. Returns the result with status 201.
+*Verified properties:* no_plaintext_password, unique_email.
+
+**POST /auth/login**
+Looks up a User from the database. Verifies the provided credentials against stored hash. Issues a JWT token (valid for 24h). Returns the result with status 200.
+*Verified properties:* timing_safe.
+
+**GET /users/me**
+Looks up a User from the database. Returns the result with status 200.
+*Verified properties:* auth_required, no_password_leak.
+
+**GET /posts**
+Retrieves Post records from the database. Returns the result with status 200.
+
+**POST /posts**
+Creates a new Post record. Returns the result with status 201.
+*Verified properties:* auth_required, author_binding.
+
+**GET /posts/:id**
+Looks up a Post from the database. Returns the result with status 200.
+
+**DELETE /posts/:id**
+Looks up a Post from the database. Deletes the Post record. Returns the result with status 200.
+*Verified properties:* auth_required, owner_only.

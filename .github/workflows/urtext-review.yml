@@ -1,0 +1,43 @@
+# urtext reviews its own pull requests, through the same `action.yml` every
+# consumer uses. Deliberately its own file rather than a job inside `ci.yml`,
+# for four reasons each of which would be a defect there: `ci.yml` is a two-OS
+# matrix and a review job in it would post twice, or race itself editing one
+# comment; `ci.yml` also runs on `push: branches: [master]`, where there is no
+# pull request to comment on; `ci.yml` is the gate a branch protection rule
+# points at and has to stay a pass/fail statement about tests, not a mix of a
+# gate and non-blocking commentary; and `uses: ./` needs a full clone, which
+# `ci.yml` deliberately does not take. `ci.yml` is unchanged.
+name: urtext review
+
+# `pull_request`, and never `pull_request_target`. That trigger hands a write
+# token and repository secrets to a workflow that then reads the head
+# revision, and urtext parses attacker-authored TypeScript and resolves an
+# attacker-authored tsconfig. The action refuses that trigger in its first
+# step; this line is the property, and the refusal is only the backstop.
+on: pull_request
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    # The minimum the action needs, at the job level rather than the workflow
+    # level so it does not widen the token for anything else this repository
+    # runs. `issues: write` is not required: a pull request comment is created
+    # through the issue-comments endpoint on a pull request, which the
+    # `pull-requests` scope governs. Nothing here is optional — omit the block
+    # and the post comes back HTTP 403, which reads exactly like a fork pull
+    # request and is a different problem entirely.
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # base...head asks git for the merge base, which a shallow clone
+          # cannot compute.
+          fetch-depth: 0
+      - uses: ./
+        with:
+          # The opposite of the default, and only here: this is the one
+          # repository for which a urtext failure is a defect in the thing
+          # under test rather than noise on somebody's pull request.
+          fail-on-error: true

@@ -1,0 +1,55 @@
+╔══════════════════════════════════════════╗
+║          KLAR-IR CHANGE JOURNAL          ║
+╚══════════════════════════════════════════╝
+
+  [2026-03-13T00:54:54.650Z] AddMiddleware
+    Reason: Add middleware cors
+    + Middleware: cors (order: 0)
+
+  [2026-03-13T00:54:54.650Z] AddMiddleware
+    Reason: Add middleware logger
+    + Middleware: logger (order: 1)
+
+  [2026-03-13T00:54:54.650Z] AddMiddleware
+    Reason: Add middleware rateLimit
+    + Middleware: rateLimit (order: 10)
+
+  [2026-03-13T00:54:54.650Z] AddMiddleware
+    Reason: Add middleware auth
+    + Middleware: auth (order: 20)
+
+  [2026-03-13T00:54:54.651Z] AddModel
+    Reason: Define model User
+    + Model: User (7 fields)
+
+  [2026-03-13T00:54:54.651Z] AddModel
+    Reason: Define model Post
+    + Model: Post (7 fields)
+
+  [2026-03-13T00:54:54.651Z] AddRoute
+    Reason: Add route POST /auth/register
+    + Route: POST /auth/register
+
+  [2026-03-13T00:54:54.651Z] AddRoute
+    Reason: Add route POST /auth/login
+    + Route: POST /auth/login
+
+  [2026-03-13T00:54:54.651Z] AddRoute
+    Reason: Add route GET /users/me
+    + Route: GET /users/me
+
+  [2026-03-13T00:54:54.651Z] AddRoute
+    Reason: Add route GET /posts
+    + Route: GET /posts
+
+  [2026-03-13T00:54:54.652Z] AddRoute
+    Reason: Add route POST /posts
+    + Route: POST /posts
+
+  [2026-03-13T00:54:54.652Z] AddRoute
+    Reason: Add route GET /posts/:id
+    + Route: GET /posts/:id
+
+  [2026-03-13T00:54:54.652Z] AddRoute
+    Reason: Add route DELETE /posts/:id
+    + Route: DELETE /posts/:id
