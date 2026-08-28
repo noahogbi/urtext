@@ -1,15 +1,17 @@
 # One model, four walkers — design
 
 **Date:** 2026-08-28
-**Status:** proposed
-**Supersedes nothing.** Extends `2026-08-19-urtext-export-model-design.md`, whose
-addendum rulings all survive this change; ruling 3 is re-sited, not overturned.
+**Status:** proposed — revised 2026-08-28 after review (see "Revisions" at the end)
+**Extends** `2026-08-19-urtext-export-model-design.md` and **supersedes its
+addendum ruling 3** (the HTML symbol table reads the changeset directly). The
+replacement ruling is stated in §1.
 
 ## The problem
 
 `src/report/model.ts` opens by promising that everything a surface may say about
-content "is decided here, once; a renderer applies format mechanics and its own
-phrasing of the same truth, never a decision of its own."
+content "is decided here, once; a renderer applies format mechanics (escaping,
+wrapping, typesetting) and its own phrasing of the same truth, never a decision
+of its own."
 
 Two of the four surfaces do not take a model. `renderMarkdown(model)` and
 `renderPdf(model)` do; `renderTerminal(changeset, findings, reportPath?,
@@ -17,11 +19,13 @@ warnings, model?, suppressed, citationSweep)` and `renderHtml(changeset,
 findings, meta)` build their own internally. The consequences, all present in
 `main` today:
 
-1. **A run builds the report model four times** — inside `renderHtml`
+1. **The report model is built in four places** — inside `renderHtml`
    (`cli.ts:453`), as `exportModel` (`cli.ts:498`), as `jsonModel`
    (`cli.ts:552`), and inside `renderTerminal` (`cli.ts:626`) — each from a
    separately written `ReportMeta` literal carrying the same four fields.
-   A new model input has to be added in four places.
+   A new model input has to be added in four places. At most three of those
+   run in any one review: `--json` returns at `cli.ts:558`, before the terminal
+   path, and `--stdout md --json` is refused at parse time (`cli.ts:251`).
 
 2. **The terminal grew a seventh positional parameter** rather than the field
    it wanted. `citationSweep` is threaded as a bare boolean, and the parameter
@@ -39,10 +43,33 @@ findings, meta)` build their own internally. The consequences, all present in
    it gets the same two." The fixture is built twice and the two copies are
    trusted to match.
 
-Point 1 is the one with a record. `citationSweep` had to be threaded through
-every path separately; `kindNotes` reached three surfaces and missed `--json`;
-the finding band was derived in two places and the copies disagreed. Each is
-the same shape: one truth, assembled more than once.
+Point 1 is the one with a record — but the three incidents usually cited
+together are not one shape, and this design closes only one of them. Stating
+that plainly, because a motivation that overclaims is how a change gets
+credited with a guarantee it never provided:
+
+| Incident | Shape | Closed here? |
+|---|---|---|
+| `citationSweep` threaded separately down every path | one input, assembled more than once | **Yes** — one assembler, three sites, one file |
+| `kindNotes` reached three surfaces and missed `--json` | a surface that is not a walker | **No** — see below |
+| the finding band derived in two places, disagreeing | one truth, derived twice | **Partly** — the surviving instance is fixed here |
+
+`--json` composes its object field by field from raw locals (`cli.ts:559-619`),
+reading only `kindNotes` and `distributionNote` from a model. It cannot simply
+become a walker: its `warnings` are deliberately raw where the model's `notes`
+are labelled, and its shape is a published contract. So a new `ReportModel`
+field will still reach three walkers and miss `--json` unless someone
+remembers — and this spec's §"What this does not change" pins that object as
+unchanged, which makes the gap explicit rather than accidental.
+
+Two things close it as far as it can be closed. `--json` reads
+`jsonModel.counts` instead of recomputing them at `cli.ts:537-538` (identical
+output, one derivation — the band-map shape, in the same run, surviving after
+this change). And a keys-accounting guard, in the house style of
+`test/comment-contract.test.ts`: every `ReportModel` key must appear in the
+`--json` composition or on an exemption list that states why. A field added
+without a decision then fails a test instead of reaching a reader on three
+surfaces out of four.
 
 ## The constraint that shapes the fix
 
@@ -61,9 +88,13 @@ carries what was honestly known when that surface was produced. The fix is to
 make that rule explicit and enforced instead of accidental, while removing every
 *other* reason a second model gets built.
 
-**The timing rule:** a surface's model is built at the last moment before that
-surface is produced, so that it carries every disclosure known by then. Three
-moments survive:
+**The timing rule, stated per moment rather than per surface:** the model for a
+batch of surfaces is built at the last point before that batch is produced, and
+carries every disclosure known then. Not "the last moment before each surface",
+which the design does not deliver and should not claim: under `--export md,pdf`
+a failure writing the md export postdates the shared model, so the PDF —
+produced after that failure — does not carry it. That is current behaviour and
+stays. Three moments survive:
 
 | Moment | Surfaces | Can disclose |
 |---|---|---|
@@ -94,18 +125,24 @@ export interface ReportMeta {
 export interface ReportModel {
   // ...existing fields unchanged...
   /**
-   * The changeset this model describes. NOT report content: the model still
-   * omits symbols by design (2026-08-19 addendum, ruling 3), and the one
-   * legitimate reader is the HTML surface pane's symbol table, which applies
-   * concealment renderer-side exactly as it does today.
-   *
-   * Carried rather than passed alongside so that a surface needing the raw
-   * inventory cannot be handed one belonging to a different range: a report
-   * whose symbol table and findings describe different changes is precisely
-   * the silent disagreement this project exists to prevent, and `renderHtml`
-   * taking `(model, changeset)` would make it expressible.
+   * The exported declarations the HTML surface pane tabulates — the five
+   * fields `surfaceLens` reads today, and nothing else from the changeset.
+   * Concealed here like every other model field, which is what lets the
+   * whole model stay clean (see the ruling below).
    */
-  source: Changeset;
+  surfaceSymbols: {
+    /**
+     * Kept as the union it already is, not segmented: it is a controlled
+     * vocabulary this project writes, not text a change's author supplied,
+     * and the HTML uses it for a class name (`sym-${change}`) as well as
+     * copy. Segmenting it would invite a walker to treat the class name as
+     * concealable text.
+     */
+    change: "added" | "modified" | "removed";
+    qualifiedName: ConcealSegment[];
+    kind: ConcealSegment[];
+    file: ConcealSegment[];
+  }[];
   /** `labelConcealed` applied, as the terminal applies it today. */
   reportPath?: string;
   /**
@@ -123,6 +160,30 @@ the model. The terminal's comment that the path "is the one string on this
 surface that does not come from the model, so the walker labels it itself"
 becomes false and is deleted with the behaviour it described.
 
+**Ruling (supersedes the 2026-08-19 addendum's ruling 3).** The symbol table's
+data enters the model, concealed there like everything else. Ruling 3 justified
+the exception on the ground that "symbols are changeset data, not report
+content" — but the table is rendered to the reader, so the distinction was
+pragmatic rather than principled, and it cost the project its only
+renderer-side concealment path (`visible` in `html.ts`, used at lines 382-384
+and nowhere else).
+
+Two alternatives were weighed and both lose. Passing `renderHtml(model,
+changeset)` makes a mismatched pair expressible — a report whose symbol table
+and findings describe different ranges — which is the silent disagreement this
+project exists to prevent. Carrying `source: Changeset` on the model prevents
+that, but breaks something load-bearing: `test/report/model.test.ts:249`
+enforces "no raw concealing character survives into the model" by
+`JSON.stringify`-ing the *whole* model and searching it, and its fixture plants
+a raw RLO in the range label and a file path. A raw changeset inside the model
+fails that assertion on the existing fixture — so `source` would have traded a
+mechanically enforced invariant for a comment, and would have required
+weakening the test that enforces it. Promoting the five fields instead keeps
+the invariant total and makes that test *stronger*, since it now covers symbol
+text too.
+
+`visible`, and the header paragraph naming the exception, are deleted.
+
 ### 2. Every renderer takes exactly the model
 
 ```ts
@@ -137,14 +198,33 @@ findings, meta)` would preserve the second door this change exists to close,
 and every call site that kept using it would be a place a future field can be
 forgotten.
 
-`surfaceLens` in `html.ts` takes `model.source` where it takes `changeset`
-today. Its concealment handling, its `visible()` calls, and the addendum's
-ruling 3 are untouched.
+`surfaceLens` in `html.ts` walks `model.surfaceSymbols` and renders each field
+through the same segment path every other model string already takes, so the
+symbol table gains nothing and loses its private concealment route.
+
+**One format rule has to move with the signature.** `terminal.ts:149` gates a
+separating blank line on the raw `warnings` parameter — analyzer warnings get
+the line, the untracked and coverage notes alone do not. `buildReportModel`
+merges warnings and the untracked note into one `notes` array on the stated
+ground that "they are one thing to a reader", so a walker holding only the
+model cannot make that distinction, and widening the model to restore it would
+contradict the merge. **Ruling:** the gate becomes `m.notes.length > 0`. A run
+whose only disclosure is the untracked note gains one blank line between that
+note and the findings. This is a layout divergence, not a content one — no
+sentence appears, moves, or disappears — and it is accepted here in the same
+spirit as the addendum's ruling 2. A test pins the new rule, since nothing
+pins the old one.
 
 ### 3. `cli.ts` owns every build, through one assembler
 
 ```ts
-const metaFor = (over: Partial<ReportMeta> = {}): ReportMeta => ({
+// Only the two fields a later moment learns may be overridden. A wider type
+// would let one moment quietly pass different `warnings` or a different
+// `citationSweep` than another — reopening, inside the one file meant to
+// close it, exactly the door this change exists to shut.
+const metaFor = (
+  over: Partial<Pick<ReportMeta, "reportPath" | "exportPaths">> = {},
+): ReportMeta => ({
   model: result.model,
   warnings,
   suppressed,
@@ -163,28 +243,41 @@ share the third-moment model — they are alternatives in one run, never both.
 The export-path loop leaves `cli.ts` and becomes part of the terminal walker,
 beside the "Full report:" line it already prints, reading `model.exportPaths`.
 
-**Out of scope, deliberately:** the `.gitignore` tip stays in `cli.ts`. It is
-advice about the user's repository, not a statement about the review, and it
-depends on an async git query made after rendering. It is documented as such
-where it stays.
+**Out of scope, deliberately:** the `.gitignore` tip stays in `cli.ts`, and the
+reason is documented where it stays — see "What this does not change".
 
 ## What this does not change
 
 - No disclosure gains or loses a surface. Every sentence printed today is
-  printed after, in the same place, by the same rule.
-- Ruling 3 stands: symbols remain changeset data, read from `model.source`,
-  concealed renderer-side.
+  printed after, in the same place, by the same rule. The one accepted
+  divergence is a blank line, ruled on in §2.
 - `buildReportModel`'s own signature.
-- The `--json` object, including the `kindNotes` key added on 2026-08-27.
+- The `--json` object's shape, apart from `counts` now being read from the
+  model rather than recomputed — byte-identical output.
+- The `.gitignore` tip stays in `cli.ts`, on one ground only: it is advice
+  about the user's repository, not a statement about the review. (The second
+  ground I first gave — that it needs an async git call after rendering — does
+  not hold: it could be awaited before the moment-3 build. Content is the
+  reason; timing is not.)
 
 ## Testing
 
-**The timing rule gets a test.** A review whose report write fails asserts that
-the terminal discloses the failure and the `--json` warnings carry it, while the
-surfaces produced before the failure cannot. This is the assertion that stops a
-future "simplification" from collapsing the three builds into one and silently
-dropping a disclosure — the failure mode this spec exists to prevent, which
-would otherwise pass the whole suite.
+**The timing rule gets a test, through the seam that already exists.** The
+obvious sketch — fail the report write, assert the HTML cannot mention it —
+is unobservable: when `writeReport` throws, the rendered HTML string is
+discarded inside it and no test can read it. The enforceable version uses
+`review()`'s injectable `exporters` parameter (`cli.ts:318`), which exists for
+exactly this: inject a throwing `md` exporter, ask for `--export md,pdf`, and
+assert the written PDF does **not** carry the md-failure warning while the
+terminal and `--json` do. That discriminates moment 2 from moment 3 with real
+output on both sides. A second case pins moment 1 against moment 2: with
+`--stdout md` and a failing report write (`.urtext` made a plain file, as
+`test/cli.test.ts:803` already does), the Markdown on stdout carries the
+write failure that no HTML exists to carry.
+
+Together these stop a future "simplification" from collapsing the builds into
+one and silently dropping a disclosure — which would otherwise pass the whole
+suite.
 
 **Every existing surface test keeps its subject.** 109 test call sites move to
 building a model first — every `renderHtml` call (66) and every `renderTerminal`
@@ -195,13 +288,23 @@ argument for the cheaper option this spec rejects. To keep the rewrite
 mechanical rather than inventive, each surface test file gets one local helper:
 
 ```ts
-const model = (findings: Finding[], over: Partial<ReportMeta> = {}) =>
-  buildReportModel(changeset, findings, { warnings: [], ...over });
+// The changeset is the first parameter, never closed over: roughly a fifth of
+// the call sites pass a fixture other than the file's default — `noSymbols`,
+// `deletionOnly`, `{ ...changeset, untrackedCount: 2 }`, an inline literal, or
+// the result of a real `extract()`.
+const model = (cs: Changeset, findings: Finding[], over: Partial<ReportMeta> = {}) =>
+  buildReportModel(cs, findings, { warnings: [], ...over });
 ```
 
-A call site's meaning changes only where it was passing something; the risk to
-watch is a rewrite quietly dropping a meta field, which is a per-task review
-point rather than something `tsc` can catch.
+A helper that closed over one changeset would institutionalize the exact
+silent-rewrite this table warns about: `renderTerminal(deletionOnly, [])`
+becomes `model([])`, the fixture's changeset is quietly replaced by the file
+default, `tsc` is satisfied, and any assertion not keyed to the changeset keeps
+passing while testing something else. Making the changeset explicit at every
+site turns that into a visible, reviewable argument.
+
+The remaining risk is a rewrite dropping a meta field, which is a per-task
+review point rather than something `tsc` can catch.
 
 **A test pins that the terminal prints export paths from the model**, since that
 copy moves between files and could otherwise vanish with nothing objecting.
@@ -210,16 +313,34 @@ copy moves between files and could otherwise vanish with nothing objecting.
 
 | Risk | Handling |
 |---|---|
-| A mechanical rewrite drops a meta field from a fixture | Task boundaries keep each file's rewrite reviewable; the diff is read for meta content specifically, not just for compilation |
-| `model.source` invites surfaces to read changeset data freely | The field's comment names its one legitimate reader; `renderHtml` remains the only file that touches it |
+| A mechanical rewrite drops a meta field, or silently swaps a fixture's changeset | The helper takes the changeset explicitly (see Testing); task boundaries keep each file's rewrite reviewable; the diff is read for meta content, not just for compilation |
+| Concealing the symbol table in the model changes what the HTML emits for a symbol containing a concealing character | It should not — `visible` and the model's segment path label the same code points — but nothing pins symbol-table concealment today, so a test is added before the move |
 | The terminal's output changes shape when the path loop moves | The moved lines are byte-identical and ordered as today; existing terminal tests cover the "Full report:" line, and a new one covers the export lines |
 | Three builds still look redundant to a future reader | The timing table is in the code as comments at each site, and the rule has a test |
+| `--json` keeps its own composition, so a new model field can still miss it | The keys-accounting guard fails the build instead; the exemption list carries a reason per key |
 
-## Open question for review
+## Revisions
 
-`ReportModel.source` widens the model with something explicitly labelled "not
-report content". The alternative is `renderHtml(model, changeset)`, which keeps
-the model narrow at the cost of making a mismatched pair expressible. This spec
-takes the wider model because an unenforceable pairing invariant in a tool whose
-purpose is preventing silent disagreement is the worse trade — but it is the
-one judgement here that a reviewer should push on.
+Reviewed 2026-08-28 before any code was written. Six corrections, all folded in
+above:
+
+1. **The central design was wrong and is replaced.** The first draft carried
+   `source: Changeset` on the model. That breaks
+   `test/report/model.test.ts:249`, which enforces model cleanliness by
+   stringifying the whole model — its fixture plants a raw RLO in the changeset.
+   Shipping it would have meant weakening that test to make the change pass.
+   The replacement (a concealed `surfaceSymbols` view, ruling 3 superseded
+   openly) is better than either option the draft weighed: it closes the
+   pairing hazard, keeps the invariant mechanically enforced, and deletes the
+   project's last renderer-side concealment path.
+2. **"A run builds the model four times" was false** — four sites, at most
+   three builds in one run, since `--json` returns before the terminal.
+3. **The timing rule was stated per surface**, which the design does not
+   deliver; restated per moment, with the case it does not cover named.
+4. **The proposed timing test was unobservable**; replaced with one built on
+   the `exporters` seam that already exists for it.
+5. **The motivation overclaimed.** Of the three incidents it cited, this design
+   closes one, partly closes one, and leaves `--json`'s open — now said out
+   loud, with a keys-accounting guard proposed to close it as far as it goes.
+6. **The test helper hid the changeset**, which is the one thing a fifth of the
+   call sites vary; it now takes it explicitly.
