@@ -173,6 +173,11 @@ export function renderMarkdown(model: ReportModel): string {
   if (model.distributionNote) {
     blocks.push(quote([model.distributionNote]));
   }
+  // Once per kind, after the per-review disclosures and before the findings:
+  // guidance a reader needs once, kept out of the bodies it used to repeat.
+  if (model.kindNotes.length > 0) {
+    blocks.push(quote(model.kindNotes));
+  }
   if (model.beyondIntentLegend) {
     blocks.push(quote([model.beyondIntentLegend]));
   }

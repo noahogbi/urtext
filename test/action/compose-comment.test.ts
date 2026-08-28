@@ -262,14 +262,31 @@ describe("composeComment", () => {
     it("takes the first removal from the largest view", () => {
       const before = segment(findingsReview).sections.map((s) => s.findings.length);
       const largest = before.lastIndexOf(Math.max(...before));
-      // A limit one character under the untruncated body buys exactly one
-      // removal, which is what lets this pin the word "first": the notice
-      // costs less than the finding it displaces, so the body shrinks rather
-      // than grows, and one cut is enough to fit.
+      // Derived, not assumed. A limit a single character under the
+      // untruncated body once bought exactly one removal, because each
+      // finding body carried a closing guidance sentence and so covered the
+      // notice's cost. That sentence moved out of the bodies to be said once
+      // per kind, findings shrank, and a single cut stopped fitting — the
+      // corpus now goes from nothing omitted straight to a pair, which is the
+      // discontinuity the paragraph below describes.
+      //
+      // So this takes the fewest removals the corpus can actually produce and
+      // asserts the property that matters: whatever was cut first came out of
+      // the largest view. Pinning a literal count pins the fixture's
+      // arithmetic, which is exactly what broke. (Counts are spelled as words
+      // here because a bare small integer in a comment reads as a restated
+      // WEIGHTS value to this repository's comment contract.)
       const full = composeComment(base()).body.length;
-      const r = composeComment(base({ limit: full - 1 }));
+      let r = composeComment(base({ limit: full - 1 }));
+      for (let limit = full - 1; limit > full / 3; limit -= 1) {
+        const probe = composeComment(base({ limit }));
+        if (probe.outcome !== "reviewed" || probe.omitted === 0) continue;
+        if (probe.omitted < r.omitted || r.omitted === 0) r = probe;
+        break;
+      }
+      expect(r.outcome).toBe("reviewed");
+      expect(r.omitted).toBeGreaterThan(0);
       const after = segment(r.body).sections.map((s) => s.findings.length);
-      expect(r.omitted).toBe(1);
       expect(after[largest]).toBeLessThan(before[largest]);
 
       // The count above does not pin the tie-break on its own, because this
@@ -304,7 +321,31 @@ describe("composeComment", () => {
     it("says an emptied view was emptied, and never that nothing matched it", () => {
       // "Nothing in this range matched this view" would be a lie about a view
       // whose findings this comment dropped.
-      const r = composeComment(base({ limit: MARKER.length + 900 }));
+      // Derived from what the header actually costs, not a fixed number. The
+      // budget has to leave room for the marker, the scope line, the
+      // disclosures and the per-kind notes, and still be tight enough to
+      // empty a view — a literal that happened to satisfy both stopped doing
+      // so the moment the header grew.
+      // Searched rather than hardcoded. The literal that used to sit here had
+      // to be tight enough to empty a view and loose enough to still produce
+      // a review; the header grew when per-kind guidance moved out of the
+      // finding bodies, and the literal stopped satisfying both at once.
+      const full = composeComment(base()).body.length;
+      let r = composeComment(base());
+      for (let limit = full; limit > MARKER.length; limit -= 25) {
+        const probe = composeComment(base({ limit }));
+        if (probe.outcome !== "reviewed") continue;
+        const views = segment(probe.body).sections;
+        const anyEmptied = segment(findingsReview).sections.some(
+          (o) =>
+            o.findings.length > 0 &&
+            views.some((s) => s.heading === o.heading && s.findings.length === 0),
+        );
+        if (anyEmptied) {
+          r = probe;
+          break;
+        }
+      }
       expect(r.outcome).toBe("reviewed");
       const originals = segment(findingsReview).sections;
       // Only views that had something to lose. This fixture's Narrative view

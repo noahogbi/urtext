@@ -471,6 +471,13 @@ function headerHtml(m: ReportModel): string {
     ? `<p class="muted">${esc(m.distributionNote)}</p>`
     : "";
 
+  // Once per kind. Muted like the other orientation copy: it explains what a
+  // kind of finding means, which a reader needs once and not on every row.
+  const kindNotes =
+    m.kindNotes.length > 0
+      ? `<ul class="muted">${m.kindNotes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>`
+      : "";
+
   // The gate — a model name AND a model-derived tier below — is the model's;
   // `provenance` is simply absent otherwise. The fixed tail after it is this
   // surface's own data-free copy. Model prose itself is never gated this way
@@ -510,6 +517,7 @@ function headerHtml(m: ReportModel): string {
     banner,
     filterNote,
     distributionNote,
+    kindNotes,
     `<details class="legend"><summary>What the three tiers mean</summary><ul>${legend}${intentLegend}</ul></details>`,
     `</header>`,
   ].join("");

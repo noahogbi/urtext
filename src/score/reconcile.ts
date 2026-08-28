@@ -1,5 +1,5 @@
 import type { Claim, Fact, Finding } from "../types.js";
-import { minPossibleAnalyzerScore, rankWithAbsorption, tierFor } from "./index.js";
+import { bandsFor, minPossibleAnalyzerScore, rankWithAbsorption, tierFor } from "./index.js";
 import { referenceCount } from "./reach.js";
 
 /**
@@ -206,8 +206,16 @@ export function reconcile(
       }),
     );
 
+  // The band `rankWithAbsorption` applied, reapplied here because this sort
+  // runs last and would otherwise discard it. Not hypothetical: the band was
+  // added there alone first, and a unit test over `rank` passed while the
+  // shipped ordering never moved — `rank` is not the path a review takes.
+  // A standalone model claim comes from no fact, has no entry, and so keeps
+  // the defect band, leaving its position governed by score as before.
+  const band = bandsFor(facts);
   return [...kept, ...standalone].sort(
     (a, b) =>
+      (band.get(a.id) ?? 0) - (band.get(b.id) ?? 0) ||
       b.score - a.score ||
       a.file.localeCompare(b.file) ||
       a.line - b.line ||

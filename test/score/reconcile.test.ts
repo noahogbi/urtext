@@ -693,3 +693,37 @@ describe("reconcile", () => {
     expect(out.some((f) => f.beyondIntent)).toBe(true);
   });
 });
+
+describe("reach never buries a defect, through the path a review takes", () => {
+  // This sort runs last and governs what a reader sees. `rankWithAbsorption`
+  // bands its own output, and this one used to re-sort by score alone and
+  // throw that away — which a unit test over `rank` could not catch, because
+  // `rank` is not what a review calls. It is tested here for that reason: the
+  // ordering only means something at the end of the pipeline.
+  it("puts a rotted citation above a widely-referenced export", () => {
+    const out = reconcile(
+      [
+        fact("reach", {
+          kind: "blast_radius",
+          qualifiedSymbol: "helper",
+          detail: { symbol: "helper", references: 67 },
+        }),
+        fact("rot", {
+          kind: "citation_rot",
+          file: "docs/a.md",
+          qualifiedSymbol: undefined,
+          detail: {
+            citedFile: "src/lib.ts",
+            citedLine: 3,
+            rot: "content_drift",
+            citingText: "see `src/lib.ts:3`",
+          },
+        }),
+      ],
+      [],
+    );
+    expect(out.map((f) => f.id)).toEqual(["rot", "reach"]);
+    // And the demoted finding is still present — banded, not filtered.
+    expect(out).toHaveLength(2);
+  });
+});

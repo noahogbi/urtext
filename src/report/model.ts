@@ -239,6 +239,12 @@ export interface ReportModel {
    */
   distributionNote?: string;
   /**
+   * What each kind of finding in this review means, once per kind rather than
+   * once per finding. Empty when no kind present has guidance. Composed by
+   * `kindNotesFor`; see `KIND_NOTES` for why these left the bodies.
+   */
+  kindNotes: string[];
+  /**
    * BEYOND_INTENT_MEANING, present exactly when at least one finding carries
    * the mark. Deliberately NOT in `notes`: a badge doing its job is not a
    * shortfall, and it must not trip partial-review copy — the same rule
@@ -397,6 +403,55 @@ const SUBJECT_OF_KIND = {
  * produces starts with its own fact kind" — a fixture written to match the
  * code cannot notice the code changing.
  */
+/**
+ * What a kind of finding means, said once for a review rather than once per
+ * finding.
+ *
+ * These sentences used to close every body of their kind. On a real pull
+ * request that put "The wider the reach, the more a subtle change costs."
+ * on seven consecutive findings and "A changed contract can break callers…"
+ * on five more — twelve of fourteen rows above the one finding naming
+ * something a person could go and fix, each ending in the same words. The
+ * repetition is not merely wasteful: identical closing sentences make
+ * adjacent findings scan as one block, which is how a reader skims past the
+ * one that differs.
+ *
+ * They are guidance about the kind, not facts about the finding, so they
+ * belong where a reader meets them once. What stays in the body is what only
+ * that finding can say.
+ *
+ * Keyed by kind prefix, matching `subjectOf` above — kind rather than
+ * subject because `signature_changed` and `export_added` share the `surface`
+ * subject and mean different things.
+ */
+const KIND_NOTES: Record<string, string> = {
+  blast_radius: "Reach findings report how widely a changed export is used. Wide reach is not a defect; it is the cost of getting one wrong.",
+  signature_changed:
+    "A changed contract can break callers without breaking the build at the file that changed, so check the call sites.",
+  export_added:
+    "Newly exported surface is worth a look, but it cannot break an existing caller.",
+};
+
+/**
+ * The guidance for every kind this review actually produced, deduplicated and
+ * in the order the kinds first appear.
+ */
+function kindNotesFor(findings: Finding[]): string[] {
+  const seen = new Set<string>();
+  const notes: string[] = [];
+  for (const f of findings) {
+    const colon = f.id.indexOf(":");
+    if (colon < 0) continue;
+    const kind = f.id.slice(0, colon);
+    const note = KIND_NOTES[kind];
+    if (note && !seen.has(kind)) {
+      seen.add(kind);
+      notes.push(note);
+    }
+  }
+  return notes;
+}
+
 function subjectOf(id: string): Subject | undefined {
   const colon = id.indexOf(":");
   // An id with no colon has no kind prefix at all. Slicing to what `indexOf`
@@ -578,6 +633,7 @@ export function buildReportModel(
     counts,
     notes,
     findings: findings.map((f) => toFindingView(f, modelName)),
+    kindNotes: kindNotesFor(findings),
   };
   if (provenance) model.provenance = provenance;
   if (modelName) model.modelName = modelName;

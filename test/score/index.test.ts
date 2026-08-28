@@ -842,3 +842,52 @@ describe("citation_rot scoring", () => {
     expect(undated.body).toContain("could not read this line's history");
   });
 });
+
+describe("reach never buries a defect", () => {
+  // `scoreFact` already caps a blast-radius score so "no reference count may
+  // push it above a fact that does [name a problem]". That ceiling is
+  // `effect_added`, chosen when the kinds naming a problem all sat above it.
+  // `citation_rot` was added later and sits below it, so the invariant the
+  // comment states quietly stopped holding for the newest defect kind: on a
+  // real pull request a widely-referenced export ranked seven places above
+  // the one finding naming something a person could go and fix.
+  //
+  // Fixed at the sort rather than the weights, because the weights are both
+  // right: a rotted citation genuinely is less severe than a removed guard,
+  // and forty callers genuinely differ from three. What was wrong is using
+  // one number to answer two questions — how bad is this, and is it a defect
+  // at all.
+
+  it("ranks a rotted citation above a widely-referenced export", () => {
+    const findings = rank([
+      fact({
+        id: "reach",
+        kind: "blast_radius",
+        detail: { symbol: "helper", references: 67 },
+      }),
+      fact({
+        id: "rot",
+        kind: "citation_rot",
+        file: "docs/a.md",
+        detail: {
+          citedFile: "src/lib.ts",
+          citedLine: 3,
+          rot: "content_drift",
+          citingText: "see `src/lib.ts:3`",
+        },
+      }),
+    ]);
+    expect(findings.map((f) => f.id)).toEqual(["rot", "reach"]);
+  });
+
+  it("still orders reach findings among themselves by how far they reach", () => {
+    // The band must not flatten what it demotes: blast radius keeps its
+    // log-scaled ordering inside its own tier, which is the whole reason the
+    // fix is not simply capping its score at the lowest defect weight.
+    const findings = rank([
+      fact({ id: "few", kind: "blast_radius", detail: { symbol: "a", references: 3 } }),
+      fact({ id: "many", kind: "blast_radius", detail: { symbol: "b", references: 67 } }),
+    ]);
+    expect(findings.map((f) => f.id)).toEqual(["many", "few"]);
+  });
+});

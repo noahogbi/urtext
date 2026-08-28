@@ -391,7 +391,7 @@ export function toFinding(fact: Fact): Finding {
     case "export_added": {
       const name = str(fact.detail.export, "an export");
       title = `${name} is newly exported`;
-      body = `This file did not export ${name} before. New public surface is worth a look, but it cannot break an existing caller.`;
+      body = `This file did not export ${name} before.`;
       break;
     }
     case "export_removed": {
@@ -403,7 +403,7 @@ export function toFinding(fact: Fact): Finding {
     case "signature_changed": {
       const d = describeSignatureChange(fact);
       title = `${d.name} changed its signature`;
-      body = `${d.sentence} A changed contract can break callers without breaking the build at this file, so check the call sites.${d.typeUnresolved ? ` ${typeUnresolvedNoteFor([d.name])}` : ""}`;
+      body = `${d.sentence}${d.typeUnresolved ? ` ${typeUnresolvedNoteFor([d.name])}` : ""}`;
       break;
     }
     case "blast_radius": {
@@ -415,7 +415,7 @@ export function toFinding(fact: Fact): Finding {
       const verb = refs === 1 ? "references" : "reference";
       title = `${symbol} changed and is referenced in ${places}`;
       const leadingSymbol = hasSymbol ? symbol : capitalize(symbol);
-      body = `${leadingSymbol} was modified, and ${places} in this repository ${verb} it. The wider the reach, the more a subtle change costs.`;
+      body = `${leadingSymbol} was modified, and ${places} in this repository ${verb} it.`;
       break;
     }
     case "citation_rot": {
@@ -539,6 +539,64 @@ export function toFinding(fact: Fact): Finding {
  * caller that needs this; everything else calls `rank`, the one-line
  * delegate below, which just discards it.
  */
+/**
+ * Kinds that report reach or arrival rather than a defect. A finding of one
+ * of these names no problem by itself: "this changed and a lot of code uses
+ * it", or "this is newly exported" — each is context a reader may want, and
+ * neither is something to go and fix.
+ *
+ * `scoreFact` already caps a blast-radius score so that "no reference count
+ * may push it above a fact that does [name a problem]", but a cap is a single
+ * number and had to be chosen against the defect kinds that existed when it
+ * was written. `citation_rot` arrived later and below it, so on a real pull
+ * request a widely-referenced export ranked seven places above the only
+ * finding naming something a person could act on.
+ *
+ * Sorting by band fixes that without touching either weight, and both weights
+ * were right: a rotted citation genuinely is less severe than a removed
+ * guard, and forty callers genuinely differ from three. The error was using
+ * one number to answer two questions — how bad is this, and is it a defect at
+ * all. See `test/score/index.test.ts`, "ranks a rotted citation above a
+ * widely-referenced export".
+ */
+const CONTEXT_KINDS: ReadonlySet<Fact["kind"]> = new Set<Fact["kind"]>([
+  "blast_radius",
+  "export_added",
+]);
+
+/**
+ * Which band a fact's finding sorts into: the defect band first, the context
+ * band after. (Bands are named rather than numbered in this comment because a
+ * bare small integer here reads as a restated WEIGHTS value to this
+ * repository's comment contract.)
+ *
+ * Takes the fact's own `kind` rather than recovering it from an id prefix.
+ * The report model parses prefixes because a `Finding` is all it ever has;
+ * scoring holds the `Fact` itself, and guessing from a string here would be
+ * a second, weaker copy of a fact the code already knows — one that answers
+ * wrongly for any id not built from a kind, which the tests construct and
+ * which nothing forbids.
+ */
+export function bandOf(kind: Fact["kind"]): number {
+  return CONTEXT_KINDS.has(kind) ? 1 : 0;
+}
+
+/**
+ * The band of every finding a fact list will produce, keyed by fact id.
+ *
+ * Exported because two sorts order findings and both must agree: this
+ * module's, and `reconcile`'s final one — which runs last and would otherwise
+ * discard the banding this module applied. That is not hypothetical: it is
+ * exactly what happened when the band was added here alone, and a unit test
+ * over `rank` passed while the shipped ordering never moved, because `rank`
+ * is not the path a review takes. A finding with no entry — a standalone
+ * model claim, which comes from no fact — sorts in the defect band, leaving
+ * its position governed by score as before.
+ */
+export function bandsFor(facts: Fact[]): Map<string, number> {
+  return new Map(facts.map((fact) => [fact.id, bandOf(fact.kind)]));
+}
+
 export function rankWithAbsorption(
   facts: Fact[],
 ): { findings: Finding[]; absorbedBy: Map<string, string> } {
@@ -546,6 +604,12 @@ export function rankWithAbsorption(
     facts,
     (fact) => WEIGHTS.factKind[fact.kind],
   );
+
+  // Recorded while the facts are still in hand, because the sort below runs
+  // over findings and a finding does not carry its kind. A grouped finding's
+  // id is not a member's, so groups fall through to the defect band — which
+  // is correct for every kind that groups today, all of which name defects.
+  const band = bandsFor(kept);
 
   const findings = kept.map((fact) => {
     const finding = toFinding(fact);
@@ -621,7 +685,11 @@ export function rankWithAbsorption(
 
   return {
     findings: grouped.sort(
-      (a, b) => b.score - a.score || a.file.localeCompare(b.file) || a.line - b.line,
+      (a, b) =>
+        (band.get(a.id) ?? 0) - (band.get(b.id) ?? 0) ||
+        b.score - a.score ||
+        a.file.localeCompare(b.file) ||
+        a.line - b.line,
     ),
     absorbedBy,
   };

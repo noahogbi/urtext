@@ -171,6 +171,11 @@ export function renderTerminal(
     if (m.beyondIntentLegend) {
       out.push(`  ${m.beyondIntentLegend}`);
     }
+    // Beside the badge legend, and here for the same reason it is: a kind is
+    // explained before the reader meets findings of it. These sentences used
+    // to close every body of their kind, which made a run of them scan as one
+    // block — and a reader skims past the row that differs.
+    for (const note of m.kindNotes) out.push(`  ${note}`);
     out.push("");
 
     for (const f of m.findings) {
@@ -227,6 +232,7 @@ export function renderTerminal(
     out.push(`  ${m.distributionNote}`);
     out.push("");
   }
+
 
   // Outside the findings branch on purpose: a clean review (no findings)
   // still writes a report, and the reader needs to be told where it went
