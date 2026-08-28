@@ -523,6 +523,19 @@ export interface CitationScanOptions {
    */
   sweep?: boolean;
   /**
+   * git pathspecs whose files a sweep does not scan, from
+   * `--citations-exclude`. Meaningless without `sweep`: the default mode is
+   * already scoped to the reviewed change, and narrowing it further would be
+   * narrowing something the caller did not choose to widen.
+   *
+   * The motivating case is a repository whose citation mass sits in dated
+   * planning documents — true findings about prose nobody maintains, which
+   * drown the ones in code that someone would act on. urtext cannot tell an
+   * archived document from a live one; only its author can, which is why
+   * this is an input rather than a heuristic.
+   */
+  exclude?: readonly string[];
+  /**
    * Called once per cap that bit and once for unreadable history, with the
    * sentence the user is owed. An analyzer returns facts and nothing else, so
    * this is the only channel a disclosure has; `review` in `../cli.ts` passes
@@ -720,9 +733,19 @@ export async function findCitationRot(
     return blame;
   };
 
+  // An exclusion that removed nothing is not disclosed. Silence therefore
+  // means the pathspec did not bite — which is the signal a reader needs to
+  // notice they mistyped one, and it is only trustworthy if the note never
+  // fires for a filter that changed no result.
+  const exclude = options.sweep ? (options.exclude ?? []) : [];
   const candidates = options.sweep
-    ? await sweepCandidates(cwd)
+    ? await sweepCandidates(cwd, exclude)
     : await touchedCandidates(cwd, now, touched);
+  if (exclude.length > 0) {
+    const unfiltered = await sweepCandidates(cwd);
+    const dropped = unfiltered.length - candidates.length;
+    if (dropped > 0) note?.(citationsExcludedNote(exclude, dropped));
+  }
   if (candidates.length === 0) return [];
 
   const scanned = candidates.slice(0, MAX_CITING_FILES);
@@ -790,12 +813,36 @@ export async function findCitationRot(
  * every candidate is then read through `readAt` at the reviewed revision: a
  * file absent there yields null and is skipped.
  */
-async function sweepCandidates(cwd: string): Promise<string[]> {
-  const out = await git(["ls-files", "-z", "--", ...CITATION_PATHSPECS], cwd);
+async function sweepCandidates(cwd: string, exclude: readonly string[] = []): Promise<string[]> {
+  // Exclusions are git's own pathspec magic, passed through untouched: the
+  // caller writes what they would write for any other git command, and git
+  // decides what matches. A glob dialect of our own would be one more thing
+  // to get subtly wrong, and wrong here means silently omitting findings
+  // that are true.
+  const excludes = exclude.map((spec) => `:(exclude)${spec}`);
+  const out = await git(["ls-files", "-z", "--", ...CITATION_PATHSPECS, ...excludes], cwd);
   return out
     .split("\0")
     .filter((path) => path !== "" && !path.startsWith(`${REPORT_DIR}/`))
     .sort();
+}
+
+/**
+ * Copy for a sweep the caller narrowed.
+ *
+ * Names the pathspecs, not merely a count. An exclusion filters findings that
+ * would otherwise be reported as true, and a reader told only that something
+ * was dropped cannot tell a deliberate scope from a mistyped pathspec that
+ * matched more than they meant. The cap notes above were corrected twice for
+ * exactly that gap — a true count beside a false impression — and this
+ * sentence is written already knowing it. See
+ * `test/analyze/citations-rot.test.ts`, "discloses what it excluded by name,
+ * not merely that something was".
+ */
+export function citationsExcludedNote(specs: readonly string[], dropped: number): string {
+  const list = specs.map((s) => `\`${s}\``).join(", ");
+  const files = `${dropped} candidate file${dropped === 1 ? "" : "s"}`;
+  return `citation checking excluded ${files} matching ${list}, so citations in ${dropped === 1 ? "it" : "them"} were not checked`;
 }
 
 /**

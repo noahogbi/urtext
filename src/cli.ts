@@ -74,6 +74,13 @@ export interface CliOptions {
    * pre-existing caller constructs a `CliOptions` literal without it.
    */
   citations?: boolean;
+  /**
+   * git pathspecs a sweep does not scan. Repeatable rather than
+   * comma-separated, unlike `--export`: a path may legitimately contain a
+   * comma, and splitting on one would turn one real directory into two that
+   * do not exist.
+   */
+  citationsExclude?: string[];
   help: boolean;
 }
 
@@ -91,6 +98,9 @@ Options:
   --model ID  Model for the interpretation stage (default: ${DEFAULT_MODEL})
   --citations Check every path:line citation in this repository, not only the
               ones pointing into files this range touched
+  --citations-exclude PATHSPEC
+              Skip files matching this git pathspec while sweeping; repeatable.
+              Needs --citations. What it excluded is disclosed in the review.
   --json      Emit findings as JSON
   --open      Open the written report with the platform's default handler
   --export FORMATS
@@ -175,6 +185,22 @@ export function parseArgs(argv: string[]): CliOptions {
     else if (arg === "--no-llm") opts.noLlm = true;
     else if (arg === "--open") opts.open = true;
     else if (arg === "--citations") opts.citations = true;
+    else if (arg.startsWith("--citations-exclude=")) {
+      const value = arg.slice("--citations-exclude=".length);
+      if (!value) throw new Error("--citations-exclude needs a pathspec, e.g. --citations-exclude docs/plans.");
+      (opts.citationsExclude ??= []).push(value);
+    } else if (arg === "--citations-exclude") {
+      const value = argv[i + 1];
+      // A following flag is the next option, not this one value — the same
+      // rule --model follows, and for the same reason: excluding a pathspec
+      // called "--json" would silently narrow the sweep to nothing anyone
+      // asked for.
+      if (!value || value.startsWith("-")) {
+        throw new Error("--citations-exclude needs a pathspec, e.g. --citations-exclude docs/plans.");
+      }
+      (opts.citationsExclude ??= []).push(value);
+      i++;
+    }
     else if (arg === "--help" || arg === "-h") opts.help = true;
     else if (arg.startsWith("--model=")) {
       const value = arg.slice("--model=".length);
@@ -298,6 +324,7 @@ export async function review(
     a === citationsAnalyzer
       ? makeCitationsAnalyzer({
           sweep: opts.citations === true,
+          exclude: opts.citationsExclude ?? [],
           onNote: (note) => warnings.push(note),
         })
       : a,
