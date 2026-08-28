@@ -38,7 +38,7 @@
 
 ### Task 1: One meta assembler in `cli.ts`
 
-No signature changes and no behaviour change — this task exists so the four build sites stop each writing their own literal before any of them move.
+No signature changes and no behaviour change — this task exists so the three meta literals become one before any signature moves.
 
 **Files:**
 - Modify: `src/cli.ts:453`, `:498`, `:536-538`, `:552`, `:626`
@@ -61,25 +61,23 @@ Place it immediately before the `if (exitCode === 0) {` block that starts at `cl
   // `warnings` is the live array, not a copy: a model built at a later moment
   // must see what was pushed since (see the timing rule in the spec, and the
   // comments at each build site below).
-  //
-  // The override type is narrow on purpose. Only the two fields a later
-  // moment *learns* may be passed; widening it to `Partial<ReportMeta>` would
-  // let one moment quietly hand a different `warnings` or `citationSweep`
-  // than another, reopening inside this one file the door the change closes.
-  const metaFor = (
-    over: Partial<Pick<ReportMeta, "reportPath" | "exportPaths">> = {},
-  ): ReportMeta => ({
+  const metaFor = (): ReportMeta => ({
     model: result.model,
     warnings,
     suppressed,
     citationSweep: opts.citations === true,
-    ...over,
   });
 ```
 
+**No parameter yet.** The override this eventually takes is
+`Partial<Pick<ReportMeta, "reportPath" | "exportPaths">>`, and those two keys
+do not exist on `ReportMeta` until Task 4 — writing the `Pick` here fails its
+`keyof` constraint and the gate goes red at this task's own commit. Task 5 adds
+the parameter, where the first caller passes it.
+
 Add `ReportMeta` to the existing `import { ... } from "./report/model.js"` line if it is not already imported.
 
-- [ ] **Step 2: Replace the four literals**
+- [ ] **Step 2: Replace the three meta literals**
 
 Each of these becomes `metaFor()`:
 
@@ -94,7 +92,9 @@ const exportModel = buildReportModel(changeset, findings, metaFor());
 const jsonModel = buildReportModel(changeset, findings, metaFor());
 ```
 
-`renderTerminal` at `:626` keeps its positional arguments for now — Task 5 converts it.
+`renderTerminal` at `:626` keeps its positional arguments for now — Task 5
+converts it. (Three literals, not four: the fourth build *site* is that
+positional call, which has no meta literal to replace.)
 
 - [ ] **Step 3: Derive `counts` once**
 
@@ -111,6 +111,11 @@ At `cli.ts:536-538` the JSON branch recomputes what the model already holds. Mov
 ```
 
 Delete the two lines that built `counts` by hand, and delete the later `const jsonModel = ...` line now made redundant. Leave the comment above the old `jsonModel` build in place, moved with it.
+
+**Then drop `Tier` from the import at `cli.ts:26`.** Line 537 is its only use in
+the file, so deleting the hand-built tally orphans it, and `noUnusedLocals` is
+on (`tsconfig.json:9`) — the gate fails otherwise. The line becomes
+`import type { Analyzer } from "./types.js";`.
 
 - [ ] **Step 4: Run the gates**
 
@@ -306,7 +311,13 @@ Nothing currently pins symbol-table concealment. Add to `test/report/html.test.t
   });
 ```
 
-Confirm `changeset.files[0].symbols[0]` exists in that file's fixture (it does — `test/report/html.test.ts:21`) and that `RLO` is defined in the file; if not, add `const RLO = "‮";` beside the other fixtures.
+Confirm `changeset.files[0].symbols[0]` exists in that file's fixture (it does — `test/report/html.test.ts:21`). `html.test.ts` has no `RLO` constant; add one **as an escape**, never as the character itself:
+
+```ts
+const RLO = "\u202E";
+```
+
+`test/report/model.test.ts:16-18` states the rule this follows — "a literal concealing character in this file is invisible to the next reader" — and `src/report/conceal.ts` writes its table as code points for the same reason. The first draft of this plan pasted a raw U+202E into this very instruction, in the one repository whose subject is that character; the review caught it.
 
 - [ ] **Step 2: Run it and watch it pass**
 
@@ -345,12 +356,23 @@ Update its call site: `surface: surfaceLens(m)`.
 
 - [ ] **Step 4: Delete `visible` and the exception it existed for**
 
-Remove the `visible` function (`html.ts:104-113`) and its doc comment. Remove the `conceals` and `codePointLabel` imports if nothing else uses them (`grep -n "conceals\|codePointLabel" src/report/html.ts`). In the file header, delete the paragraph at `:36-37` naming the symbol table as a scoped exception and the bullet at `:59` (`the symbol table's changeset data → visible`), and replace with one sentence:
+Remove the `visible` function (`html.ts:104-113`) and its doc comment. Remove the `conceals` and `codePointLabel` imports if nothing else uses them (`grep -n "conceals\|codePointLabel" src/report/html.ts`). In the file header, delete the paragraph at `:36-37` naming the symbol table as a scoped exception and the bullet at `:60` (`the symbol table's changeset data → visible`) — `:59` is the `seg` bullet and must stay, and replace with one sentence:
 
 ```
  * Every string on this page comes from the model, concealment already
  * applied; this file has no concealment path of its own.
 ```
+
+Two more comments become false with `visible` and must move in this commit, not
+be left for a reader to trip over:
+
+- **`src/report/conceal.ts:9-11`** says "`html.ts` builds its `visible` wrapper
+  — the symbol table's scoped renderer-side exception — from `conceals` and
+  `codePointLabel`". After this task that names a deleted function. Rewrite it
+  to say the HTML renders segments through `seg` like every other surface.
+- **`src/report/html.ts:55-64`**, the `esc()` doc: "Three contexts, one
+  function each" becomes two, and "Both wrappers call this one" becomes one.
+  Adjust both counts (spelled as words, per the comment contract).
 
 - [ ] **Step 5: Run the gates**
 
@@ -470,7 +492,7 @@ The largest task, and one unit: the signature, the two path readings it makes
 possible, and the call sites that move with it.
 
 **Files:**
-- Modify: `src/report/terminal.ts`, `src/cli.ts:453`-ish (the moment-3 build), `src/cli.ts:626`, `src/cli.ts:639-642`
+- Modify: `src/report/terminal.ts`, `src/cli.ts:626` (which becomes the moment-3 build), `src/cli.ts:639-642`
 - Test: `test/report/terminal.test.ts` (39 sites), `test/report/model.test.ts` (2), `test/report/copy-guard.test.ts` (2)
 
 **Interfaces:**
@@ -482,6 +504,11 @@ possible, and the call sites that move with it.
 export function renderTerminal(m: ReportModel): string {
 ```
 Delete the seven parameters, the internal `buildReportModel` call, and the paragraph-long comment at `:116-122` admitting the shape was wrong — it is no longer true and its deletion is the point of this task.
+
+**Then clean the imports, or the gate fails.** `noUnusedLocals` is on, and this
+leaves `labelConcealed` (`:1`), `buildReportModel` (`:3`), and the
+`Changeset`/`Finding` type import (`:11`) with no users in `terminal.ts`. Keep
+`ReportModel` and whatever the walker still names.
 
 - [ ] **Step 2: Rule on the blank line**
 
@@ -507,15 +534,32 @@ the one string on this surface that does not come from the model" both go:
 ```ts
   if (m.reportPath) {
     out.push(`  Full report: ${m.reportPath}`);
+    // One line per written export, under the report's and inside its block.
+    // Composed here rather than appended by `cli.ts` after this walker had
+    // returned: where a review was written is something the report says about
+    // itself. Inside the block, before the trailing blank, is the placement
+    // that reproduces today's bytes — see below.
+    for (const e of m.exportPaths) {
+      out.push(`  ${e.format} export: ${e.path}`);
+    }
     out.push("");
   }
-  // One line per written export, under the report's. Composed here rather
-  // than appended by `cli.ts` after this walker had returned: where a review
-  // was written is something the report says about itself.
-  for (const e of m.exportPaths) {
-    out.push(`  ${e.format} export: ${e.path}`);
-  }
 ```
+
+**The placement is load-bearing, and the obvious version is wrong.** Today the
+walker ends `[..., "  Full report: X", ""]`, and `join("\n")` turns that
+trailing empty element into the final newline — so the returned string ends
+`"  Full report: X\n"` with *no* blank line after it, and `cli.ts` appends
+`"  md export: Y\n"` directly onto that. Pushing the export lines *after* the
+`out.push("")` would insert a blank line that does not exist today and leave no
+trailing newline, so the gitignore tip — appended by `cli.ts` as
+`output += "  Tip: ...\n"` — would glue itself onto the last export line.
+
+No existing test would object: every assertion on these lines is a substring
+check (`test/cli.test.ts:775-779`, `:1068-1072`, `:1076-1080`), and the fixture
+that exercises the tip is one of them. The tripwire in the step below is
+therefore not sufficient on its own — check the three cases by eye: no report,
+report only, report plus exports.
 
 Then delete the loop at `cli.ts:639-642` and populate the meta instead:
 
@@ -533,13 +577,32 @@ Keep `cli.ts`'s own `exportPaths` record — the JSON object still emits it.
 
 The lines are byte-identical and in the same order, so `test/cli.test.ts`'s
 assertions on them (`grep -n "export:" test/cli.test.ts`) must pass untouched.
-If one needs editing, stop and find out why.
+If one needs editing, stop and find out why — but do not treat their passing as
+proof, for the reason stated above.
+
+**Add the assertion that would have caught it.** In `test/report/terminal.test.ts`:
+
+```ts
+  it("runs the export lines straight on from the report line, with one blank after", () => {
+    const m = buildReportModel({ ...changeset, untrackedCount: 0 }, [], {
+      warnings: [],
+      reportPath: "/r/review.html",
+      exportPaths: [{ format: "md", path: "/r/review.md" }],
+    });
+    // Exact tail, not `toContain`: the defect this pins is a blank line in the
+    // wrong place and a missing final newline, and every substring assertion
+    // in the suite survives both.
+    expect(renderTerminal(m).endsWith("  Full report: /r/review.html\n  md export: /r/review.md\n")).toBe(true);
+  });
+```
 
 - [ ] **Step 4: Pin the new blank-line rule**
 
 ```ts
   it("separates the disclosures from the findings whichever kind they are", () => {
-    const withUntracked = buildReportModel(changeset({ untrackedCount: 2 }), [finding()], {
+    // `changeset` is a const in this file, not a factory — the `changeset({...})`
+    // idiom belongs to model.test.ts. Spread it, as `:134` already does.
+    const withUntracked = buildReportModel({ ...changeset, untrackedCount: 2 }, [finding()], {
       warnings: [],
     });
     const out = renderTerminal(withUntracked);
@@ -605,6 +668,12 @@ export function renderHtml(m: ReportModel): string {
 ```
 Delete the internal `buildReportModel` call. The three panes already read `m`; `surfaceLens(m)` came from Task 3.
 
+**Imports and a re-export go with it:** `buildReportModel` (`:4`), the
+`Changeset`/`Finding` types (`:16`), and the `ReportMeta` import (`:21`) all
+lose their users. So does the `export type { ReportMeta }` re-export at `:23` —
+every consumer imports that type from `model.js` directly (`grep -rn
+"ReportMeta" src test`), so it and its explanatory comment go too.
+
 - [ ] **Step 2: Add the per-file helper and rewrite the call sites**
 
 Same helper as Task 5, in each test file that has renderHtml sites. The rule:
@@ -622,7 +691,26 @@ const model = (cs: Changeset, findings: Finding[], over: Partial<ReportMeta> = {
   buildReportModel(cs, findings, meta(over));
 ```
 
+**`meta()` must be retyped first.** It is declared
+`Partial<Parameters<typeof renderHtml>[2]>` (`test/report/html.test.ts:54`),
+and after this step `renderHtml` has no second index — that is a type error, not
+a lint. Change it to `Partial<ReportMeta>` and import the type from
+`../../src/report/model.js`.
+
+**`test/report/copy-guard.test.ts` gets no helper.** It already declares a
+top-level `const model = buildReportModel(...)` at `:83` (and a
+`citationModel`), so a per-file helper of that name collides. Its four sites
+should pass those existing constants straight in — which is this change at its
+best: the file built models already and then handed the pieces to the renderers.
+
 **Same review point as Task 5**, and it matters more here: 8 sites pass `noSymbols` and several pass inline or derived changesets.
+
+**Delete the comment this change disproves.** `test/report/model.test.ts:709`
+reads "The terminal takes findings, not a model, so it gets the same two" — it
+explains why that test builds its fixture twice, and the spec cites it as
+motivation. Once both renderers take a model the sentence is false and the
+duplication it excused should go with it: build one model and hand it to both
+surfaces, which is the whole point.
 
 - [ ] **Step 3: Run the gates**
 
@@ -666,18 +754,20 @@ At each of the three sites, one sentence naming what that moment can honestly kn
     // carries what was known when it was produced. Collapsing them into one
     // build would either backdate a warning onto a document that could not
     // have known it, or drop it from one that must say it.
-    const r = await review(repo, {
-      command: "review",
-      json: true,
-      noLlm: true,
-      help: false,
-      exportFormats: ["md", "pdf"],
-    }, {
-      md: () => {
-        throw new Error("md exporter exploded");
+    const r = await review(
+      repo,
+      { command: "review", json: true, noLlm: true, help: false, exportFormats: ["md", "pdf"] },
+      // `exporters` is the FOURTH parameter (`cli.ts:301-318`); `analyzers` is
+      // third and takes its default. The existing seam user at
+      // `test/cli.test.ts:787` passes `undefined` here for the same reason.
+      undefined,
+      {
+        md: () => {
+          throw new Error("md exporter exploded");
+        },
+        pdf: renderPdf,
       },
-      pdf: renderPdf,
-    });
+    );
     const parsed = JSON.parse(r.output);
     // The run that failed to render the md export says so...
     expect(parsed.warnings.some((w: string) => w.includes("md export"))).toBe(true);
@@ -688,7 +778,9 @@ At each of the three sites, one sentence naming what that moment can honestly kn
   });
 ```
 
-Check `review()`'s parameter order for the `exporters` argument (`cli.ts:318`) and match it; import `renderPdf` and a `textOf` helper (copy the four-line `extracted`/`textOf` pair from `test/report/pdf.test.ts` or export it from there).
+Import `renderPdf`, and copy the `extracted`/`textOf` pair from
+`test/report/pdf.test.ts:65-71` (seven lines, not four) — it collapses
+whitespace, which makes the assertion safe against pdfkit's line wrapping.
 
 - [ ] **Step 3: Run it**
 
@@ -697,7 +789,14 @@ npx vitest run test/cli.test.ts -t "already rendered"
 ```
 Expected: PASS on the implementation as built — this test characterizes the moments rather than driving new behaviour. Its value is as a tripwire; say so in the commit message rather than implying it was red.
 
-To prove it discriminates, temporarily make the moment-3 model serve moment 2 (`exporters.pdf(buildReportModel(changeset, findings, metaFor()))` moved below the export loop) and confirm it fails. Restore by editing the file back — **not** with `git checkout --`, which would discard the task's other uncommitted work.
+To prove it discriminates, collapse moment 2 into moment 3 for one run: inside
+the export loop, build a fresh model immediately before the `pdf` render
+(`await exporters.pdf(buildReportModel(changeset, findings, metaFor(...)))`)
+so the PDF is rendered *after* the md failure was pushed to `warnings`. The
+assertion must then fail, because `renderPdf` prints every `notes` entry
+through `strongLine` (`src/report/pdf.ts:228-235`). Restore by editing the file
+back — **not** with `git checkout --`, which would discard the task's other
+uncommitted work.
 
 - [ ] **Step 4: Add the moment 1 / moment 2 case**
 
@@ -706,10 +805,14 @@ To prove it discriminates, temporarily make the moment-3 model serve moment 2 (`
     // With `.urtext` occupied by a plain file the report write fails, so
     // moment one produces nothing; the Markdown on stdout is built at moment
     // two and carries the failure the HTML never existed to carry.
-    // (Fixture as in "writes no report when the path is occupied".)
   });
 ```
-Model it on the existing occupied-path test at `test/cli.test.ts:803`, with `stdout: "md"` set, asserting the returned `markdown` contains "could not write the report".
+Copy the occupied-`.urtext` fixture from **"still returns the review's findings
+when the report fails to write"** (`test/cli.test.ts:694`) — the title cited in
+this plan's first draft, "writes no report when the path is occupied", does not
+exist. That test's options are built on `jsonOpts`; the copy needs
+`json: false, stdout: "md"` instead, and asserts the returned `markdown`
+contains "could not write the report".
 
 - [ ] **Step 5: Gates and commit**
 
@@ -738,24 +841,22 @@ git commit -m "test(cli): pin the three build moments against collapse"
     // become a walker — its `warnings` are deliberately raw where the model's
     // `notes` are labelled, and its shape is a published contract — so the
     // rule is that a new model field is a decision, not an oversight.
+    // Only keys the object does NOT emit belong here — `emitted.has(k)`
+    // already accounts for the rest, and listing them would forgive a future
+    // *removal* in silence. Every reason must be true; an exemption whose
+    // reason is false is worse than no guard, because it reads as a decision.
     const EXEMPT: Record<string, string> = {
-      scope: "composed from range/fileCount/lineCount, all present here",
-      fileCount: "derivable from `range` and the diff a consumer already has",
-      lineCount: "derivable from `range` and the diff a consumer already has",
+      scope: "prose over rangeLabel/fileCount/lineCount, all recoverable below",
+      fileCount: "recomputable from the diff the consumer already has",
+      lineCount: "recomputable from the diff the consumer already has",
       rangeLabel: "present as `range.label`",
       provenance: "prose about `model`, which is present",
       modelName: "present as `model`",
-      notes: "labelled prose; `warnings` carries the raw strings a script needs",
+      notes: "labelled prose over `warnings` and `untrackedCount`, both present",
       coverageNote: "present as `coverage.note`",
       filterNote: "prose about `suppressed`, which is present",
-      beyondIntentLegend: "legend for a mark on findings, which are present",
-      surfaceSymbols: "changeset data a consumer reads from the diff itself",
-      reportPath: "present as `reportPath`",
-      exportPaths: "present as `exportPaths`",
-      findings: "present as `findings`",
-      counts: "present as `counts`",
-      distributionNote: "present as `citations.distributionNote`",
-      kindNotes: "present as `kindNotes`",
+      beyondIntentLegend: "legend for a mark carried on each finding",
+      surfaceSymbols: "recomputable by rerunning extraction; not in the diff alone",
     };
     const r = await review(repo, { command: "review", json: true, noLlm: true, help: false });
     const emitted = new Set(Object.keys(JSON.parse(r.output)));
@@ -765,18 +866,41 @@ git commit -m "test(cli): pin the three build moments against collapse"
   });
 ```
 
-Build the model in the test from the same fixture the review used, or export a helper from `cli.ts`; whichever is done, the model must come from `buildReportModel` so a new field appears in `Object.keys`.
+Build the model in the test from the same fixture the review used — nothing
+new needs exporting from `cli.ts`: `extract` and `repoRoot` are already public
+and `test/report/pdf.test.ts:309` builds a model from real extraction exactly
+this way. Take `findings` from the parsed output.
 
-- [ ] **Step 2: Verify it discriminates**
+**One caveat the test should state in a comment:** the guard sees
+`Object.keys` of one built instance, and this model assigns seven fields
+conditionally (`if (x) model.y = ...`). A new field of that shape is invisible
+to the guard on a fixture that does not trigger it. The guard catches the
+common case, not every case, and should say so rather than implying otherwise.
+
+- [ ] **Step 2: Emit what the exemptions cannot honestly excuse**
+
+Writing the list above surfaces a real gap: the untracked-file disclosure
+reaches `notes` (`model.ts:635-641`) and **no** JSON key. `warnings` carries
+the raw analyzer strings, not that note, and `range` does not carry the count —
+so a script cannot recover "N untracked files were not reviewed" at all. That
+is the `kindNotes` failure again, found by writing down why a key was exempt
+and not being able to finish the sentence.
+
+Add `untrackedCount` to the JSON object beside `suppressed`, always present,
+zero included, with a comment naming the same rule. Then `notes`' exemption
+reason above is true. Add a test asserting a run over a repository with an
+untracked file reports it on both surfaces.
+
+- [ ] **Step 3: Verify it discriminates**
 
 Add a throwaway field to `ReportModel` and its builder, run the test, confirm it fails naming that key, then remove the field.
 
-- [ ] **Step 3: Gates and commit**
+- [ ] **Step 4: Gates and commit**
 
 ```bash
 npx tsc --noEmit
 npx vitest run
-git add test/cli.test.ts
+git add src/cli.ts test/cli.test.ts
 git commit -m "test(cli): make a model field's absence from --json a decision"
 ```
 
@@ -785,6 +909,42 @@ git commit -m "test(cli): make a model field's absence from --json a decision"
 ## Execution order
 
 Straight through, 1 to 8: each task's interfaces are produced by an earlier one, and every task leaves the suite green and the tree committable.
+
+## Corrections from review (2026-08-28, before execution)
+
+Ten findings, all folded in above. Four were mandatory — without them the first
+task's gate is red, or the change ships a silent regression:
+
+1. **Task 1 could not compile.** `metaFor`'s override typed
+   `Pick<ReportMeta, "reportPath" | "exportPaths">` names keys Task 4 adds, and
+   deleting the hand-built `counts` orphaned the `Tier` import under
+   `noUnusedLocals`. The parameter now arrives in Task 5, and the import is
+   dropped explicitly.
+2. **Task 5's path block was not byte-identical.** The export lines belong
+   *inside* the report-path block, before its trailing blank push. The draft's
+   placement added a blank line and dropped the final newline, gluing the
+   gitignore tip onto the last export line — and every existing assertion on
+   those lines is a substring check, so the suite would have stayed green. A
+   tail-exact test is added because of this.
+3. **The plan itself contained a raw U+202E**, in an instruction telling the
+   executor to paste it into a test file — in the repository whose subject is
+   that character. Now the escape, with the convention cited.
+4. **Task 7 passed `exporters` third**, where it is the fourth parameter, and
+   cited a test title that does not exist.
+
+The rest: orphaned imports in Tasks 5 and 6, `html.test.ts`'s `meta()` helper
+typed off `renderHtml`'s parameter list, `copy-guard.test.ts`'s existing
+`model` const colliding with the proposed helper, `terminal.test.ts`'s
+`changeset` being a const rather than a factory, three false reasons in the
+`--json` exemption list, and three comments elsewhere that this change makes
+untrue. Errata: "four literals" (three), `html.ts:59` (`:60`), and Task 5's
+file list calling `:453` the moment-3 build.
+
+**One finding produced new work rather than a correction.** Writing down why
+`notes` could be exempt from `--json` did not survive contact: the untracked-file
+disclosure reaches `notes` and no JSON key at all, so a script cannot recover
+it. That is the `kindNotes` gap again, and Task 8 now emits `untrackedCount`
+instead of exempting it with a sentence that could not be finished.
 
 ## Self-review
 
