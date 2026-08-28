@@ -3,6 +3,7 @@ import {
   BEYOND_INTENT_MARK,
   BEYOND_INTENT_MEANING,
   buildReportModel,
+  KIND_NOTES,
   plainText,
   TIER_GLYPH,
   UNNAMED_MODEL,
@@ -609,6 +610,63 @@ describe("buildReportModel beyond stated intent", () => {
       if (view.tier === "verified") expect(view.beyondIntent).toBeUndefined();
     }
     expect(m.findings.filter((f) => f.beyondIntent).length).toBe(2);
+  });
+});
+
+describe("per-kind guidance", () => {
+  it("answers for a grouped finding as the kind its members were", () => {
+    // A group's id is no member's, so a lookup keyed on the raw prefix finds
+    // nothing for it. That is the case where saying the guidance once matters
+    // most: grouping happens when a file has several findings of one kind, so
+    // the reader who most needs to know what the kind means is the one whose
+    // review has a group in it.
+    const m = buildReportModel(
+      changeset(),
+      [
+        finding({ id: "export_added_group:a.ts" }),
+        finding({ id: "signature_changed_group:b.ts" }),
+        finding({ id: "blast_radius:c.ts:helper" }),
+        // A second finding of a kind already noted, ungrouped and in another
+        // file: the note is about the kind, so it is still said once.
+        finding({ id: "export_added:d.ts:one" }),
+      ],
+      { warnings: [] },
+    );
+    expect(m.kindNotes).toEqual([
+      KIND_NOTES.export_added,
+      KIND_NOTES.signature_changed,
+      KIND_NOTES.blast_radius,
+    ]);
+  });
+
+  it("says nothing about a kind that carries no guidance", () => {
+    const m = buildReportModel(
+      changeset(),
+      [finding({ id: "guard_removed:a.ts:9:run:if" }), finding({ id: "claim:0:m1", tier: "model" })],
+      { warnings: [] },
+    );
+    expect(m.kindNotes).toEqual([]);
+  });
+});
+
+describe("the per-kind guidance reaches every surface", () => {
+  // Same contract as the distribution note below, and pinned for the same
+  // reason: these sentences left the finding bodies to be said once, and a
+  // surface that never reads `kindNotes` now prints nothing where it used to
+  // print the guidance on every finding. The PDF's half of this is in
+  // `test/report/pdf.test.ts`, "prints each kind's guidance once".
+  const findings = [finding({ id: "export_added_group:a.ts", file: "a.ts" })];
+  const note = KIND_NOTES.export_added;
+
+  it("prints a kind's guidance in the terminal, the Markdown, and the HTML", () => {
+    const terminal = renderTerminal(changeset(), findings);
+    expect(terminal).toContain(note);
+
+    const md = renderMarkdown(buildReportModel(changeset(), findings, { warnings: [] }));
+    expect(md).toContain(note);
+
+    const html = renderHtml(changeset(), findings, { warnings: [] });
+    expect(html).toContain(note);
   });
 });
 

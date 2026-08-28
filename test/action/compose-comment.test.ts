@@ -259,77 +259,73 @@ describe("composeComment", () => {
       }
     });
 
-    it("takes the first removal from the largest view", () => {
-      const before = segment(findingsReview).sections.map((s) => s.findings.length);
-      const largest = before.lastIndexOf(Math.max(...before));
-      // Derived, not assumed. A limit a single character under the
-      // untruncated body once bought exactly one removal, because each
-      // finding body carried a closing guidance sentence and so covered the
-      // notice's cost. That sentence moved out of the bodies to be said once
-      // per kind, findings shrank, and a single cut stopped fitting — the
-      // corpus now goes from nothing omitted straight to a pair, which is the
-      // discontinuity the paragraph below describes.
-      //
-      // So this takes the fewest removals the corpus can actually produce and
-      // asserts the property that matters: whatever was cut first came out of
-      // the largest view. Pinning a literal count pins the fixture's
-      // arithmetic, which is exactly what broke. (Counts are spelled as words
-      // here because a bare small integer in a comment reads as a restated
-      // WEIGHTS value to this repository's comment contract.)
-      const full = composeComment(base()).body.length;
-      let r = composeComment(base({ limit: full - 1 }));
-      for (let limit = full - 1; limit > full / 3; limit -= 1) {
-        const probe = composeComment(base({ limit }));
-        if (probe.outcome !== "reviewed" || probe.omitted === 0) continue;
-        if (probe.omitted < r.omitted || r.omitted === 0) r = probe;
-        break;
-      }
-      expect(r.outcome).toBe("reviewed");
-      expect(r.omitted).toBeGreaterThan(0);
-      const after = segment(r.body).sections.map((s) => s.findings.length);
-      expect(after[largest]).toBeLessThan(before[largest]);
+    it("takes every removal from the view that is largest at the time", () => {
+      // The policy, restated independently of the implementation: cut one
+      // finding from whichever view currently holds the most, ties going to
+      // the later view in document order, and repeat. Written out here rather
+      // than asserted through a property, because a property that survives
+      // several distributions is exactly how the earlier version of this test
+      // went quiet — it asserted only that the largest view shrank, which a
+      // policy taking its first cut from the smallest view and its second
+      // from the largest also satisfies.
+      const simulate = (counts: number[], cuts: number): number[] => {
+        const out = [...counts];
+        for (let i = 0; i < cuts; i++) {
+          let victim = -1;
+          for (let j = 0; j < out.length; j++) {
+            // `>=`, so a tie leaves the later view holding the cut — the
+            // comparison `largest` in `action/compose-comment.mjs` makes.
+            if (out[j] > 0 && (victim < 0 || out[j] >= out[victim])) victim = j;
+          }
+          // Every view emptied and still over the limit is the
+          // disclosure-overflow path, which returns a failure body instead;
+          // no sweep entry below reaches it, since those are skipped.
+          if (victim < 0) break;
+          out[victim]--;
+        }
+        return out;
+      };
 
-      // The count above does not pin the tie-break on its own, because this
-      // corpus's two tied views hold different-sized findings — an Effects
-      // finding is the smaller, an API-surface finding nearly twice it — and
-      // the notice costs more than a small finding saves. So a tie-break
-      // toward the earlier view sends the first cut to a small Effects
-      // finding, which does not get under the budget by itself and forces a
-      // second cut onto a large API-surface one; that pair leaves the two
-      // views level again, and `after[largest]` comes out the same either
-      // way. `omitted` catches that directly. The sweep below catches it
-      // without depending on any of those sizes: removals alternate between
-      // tied views, so whenever the two end at different counts it is the
-      // later one that is smaller, and a tie-break toward the earlier view
-      // inverts that at every odd number of removals.
+      const before = segment(findingsReview).sections.map((s) => s.findings.length);
       const biggest = Math.max(...before);
       const tied = before.flatMap((n, i) => (n === biggest ? [i] : []));
       expect(tied.length, "the corpus has no tie for the rule to break").toBeGreaterThan(1);
-      const earlier = tied[0];
-      const later = tied[tied.length - 1];
-      let sawDifference = false;
-      for (let limit = full; limit > full / 3; limit -= 40) {
-        const swept = composeComment(base({ limit }));
-        if (swept.outcome !== "reviewed") continue;
-        const counts = segment(swept.body).sections.map((s) => s.findings.length);
-        expect(counts[later]).toBeLessThanOrEqual(counts[earlier]);
-        if (counts[later] < counts[earlier]) sawDifference = true;
+
+      // Limits rather than one limit, because a single one pins a single
+      // distribution — and which distributions this corpus can reach is
+      // fixture arithmetic that moves whenever a finding body or the header
+      // changes size. The tightest limit that truncates at all leads, since
+      // the first cut is the one with no earlier cut to hide behind.
+      const full = composeComment(base()).body.length;
+      const limits = [full - 1];
+      for (let limit = full; limit > full / 3; limit -= 40) limits.push(limit);
+
+      let sawTruncation = false;
+      let sawTieBroken = false;
+      for (const limit of limits) {
+        const probe = composeComment(base({ limit }));
+        if (probe.outcome !== "reviewed") continue;
+        const after = segment(probe.body).sections.map((s) => s.findings.length);
+        // Positional equality across every view, so this pins where each cut
+        // landed and in what order — not merely how many were taken.
+        expect(after, `at limit ${limit}`).toEqual(simulate(before, probe.omitted));
+        if (probe.omitted > 0) sawTruncation = true;
+        if (after[tied[0]] !== after[tied[tied.length - 1]]) sawTieBroken = true;
       }
-      expect(sawDifference, "no limit in the sweep reached the tie case").toBe(true);
+      // A sweep that reached neither state would pass while asserting
+      // nothing about truncation at all.
+      expect(sawTruncation, "no limit in the sweep truncated anything").toBe(true);
+      expect(sawTieBroken, "no limit in the sweep reached the tie case").toBe(true);
     });
 
     it("says an emptied view was emptied, and never that nothing matched it", () => {
       // "Nothing in this range matched this view" would be a lie about a view
       // whose findings this comment dropped.
-      // Derived from what the header actually costs, not a fixed number. The
-      // budget has to leave room for the marker, the scope line, the
-      // disclosures and the per-kind notes, and still be tight enough to
-      // empty a view — a literal that happened to satisfy both stopped doing
-      // so the moment the header grew.
-      // Searched rather than hardcoded. The literal that used to sit here had
-      // to be tight enough to empty a view and loose enough to still produce
-      // a review; the header grew when per-kind guidance moved out of the
-      // finding bodies, and the literal stopped satisfying both at once.
+      // Searched rather than hardcoded. The budget has to be tight enough to
+      // empty a view and loose enough to still produce a review; the literal
+      // that used to sit here satisfied both until the header grew — the
+      // per-kind guidance moved out of the finding bodies and into it — and
+      // then satisfied neither.
       const full = composeComment(base()).body.length;
       let r = composeComment(base());
       for (let limit = full; limit > MARKER.length; limit -= 25) {

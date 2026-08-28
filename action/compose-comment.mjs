@@ -300,8 +300,8 @@ function withNotice(head, notice) {
  * aesthetic: the Markdown surface partitions findings by lens, so global rank
  * is not recoverable from the document, and cutting a plain suffix would keep
  * every low-ranked Narrative row while dropping the Effects section entirely.
- * See `test/action/compose-comment.test.ts`, "takes the first removal from
- * the largest view".
+ * See `test/action/compose-comment.test.ts`, "takes every removal from the
+ * view that is largest at the time".
  * @param {Section[]} sections
  * @returns {Section | undefined}
  */

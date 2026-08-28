@@ -726,4 +726,44 @@ describe("reach never buries a defect, through the path a review takes", () => {
     // And the demoted finding is still present — banded, not filtered.
     expect(out).toHaveLength(2);
   });
+
+  it("puts a rotted citation above a file's grouped new exports", () => {
+    // A file's added exports collapse into one finding whose id belongs to no
+    // fact, so a band map keyed by fact id answers for none of them and the
+    // group falls to the default band. That default is the defect band, which
+    // is the one place this must not land: a group scores as its highest
+    // member, `export_added` outweighs `citation_rot`, and grouping happens on
+    // the commonest shape there is — a new module. The aggregate of the exact
+    // row this banding demotes would sort back above every rotted citation,
+    // and the boundary would be incoherent: two added exports below, three
+    // above.
+    const added = ["one", "three", "two"].map((name) =>
+      fact(`export_added:a.ts:${name}`, {
+        kind: "export_added",
+        qualifiedSymbol: name,
+        detail: { export: name },
+        evidence: [{ file: "a.ts", line: 1, excerpt: `export const ${name} = 1;` }],
+      }),
+    );
+    const out = reconcile(
+      [
+        ...added,
+        fact("rot", {
+          kind: "citation_rot",
+          file: "docs/a.md",
+          qualifiedSymbol: undefined,
+          detail: {
+            citedFile: "src/lib.ts",
+            citedLine: 3,
+            rot: "content_drift",
+            citingText: "see `src/lib.ts:3`",
+          },
+        }),
+      ],
+      [],
+    );
+    // The group exists — this is a banding test, not an accidental
+    // three-individual-findings one.
+    expect(out.map((f) => f.id)).toEqual(["rot", "export_added_group:a.ts"]);
+  });
 });

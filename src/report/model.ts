@@ -364,11 +364,19 @@ export const MODEL_CAUTION_CLAIM =
 /** How many referencing sites a finding lists before it stops listing them. */
 export const REACH_SITES_SHOWN = 5;
 
+/**
+ * What a grouping pass in `../score/reach.ts` appends to a kind to make the
+ * id prefix of the finding that replaces a file's findings of that kind.
+ * Written once and composed below, so the two prefixes and the rule that
+ * recovers a kind from them (`kindOf`) cannot drift apart.
+ */
+const GROUP_SUFFIX = "_group";
+
 /** The id `groupAddedExports` gives the finding that replaces a file's added-export findings. */
-const EXPORT_GROUP_PREFIX = "export_added_group";
+const EXPORT_GROUP_PREFIX = `export_added${GROUP_SUFFIX}`;
 
 /** The id `groupSignatureChanges` gives the finding that replaces a file's signature_changed findings. */
-const SIGNATURE_GROUP_PREFIX = "signature_changed_group";
+const SIGNATURE_GROUP_PREFIX = `signature_changed${GROUP_SUFFIX}`;
 
 /**
  * Total over `FactKind` — `satisfies` makes a new kind a compile error here
@@ -424,13 +432,27 @@ const SUBJECT_OF_KIND = {
  * subject because `signature_changed` and `export_added` share the `surface`
  * subject and mean different things.
  */
-const KIND_NOTES: Record<string, string> = {
+export const KIND_NOTES: Record<string, string> = {
   blast_radius: "Reach findings report how widely a changed export is used. Wide reach is not a defect; it is the cost of getting one wrong.",
   signature_changed:
     "A changed contract can break callers without breaking the build at the file that changed, so check the call sites.",
   export_added:
     "Newly exported surface is worth a look, but it cannot break an existing caller.",
 };
+
+/**
+ * The kind a finding's id names, with a grouping pass's suffix removed: a
+ * group speaks for members that were all of one kind, so it means that kind
+ * here. Without this a grouped finding matches no note at all — and grouping
+ * happens exactly when a file has several findings of one kind, which is the
+ * review that most needs the kind explained.
+ */
+function kindOf(id: string): string | undefined {
+  const colon = id.indexOf(":");
+  if (colon < 0) return undefined;
+  const prefix = id.slice(0, colon);
+  return prefix.endsWith(GROUP_SUFFIX) ? prefix.slice(0, -GROUP_SUFFIX.length) : prefix;
+}
 
 /**
  * The guidance for every kind this review actually produced, deduplicated and
@@ -440,9 +462,8 @@ function kindNotesFor(findings: Finding[]): string[] {
   const seen = new Set<string>();
   const notes: string[] = [];
   for (const f of findings) {
-    const colon = f.id.indexOf(":");
-    if (colon < 0) continue;
-    const kind = f.id.slice(0, colon);
+    const kind = kindOf(f.id);
+    if (kind === undefined) continue;
     const note = KIND_NOTES[kind];
     if (note && !seen.has(kind)) {
       seen.add(kind);

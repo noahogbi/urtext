@@ -10,6 +10,7 @@ import { suppressionNote } from "../../src/report/coverage.js";
 import {
   BEYOND_INTENT_MEANING,
   buildReportModel,
+  KIND_NOTES,
   plainText,
   type ReportMeta,
   type ReportModel,
@@ -163,6 +164,22 @@ describe("renderPdf honesty content", () => {
     const text = await textOf(await renderPdf(buildReportModel(changeset, [finding()], meta())));
     expect(text).not.toContain("This review is partial.");
     expect(text).not.toContain("Filtered:");
+  });
+
+  it("prints each kind's guidance once", async () => {
+    // This surface's share of the contract the other three carry in
+    // `test/report/model.test.ts`, "prints a kind's guidance in the terminal,
+    // the Markdown, and the HTML": these sentences closed every body of their
+    // kind, so a walker that never reads `kindNotes` drops guidance a reader
+    // of this document had yesterday. A grouped finding, because a group's id
+    // is no fact's and so exercises the lookup that has to recover the kind.
+    const model = buildReportModel(
+      changeset,
+      [finding({ id: "export_added_group:a.ts", title: "exports 3 new symbols" })],
+      meta(),
+    );
+    const text = await textOf(await renderPdf(model));
+    expect(text.split(KIND_NOTES.export_added)).toHaveLength(2);
   });
 
   it("says so, in the terminal's words, when there are no findings", async () => {

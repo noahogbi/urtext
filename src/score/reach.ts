@@ -226,7 +226,13 @@ export function groupAddedExports(
       // of every title (see the identical fix in `toFinding`'s comment on
       // effect findings).
       title: `exports ${group.length} new symbols`,
-      body: `New public surface: ${names.join(", ")}. New exports cannot break an existing caller, but they are what future code will depend on.${reachSentence}`,
+      // This group's own facts and nothing else. What newly exported surface
+      // means — that it cannot break an existing caller — is true of every
+      // added export, so it is said once per review by `KIND_NOTES` in
+      // `../report/model.ts` rather than once per finding. Saying it here too
+      // would print it directly beneath itself, which is the repetition those
+      // notes exist to remove.
+      body: `New public surface: ${names.join(", ")}.${reachSentence}`,
       score: Math.max(...group.map((f) => f.score)),
       evidence: group.map((f) => f.evidence[0]),
       ...(reach ? { reach } : {}),
@@ -369,7 +375,12 @@ export function groupSignatureChanges(
       // the whole range, and scoping the headline to its file is worth the
       // repetition.
       title: `${members.length} exports in ${file} changed their signature`,
-      body: `${listing} A changed contract can break callers without breaking the build at this file, so check the call sites.${unresolvedNames.length > 0 ? ` ${typeUnresolvedNoteFor(unresolvedNames)}` : ""}${reachSentence}`,
+      // The members' sentences, the hedge when one is owed, the reach when
+      // there is any — and no guidance about what a signature change means.
+      // That sentence is true of every signature change, so `KIND_NOTES` in
+      // `../report/model.ts` says it once for the review; see the identical
+      // note on `groupAddedExports`' body, above.
+      body: `${listing}${unresolvedNames.length > 0 ? ` ${typeUnresolvedNoteFor(unresolvedNames)}` : ""}${reachSentence}`,
       // The group scores as its highest-scoring member. Grouping is
       // presentation, not amplification: ten same-cause rows folded into
       // one must rank exactly where the most serious of them would have

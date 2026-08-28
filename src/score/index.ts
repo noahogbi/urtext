@@ -577,38 +577,35 @@ const CONTEXT_KINDS: ReadonlySet<Fact["kind"]> = new Set<Fact["kind"]>([
  * wrongly for any id not built from a kind, which the tests construct and
  * which nothing forbids.
  */
-export function bandOf(kind: Fact["kind"]): number {
+function bandOf(kind: Fact["kind"]): number {
   return CONTEXT_KINDS.has(kind) ? 1 : 0;
 }
 
 /**
  * The band of every finding a fact list will produce, keyed by fact id.
  *
- * Exported because two sorts order findings and both must agree: this
- * module's, and `reconcile`'s final one — which runs last and would otherwise
- * discard the banding this module applied. That is not hypothetical: it is
- * exactly what happened when the band was added here alone, and a unit test
- * over `rank` passed while the shipped ordering never moved, because `rank`
- * is not the path a review takes. A finding with no entry — a standalone
- * model claim, which comes from no fact — sorts in the defect band, leaving
- * its position governed by score as before.
+ * A finding with no entry — a standalone model claim, which comes from no
+ * fact — sorts in the defect band. Its position within that band is governed
+ * by score as before, though it now sits above every context finding whatever
+ * their scores: a claim alleges a problem, so the band it lands in is the
+ * right one, but that is a change to where claims rank, not a preservation.
  */
-export function bandsFor(facts: Fact[]): Map<string, number> {
+function bandsFor(facts: Fact[]): Map<string, number> {
   return new Map(facts.map((fact) => [fact.id, bandOf(fact.kind)]));
 }
 
 export function rankWithAbsorption(
   facts: Fact[],
-): { findings: Finding[]; absorbedBy: Map<string, string> } {
+): { findings: Finding[]; absorbedBy: Map<string, string>; bands: Map<string, number> } {
   const { facts: kept, reach, absorbedBy: radiusAbsorbedBy } = foldReach(
     facts,
     (fact) => WEIGHTS.factKind[fact.kind],
   );
 
   // Recorded while the facts are still in hand, because the sort below runs
-  // over findings and a finding does not carry its kind. A grouped finding's
-  // id is not a member's, so groups fall through to the defect band — which
-  // is correct for every kind that groups today, all of which name defects.
+  // over findings and a finding does not carry its kind. Group ids are added
+  // once the grouping passes have run — see the extension below, which is not
+  // optional: `export_added` both groups and is context.
   const band = bandsFor(kept);
 
   const findings = kept.map((fact) => {
@@ -671,6 +668,21 @@ export function rankWithAbsorption(
   // can answer for both when the chain below resolves a sibling.
   const groupAbsorbedBy = new Map([...signatureAbsorbedBy, ...exportAbsorbedBy]);
 
+  // A group's id belongs to no fact, so `bandsFor` above cannot have answered
+  // for it, and an unanswered id takes the default — the defect band. That is
+  // wrong for exactly the kind this banding exists to demote: a file's added
+  // exports collapse into one finding that scores as its highest member, so
+  // the aggregate would outrank every rotted citation while its two-member
+  // form, below the grouping threshold, sorted underneath. A member's band is
+  // the group's because grouping is per-kind: every member of a group shares
+  // one kind, and `absorbedBy` is the map that already knows which members
+  // went where. See `test/score/reconcile.test.ts`, "puts a rotted citation
+  // above a file's grouped new exports".
+  for (const [factId, groupId] of groupAbsorbedBy) {
+    const memberBand = band.get(factId);
+    if (memberBand !== undefined) band.set(groupId, memberBand);
+  }
+
   // A blast_radius fact's sibling can itself have been grouped away, so its
   // id no longer names a finding either — resolve through the grouping
   // absorption maps too, falling back to the sibling's own id when it was
@@ -692,6 +704,15 @@ export function rankWithAbsorption(
         a.line - b.line,
     ),
     absorbedBy,
+    // Handed to `reconcile` rather than recomputed there, because two sorts
+    // order findings and both must agree. Recomputing was the earlier design
+    // and it was a second, weaker copy: the group ids above exist only here,
+    // where the grouping passes ran, so a caller deriving bands from the
+    // facts alone answers wrongly for every grouped finding. Agreement is not
+    // optional — `reconcile`'s sort runs last and governs what a reader sees;
+    // when the band was applied here alone, a unit test over `rank` passed
+    // while the shipped ordering never moved.
+    bands: band,
   };
 }
 
