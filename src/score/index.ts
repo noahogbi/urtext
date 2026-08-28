@@ -675,9 +675,10 @@ export function rankWithAbsorption(
   // the aggregate would outrank every rotted citation while its two-member
   // form, below the grouping threshold, sorted underneath. A member's band is
   // the group's because grouping is per-kind: every member of a group shares
-  // one kind, and `absorbedBy` is the map that already knows which members
-  // went where. See `test/score/reconcile.test.ts`, "puts a rotted citation
-  // above a file's grouped new exports".
+  // one kind, and `groupAbsorbedBy` — the merged grouping maps, not the fuller
+  // `absorbedBy` built below — is exactly the record of which members went
+  // where. See `test/score/reconcile.test.ts`, "puts a rotted citation above a
+  // file's grouped new exports".
   for (const [factId, groupId] of groupAbsorbedBy) {
     const memberBand = band.get(factId);
     if (memberBand !== undefined) band.set(groupId, memberBand);

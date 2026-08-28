@@ -446,11 +446,20 @@ export const KIND_NOTES: Record<string, string> = {
  * here. Without this a grouped finding matches no note at all — and grouping
  * happens exactly when a file has several findings of one kind, which is the
  * review that most needs the kind explained.
+ *
+ * A real kind is answered as itself before the suffix is considered, which
+ * matters for a kind whose own name ends in `_group`: stripping first would
+ * hand it the note belonging to whatever the remainder happens to name — a
+ * wrong sentence, silently, with neither `KIND_NOTES` nor any test able to
+ * object. `SUBJECT_OF_KIND` is total over `FactKind` (its `satisfies` makes a
+ * missing kind a compile error), so it is the one list here that cannot fall
+ * behind the kinds that exist.
  */
 function kindOf(id: string): string | undefined {
   const colon = id.indexOf(":");
   if (colon < 0) return undefined;
   const prefix = id.slice(0, colon);
+  if (Object.hasOwn(SUBJECT_OF_KIND, prefix)) return prefix;
   return prefix.endsWith(GROUP_SUFFIX) ? prefix.slice(0, -GROUP_SUFFIX.length) : prefix;
 }
 

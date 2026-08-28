@@ -639,6 +639,20 @@ describe("per-kind guidance", () => {
     ]);
   });
 
+  it("answers for a kind grouped by a pass that does not exist yet", () => {
+    // The rule is the grouping suffix, not a list of today's two group
+    // prefixes: a pass that folds a file's reach rows tomorrow would produce
+    // `blast_radius_group:` ids, and a list would silently drop the note for
+    // them — which is the defect this describe block exists to fix, waiting
+    // to happen again. A kind whose own name ends in the suffix is answered
+    // as itself instead of being stripped; nothing in `FactKind` is named
+    // that way today, so only `kindOf`'s own reasoning covers it.
+    const m = buildReportModel(changeset(), [finding({ id: "blast_radius_group:a.ts" })], {
+      warnings: [],
+    });
+    expect(m.kindNotes).toEqual([KIND_NOTES.blast_radius]);
+  });
+
   it("says nothing about a kind that carries no guidance", () => {
     const m = buildReportModel(
       changeset(),
