@@ -170,6 +170,9 @@ export function renderMarkdown(model: ReportModel): string {
   if (model.filterNote) {
     blocks.push(quote([model.filterNote]));
   }
+  if (model.distributionNote) {
+    blocks.push(quote([model.distributionNote]));
+  }
   if (model.beyondIntentLegend) {
     blocks.push(quote([model.beyondIntentLegend]));
   }

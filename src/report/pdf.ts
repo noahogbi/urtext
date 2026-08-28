@@ -240,6 +240,9 @@ export async function renderPdf(model: ReportModel): Promise<Buffer> {
     if (model.filterNote) {
       strongLine(doc, model.filterNote);
     }
+    if (model.distributionNote) {
+      strongLine(doc, model.distributionNote);
+    }
     // Whole-line bold, like every honesty-critical line on this surface:
     // never restyled away.
     if (model.beyondIntentLegend) {

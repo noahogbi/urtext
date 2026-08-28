@@ -1,5 +1,10 @@
 import { labelConcealed, segmentConcealed, type ConcealSegment } from "./conceal.js";
-import { deletedFilesNote, deletedTypeScriptFiles, suppressionNote } from "./coverage.js";
+import {
+  citationDistributionNote,
+  deletedFilesNote,
+  deletedTypeScriptFiles,
+  suppressionNote,
+} from "./coverage.js";
 import type { Changeset, Finding, FactKind, Tier } from "../types.js";
 
 // Flat surfaces (terminal, Markdown, PDF) join segmented fields through
@@ -54,6 +59,18 @@ export interface ReportMeta {
    * `suppressionNote`, the same sentence both surfaces print.
    */
   suppressed?: number;
+  /**
+   * Whether this run swept the repository for citations rather than checking
+   * only the ones the reviewed range touched — `--citations`.
+   *
+   * The only part of the distribution note the model cannot work out for
+   * itself: which findings are citations it already knows, from the same
+   * id-prefix routing that gives every finding its `subject`. Why they were
+   * collected is the caller's knowledge. Default-mode citations are scoped
+   * to the change and few, and a note describing where three findings landed
+   * is noise; a sweep's shape is the thing a reader needs.
+   */
+  citationSweep?: boolean;
 }
 
 export type Lens = "narrative" | "effects" | "surface";
@@ -213,6 +230,14 @@ export interface ReportModel {
    * shortfall and must not trip partial-review copy.
    */
   filterNote?: string;
+  /**
+   * Composed by `citationDistributionNote`; absent unless this run swept the
+   * repository for citations and found some. Deliberately NOT in `notes`,
+   * for the reason the two above are not: a sweep that completed is not a
+   * partial review, and saying where its findings landed describes the
+   * result rather than a shortfall in producing it.
+   */
+  distributionNote?: string;
   /**
    * BEYOND_INTENT_MEANING, present exactly when at least one finding carries
    * the mark. Deliberately NOT in `notes`: a badge doing its job is not a
@@ -535,6 +560,15 @@ export function buildReportModel(
 
   const suppressed = meta.suppressed ?? 0;
   const filterNote = suppressed > 0 ? suppressionNote(suppressed) : undefined;
+  // `subjectOf` is the same id-prefix routing every finding's lens comes
+  // from, so the note counts exactly the findings the surfaces label as
+  // citations. Only under a sweep: default-mode citations are scoped to the
+  // change, and describing where three of them landed is noise.
+  const distributionNote = meta.citationSweep
+    ? citationDistributionNote(
+        findings.filter((f) => subjectOf(f.id) === "citation").map((f) => f.file),
+      )
+    : undefined;
 
   const model: ReportModel = {
     scope,
@@ -549,6 +583,7 @@ export function buildReportModel(
   if (modelName) model.modelName = modelName;
   if (coverageNote) model.coverageNote = coverageNote;
   if (filterNote) model.filterNote = filterNote;
+  if (distributionNote) model.distributionNote = distributionNote;
   if (model.findings.some((f) => f.beyondIntent)) {
     model.beyondIntentLegend = BEYOND_INTENT_MEANING;
   }

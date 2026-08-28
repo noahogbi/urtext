@@ -982,3 +982,66 @@ describe("the analyzer", () => {
     expect(programAt).not.toHaveBeenCalled();
   });
 });
+
+describe("excluding paths from a sweep", () => {
+  /** A repository whose rotted citations sit in two different places. */
+  async function twoPlaces() {
+    const repo = makeRepo("urtext-rot-exclude-");
+    write(repo, "src/lib.ts", ["export const a = 1;", "export const b = 2;"]);
+    write(repo, "docs/note.md", ["See `src/lib.ts:1`, which reads \"export const a\"."]);
+    mkdirSync(join(repo, "plans"), { recursive: true });
+    write(repo, "plans/old.md", ["See `src/lib.ts:2`, which reads \"export const b\"."]);
+    commit(repo, "cite from two places");
+    write(repo, "src/lib.ts", ["export const b = 2;", "export const a = 1;"]);
+    commit(repo, "swap the lines, rotting both citations");
+    return repo;
+  }
+
+  it("finds citations in every directory when nothing is excluded", async () => {
+    const repo = await twoPlaces();
+    const cs = await extract(repo);
+    const rots = await findCitationRot(cs, createContext(repo, cs.range), { sweep: true });
+    const places = rots.map((r) => r.citingFile.split("/")[0]).sort();
+    expect(places).toEqual(["docs", "plans"]);
+  });
+
+  it("drops a directory the caller excluded, and keeps the rest", async () => {
+    const repo = await twoPlaces();
+    const cs = await extract(repo);
+    const rots = await findCitationRot(cs, createContext(repo, cs.range), {
+      sweep: true,
+      exclude: ["plans"],
+    });
+    const places = rots.map((r) => r.citingFile.split("/")[0]);
+    expect(places).toEqual(["docs"]);
+  });
+
+  it("discloses what it excluded by name, not merely that something was", async () => {
+    // A filter over true findings that reports only a count leaves the
+    // reader unable to tell a deliberate scope from a mistyped pathspec —
+    // the same defect the cap notes were corrected twice for.
+    const repo = await twoPlaces();
+    const cs = await extract(repo);
+    const notes: string[] = [];
+    await findCitationRot(cs, createContext(repo, cs.range), {
+      sweep: true,
+      exclude: ["plans"],
+      onNote: (n) => notes.push(n),
+    });
+    const note = notes.find((n) => n.includes("plans"));
+    expect(note, "no note named the excluded pathspec").toBeDefined();
+    expect(note).toMatch(/exclud/i);
+  });
+
+  it("says nothing when an exclusion removed nothing, so silence means it did not bite", async () => {
+    const repo = await twoPlaces();
+    const cs = await extract(repo);
+    const notes: string[] = [];
+    await findCitationRot(cs, createContext(repo, cs.range), {
+      sweep: true,
+      exclude: ["no-such-directory"],
+      onNote: (n) => notes.push(n),
+    });
+    expect(notes.some((n) => /exclud/i.test(n))).toBe(false);
+  });
+});

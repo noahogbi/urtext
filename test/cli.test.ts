@@ -173,6 +173,38 @@ describe("parseArgs", () => {
       expect(() => parseArgs(["--stdout", "md", "--json"])).toThrow(/pick one/);
     });
 
+    it("refuses an exclusion with nothing to exclude from, rather than ignoring it", () => {
+      // The flag only narrows a sweep, so without --citations there is
+      // nothing for it to narrow. Accepting it silently produces a review
+      // indistinguishable from one where it worked — the reader's scope
+      // quietly wider than they asked for, with no trace on any surface.
+      // Refusing is what --stdout and --json get for the same reason: a
+      // request with no correct answer is not a formatting problem.
+      expect(() => parseArgs(["--citations-exclude", "docs"])).toThrow(/--citations\b/);
+      expect(() => parseArgs(["--citations-exclude=docs"])).toThrow(/--citations\b/);
+      // Order must not matter, and the valid combination must still parse.
+      expect(parseArgs(["--citations", "--citations-exclude", "docs"]).citationsExclude).toEqual([
+        "docs",
+      ]);
+      expect(parseArgs(["--citations-exclude", "docs", "--citations"]).citationsExclude).toEqual([
+        "docs",
+      ]);
+    });
+
+    it("refuses a pathspec carrying its own magic, which would silently match nothing", () => {
+      // The exclusion is wrapped in `:(exclude)` for the caller, so a spec
+      // with its own magic becomes `:(exclude):(icase)docs` — the second
+      // group is not parsed as magic and matches nothing, quietly widening
+      // the sweep past what was asked for. A filter that silently does
+      // nothing is worse than one that fails.
+      expect(() => parseArgs(["--citations", "--citations-exclude", ":(icase)docs"])).toThrow(
+        /plain pathspec/,
+      );
+      expect(() => parseArgs(["--citations", "--citations-exclude=:!docs"])).toThrow(
+        /cannot start with/,
+      );
+    });
+
     it("names the flag and its one format in the usage text", () => {
       expect(USAGE).toContain("--stdout md");
     });

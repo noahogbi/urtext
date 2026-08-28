@@ -7,6 +7,9 @@ import {
   TIER_GLYPH,
   UNNAMED_MODEL,
 } from "../../src/report/model.js";
+import { renderHtml } from "../../src/report/html.js";
+import { renderMarkdown } from "../../src/report/markdown.js";
+import { renderTerminal } from "../../src/report/terminal.js";
 import { WORKTREE, type Changeset, type Finding } from "../../src/types.js";
 
 // Escapes rather than literal characters, for the same reason
@@ -360,6 +363,35 @@ describe("buildReportModel disclosures", () => {
     expect(m.notes.some((n) => n.includes("deleted"))).toBe(false);
   });
 
+  it("keeps the citation distribution out of the notes, so a complete sweep is not called partial", () => {
+    // The third disclosure that describes a result rather than a shortfall.
+    // A sweep that checked everything it set out to check is not a partial
+    // review, and a banner firing on every sweep is one a reader learns to
+    // skip — the reasoning the filter and coverage notes are kept out for.
+    const m = buildReportModel(
+      changeset({}),
+      [
+        finding({ id: "citation_rot:docs/a.md:3:x", file: "docs/a.md" }),
+        finding({ id: "citation_rot:docs/b.md:9:y", file: "docs/b.md" }),
+      ],
+      { warnings: [], citationSweep: true },
+    );
+    expect(m.distributionNote).toContain("docs/");
+    expect(m.notes.some((n) => n.includes("docs/"))).toBe(false);
+    expect(m.notes).toHaveLength(0);
+  });
+
+  it("describes no distribution when citations were not swept, only checked against the change", () => {
+    // Default mode scopes citations to files the range touched, so there are
+    // few of them and their spread says nothing. The note is for the audit.
+    const m = buildReportModel(
+      changeset({}),
+      [finding({ id: "citation_rot:docs/a.md:3:x", file: "docs/a.md" })],
+      { warnings: [] },
+    );
+    expect(m.distributionNote).toBeUndefined();
+  });
+
   it("words the untracked note as both surfaces print it today", () => {
     const m = buildReportModel(changeset({ untrackedCount: 2 }), [], { warnings: [] });
     expect(m.notes).toContain(
@@ -577,5 +609,59 @@ describe("buildReportModel beyond stated intent", () => {
       if (view.tier === "verified") expect(view.beyondIntent).toBeUndefined();
     }
     expect(m.findings.filter((f) => f.beyondIntent).length).toBe(2);
+  });
+});
+
+describe("the distribution note reaches every surface", () => {
+  // The model carrying a disclosure is half the contract; a renderer that
+  // drops it silently is the other half, and nothing pinned that. `filterNote`
+  // has per-surface tests for exactly this reason — a note only a reader of
+  // one surface sees is a note the other three lie by omitting.
+  const swept = () =>
+    buildReportModel(
+      changeset({}),
+      [
+        finding({ id: "citation_rot:docs/a.md:3:x", file: "docs/a.md" }),
+        finding({ id: "citation_rot:src/b.ts:9:y", file: "src/b.ts" }),
+      ],
+      { warnings: [], citationSweep: true },
+    );
+
+  it("prints the note in the terminal, the Markdown, and the HTML", () => {
+    const m = swept();
+    const note = m.distributionNote ?? "";
+    expect(note).not.toBe("");
+
+    // Rendered through each surface's own entry point rather than by reading
+    // the model back, so a renderer that never consults the field fails.
+    // The terminal takes findings, not a model, so it gets the same two.
+    const terminal = renderTerminal(
+      changeset({}),
+      [
+        finding({ id: "citation_rot:docs/a.md:3:x", file: "docs/a.md" }),
+        finding({ id: "citation_rot:src/b.ts:9:y", file: "src/b.ts" }),
+      ],
+      undefined,
+      [],
+      undefined,
+      0,
+      true,
+    );
+    expect(terminal).toContain("Citations:");
+
+    const md = renderMarkdown(m);
+    expect(md).toContain("Citations:");
+
+    const html = renderHtml(
+      changeset({}),
+      [
+        finding({ id: "citation_rot:docs/a.md:3:x", file: "docs/a.md" }),
+        finding({ id: "citation_rot:src/b.ts:9:y", file: "src/b.ts" }),
+      ],
+      { warnings: [], citationSweep: true },
+    );
+    expect(html).toContain("Citations:");
+    // And it must not be inside the partial-review banner on any of them.
+    expect(html).not.toMatch(/This review is partial[\s\S]{0,200}Citations:/);
   });
 });

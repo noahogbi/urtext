@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { deletedFilesNote, deletedTypeScriptFiles } from "../../src/report/coverage.js";
+import {
+  citationDistributionNote,
+  deletedFilesNote,
+  deletedTypeScriptFiles,
+} from "../../src/report/coverage.js";
 import { WORKTREE, type Changeset } from "../../src/types.js";
 
 const changesetWith = (files: Changeset["files"]): Changeset => ({
@@ -41,5 +45,49 @@ describe("deletedFilesNote", () => {
     expect(note).not.toContain("every analyzer");
     expect(note).not.toContain("nothing");
     expect(note).toContain("only effects that vanished with it are reported");
+  });
+});
+
+describe("citationDistributionNote", () => {
+  // A sweep reports every citation in the repository, and on a
+  // documentation-heavy repository nearly all of them land in one directory.
+  // The findings are true and the reader still cannot act on most of them,
+  // so the note states where they fell. It describes the findings; it does
+  // not filter them, and it is not a shortfall — see the model test that it
+  // must not reach `notes`.
+
+  it("names the directories findings landed in, largest share first", () => {
+    const note = citationDistributionNote([
+      "docs/a.md",
+      "docs/b.md",
+      "docs/c.md",
+      "src/x.ts",
+    ]);
+    expect(note).toBeDefined();
+    const text = note ?? "";
+    expect(text).toContain("4");
+    expect(text).toContain("docs/");
+    expect(text).toContain("src/");
+    // Largest share first, so the concentration is the first thing read.
+    expect(text.indexOf("docs/")).toBeLessThan(text.indexOf("src/"));
+  });
+
+  it("says so plainly when every finding sits in one directory", () => {
+    // The case that motivated this: a sweep where the concentration is the
+    // whole story, and a reader who sees a bare count learns nothing about
+    // whether the run is worth reading.
+    const note = citationDistributionNote(["docs/a.md", "docs/b.md"]);
+    expect(note).toContain("docs/");
+    expect(note).toMatch(/all|every/i);
+  });
+
+  it("counts a repository-root file as its own place rather than inventing a directory", () => {
+    const note = citationDistributionNote(["README.md", "src/x.ts"]);
+    expect(note).toContain("README.md");
+    expect(note).not.toContain("README.md/");
+  });
+
+  it("returns undefined for no findings, so a clean sweep composes no note", () => {
+    expect(citationDistributionNote([])).toBeUndefined();
   });
 });

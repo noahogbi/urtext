@@ -464,6 +464,13 @@ function headerHtml(m: ReportModel): string {
   // the same sentence the terminal prints".
   const filterNote = m.filterNote ? `<p class="muted">${esc(m.filterNote)}</p>` : "";
 
+  // Separate from the banner for the same reason, and muted for the same one:
+  // a sweep that completed and says where its findings fell has not fallen
+  // short of anything.
+  const distributionNote = m.distributionNote
+    ? `<p class="muted">${esc(m.distributionNote)}</p>`
+    : "";
+
   // The gate — a model name AND a model-derived tier below — is the model's;
   // `provenance` is simply absent otherwise. The fixed tail after it is this
   // surface's own data-free copy. Model prose itself is never gated this way
@@ -502,6 +509,7 @@ function headerHtml(m: ReportModel): string {
     coverage,
     banner,
     filterNote,
+    distributionNote,
     `<details class="legend"><summary>What the three tiers mean</summary><ul>${legend}${intentLegend}</ul></details>`,
     `</header>`,
   ].join("");
