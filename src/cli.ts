@@ -252,6 +252,36 @@ export function parseArgs(argv: string[]): CliOptions {
     throw new Error(`--stdout ${opts.stdout} and --json cannot both own stdout; pick one.`);
   }
 
+  // Checked here rather than in the loop, for the reason above: the flags can
+  // arrive in either order, so only the finished options can answer it.
+  //
+  // Refused rather than ignored. The exclusion narrows a sweep and there is
+  // no sweep to narrow, so accepting it would produce a review whose scope is
+  // silently wider than the command line asked for — indistinguishable, on
+  // every surface, from one where the flag worked. That is the failure this
+  // analyzer's own disclosures exist to prevent, and it would be odd to ship
+  // it in the flag that turns them on. See `test/cli.test.ts`, "refuses an
+  // exclusion with nothing to exclude from, rather than ignoring it".
+  if (opts.citationsExclude !== undefined && opts.citations !== true) {
+    throw new Error(
+      "--citations-exclude narrows a repository-wide citation sweep, so it needs --citations; without it there is nothing to exclude from.",
+    );
+  }
+
+  // The exclusion is wrapped in git's `:(exclude)` magic for the caller, so a
+  // spec that carries magic of its own would become `:(exclude):(icase)docs`
+  // — where the second group is not parsed as magic and matches nothing at
+  // all, silently widening the sweep past what was asked for. Refused for the
+  // same reason the missing `--citations` is: a filter that quietly does
+  // nothing is worse than one that fails.
+  for (const spec of opts.citationsExclude ?? []) {
+    if (spec.startsWith(":")) {
+      throw new Error(
+        `--citations-exclude takes a plain pathspec and adds the exclusion itself, so "${spec}" cannot start with ":"; write the path alone, e.g. --citations-exclude docs/plans.`,
+      );
+    }
+  }
+
   if (positional.length > 0 && positional[0] === "review") positional.shift();
   if (positional.length > 0) opts.range = positional[0];
 
@@ -513,6 +543,18 @@ export async function review(
     // the gap. The array is always present so a consumer can test it without
     // branching on the key; the sentence is there only when there is one.
     const deleted = deletedTypeScriptFiles(changeset);
+    // Built for one sentence, and built rather than recomposed on purpose:
+    // the model is the single source of what a surface may say, and deciding
+    // here which findings are citations would be a second copy of a rule that
+    // already exists — free to drift, and drifting silently. That this is
+    // another model build on a `--json` run is the known cost recorded
+    // against renderers taking a prebuilt model, not a new one.
+    const jsonModel = buildReportModel(changeset, findings, {
+      model: result.model,
+      warnings,
+      suppressed,
+      citationSweep: opts.citations === true,
+    });
     return {
       output: JSON.stringify(
         {
@@ -529,6 +571,31 @@ export async function review(
             deletedTypeScriptFiles: deleted,
             ...(deleted.length > 0 ? { note: deletedFilesNote(deleted) } : {}),
           },
+          // Present exactly when `--citations` swept, following the same rule
+          // as `exports` below: a consumer that asked can read the object
+          // without branching, one that did not never sees a field about a
+          // feature it did not use.
+          //
+          // `sweep` is here because it is the one thing a consumer cannot
+          // derive. The distribution itself is recoverable from `findings` —
+          // the `citation_rot:` prefix and each finding's `file` — unlike the
+          // deleted-file coverage above, which was recoverable from nothing
+          // and is why that key exists. But forty citation findings look
+          // identical whether the reviewed range happened to touch them or
+          // the whole repository was swept, and every honest reading of the
+          // distribution depends on knowing which. The note is carried
+          // beside it rather than left to be recomposed, so the sentence a
+          // script reads is the sentence every other surface printed.
+          ...(opts.citations === true
+            ? {
+                citations: {
+                  sweep: true,
+                  ...(jsonModel.distributionNote
+                    ? { distributionNote: jsonModel.distributionNote }
+                    : {}),
+                },
+              }
+            : {}),
           model: result.model,
           skipped: result.skipped,
           reportPath,

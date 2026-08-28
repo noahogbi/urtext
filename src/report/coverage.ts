@@ -82,7 +82,12 @@ export function suppressionNote(count: number): string {
  * `test/report/model.test.ts`, "carries each disclosure exactly once, in the
  * field renderers must read it from".
  */
-export function citationDistributionNote(citingFiles: string[]): string | undefined {
+export function citationDistributionNote(findingFiles: string[]): string | undefined {
+  // One entry per citation FINDING, not per distinct file, and the repeats
+  // are meant: two rotted citations in one document are two findings, and
+  // this sentence counts findings. Deduping would make its total disagree
+  // with the report the reader is holding — which would look like tidying.
+  const citingFiles = findingFiles;
   if (citingFiles.length === 0) return undefined;
 
   const counts = new Map<string, number>();

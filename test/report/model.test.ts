@@ -7,6 +7,9 @@ import {
   TIER_GLYPH,
   UNNAMED_MODEL,
 } from "../../src/report/model.js";
+import { renderHtml } from "../../src/report/html.js";
+import { renderMarkdown } from "../../src/report/markdown.js";
+import { renderTerminal } from "../../src/report/terminal.js";
 import { WORKTREE, type Changeset, type Finding } from "../../src/types.js";
 
 // Escapes rather than literal characters, for the same reason
@@ -606,5 +609,59 @@ describe("buildReportModel beyond stated intent", () => {
       if (view.tier === "verified") expect(view.beyondIntent).toBeUndefined();
     }
     expect(m.findings.filter((f) => f.beyondIntent).length).toBe(2);
+  });
+});
+
+describe("the distribution note reaches every surface", () => {
+  // The model carrying a disclosure is half the contract; a renderer that
+  // drops it silently is the other half, and nothing pinned that. `filterNote`
+  // has per-surface tests for exactly this reason — a note only a reader of
+  // one surface sees is a note the other three lie by omitting.
+  const swept = () =>
+    buildReportModel(
+      changeset({}),
+      [
+        finding({ id: "citation_rot:docs/a.md:3:x", file: "docs/a.md" }),
+        finding({ id: "citation_rot:src/b.ts:9:y", file: "src/b.ts" }),
+      ],
+      { warnings: [], citationSweep: true },
+    );
+
+  it("prints the note in the terminal, the Markdown, and the HTML", () => {
+    const m = swept();
+    const note = m.distributionNote ?? "";
+    expect(note).not.toBe("");
+
+    // Rendered through each surface's own entry point rather than by reading
+    // the model back, so a renderer that never consults the field fails.
+    // The terminal takes findings, not a model, so it gets the same two.
+    const terminal = renderTerminal(
+      changeset({}),
+      [
+        finding({ id: "citation_rot:docs/a.md:3:x", file: "docs/a.md" }),
+        finding({ id: "citation_rot:src/b.ts:9:y", file: "src/b.ts" }),
+      ],
+      undefined,
+      [],
+      undefined,
+      0,
+      true,
+    );
+    expect(terminal).toContain("Citations:");
+
+    const md = renderMarkdown(m);
+    expect(md).toContain("Citations:");
+
+    const html = renderHtml(
+      changeset({}),
+      [
+        finding({ id: "citation_rot:docs/a.md:3:x", file: "docs/a.md" }),
+        finding({ id: "citation_rot:src/b.ts:9:y", file: "src/b.ts" }),
+      ],
+      { warnings: [], citationSweep: true },
+    );
+    expect(html).toContain("Citations:");
+    // And it must not be inside the partial-review banner on any of them.
+    expect(html).not.toMatch(/This review is partial[\s\S]{0,200}Citations:/);
   });
 });
