@@ -60,3 +60,50 @@ export function deletedFilesNote(paths: string[]): string {
 export function suppressionNote(count: number): string {
   return `Filtered: ${count} finding${count === 1 ? "" : "s"} suppressed (low-signal: single unclaimed reference).`;
 }
+
+/**
+ * Where a citation sweep's findings landed, by top-level directory.
+ *
+ * A sweep checks every citation in the repository, and on a repository whose
+ * prose documents itself heavily nearly all of them sit under one directory —
+ * measured on a real corpus, 231 of 237. Those findings are true, and a
+ * reader still cannot act on most of them, because a citation inside a dated
+ * planning document is a record of what was believed then rather than a claim
+ * anyone maintains.
+ *
+ * So the note states the shape of the result. It filters nothing: the
+ * findings it describes are all present, and what to do about the
+ * concentration is the reader's decision, which `--citations-exclude` exists
+ * to carry out.
+ *
+ * Deliberately NOT a `notes` entry, for the reason `coverageNote` and
+ * `filterNote` are not: a complete review is not a partial one, and a banner
+ * that fires on every sweep is a banner a reader learns to skip. See
+ * `test/report/model.test.ts`, "carries each disclosure exactly once, in the
+ * field renderers must read it from".
+ */
+export function citationDistributionNote(citingFiles: string[]): string | undefined {
+  if (citingFiles.length === 0) return undefined;
+
+  const counts = new Map<string, number>();
+  for (const path of citingFiles) {
+    const slash = path.indexOf("/");
+    // A file at the repository root is its own place. Naming it `README.md/`
+    // would invent a directory the repository does not have.
+    const place = slash < 0 ? path : `${path.slice(0, slash)}/`;
+    counts.set(place, (counts.get(place) ?? 0) + 1);
+  }
+
+  const total = citingFiles.length;
+  const places = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+
+  if (places.length === 1) {
+    return `Citations: all ${plural(total, "finding")} in \`${places[0][0]}\`.`;
+  }
+  const parts = places.map(([place, n]) => `${n} in \`${place}\``);
+  return `Citations: ${plural(total, "finding")} — ${parts.join(", ")}.`;
+}
+
+function plural(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}

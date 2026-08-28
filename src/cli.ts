@@ -393,7 +393,12 @@ export async function review(
         // every reason a review fell short goes). Passing it separately as
         // well is what printed the skipped-stage line twice in the banner of
         // every `--no-llm` run.
-        renderHtml(changeset, findings, { model: result.model, warnings, suppressed }),
+        renderHtml(changeset, findings, {
+          model: result.model,
+          warnings,
+          suppressed,
+          citationSweep: opts.citations === true,
+        }),
       );
     } catch (err) {
       // A degraded review beats no review, the same rule `runAnalyzers`
@@ -437,6 +442,7 @@ export async function review(
         model: result.model,
         warnings,
         suppressed,
+        citationSweep: opts.citations === true,
       });
       if (opts.stdout === "md") {
         try {
@@ -516,7 +522,15 @@ export async function review(
     };
   }
 
-  let output = renderTerminal(changeset, findings, reportPath, warnings, result.model, suppressed);
+  let output = renderTerminal(
+    changeset,
+    findings,
+    reportPath,
+    warnings,
+    result.model,
+    suppressed,
+    opts.citations === true,
+  );
   // One path line per written export, right under the "Full report" line the
   // walker prints — labeled like every other path this surface shows, and
   // only for exports that were actually written: a failed one already has

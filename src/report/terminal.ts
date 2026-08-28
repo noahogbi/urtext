@@ -113,8 +113,21 @@ export function renderTerminal(
   warnings: string[] = [],
   model?: string,
   suppressed = 0,
+  // A seventh positional parameter is the wrong shape, and it is deliberate
+  // rather than unnoticed: `renderHtml` takes a `ReportMeta` and this takes
+  // the pieces, so every field the model gains arrives here as another
+  // argument. Converting this signature is the right fix and belongs to a
+  // change about signatures, not to one adding a disclosure — the same
+  // judgement `review` in `../cli.ts` already records at its export-model
+  // call site. Optional, so no existing caller or test moves.
+  citationSweep = false,
 ): string {
-  const m = buildReportModel(changeset, findings, { model, warnings, suppressed });
+  const m = buildReportModel(changeset, findings, {
+    model,
+    warnings,
+    suppressed,
+    citationSweep,
+  });
   const out: string[] = [];
 
   out.push("");
@@ -204,6 +217,14 @@ export function renderTerminal(
   // "prints no filter footnote when nothing was suppressed".
   if (m.filterNote) {
     out.push(`  ${m.filterNote}`);
+    out.push("");
+  }
+
+  // Where a sweep's findings landed. Beside the filter note and not among
+  // the partial-review notes, for the same reason: describing a complete
+  // result is not disclosing an incomplete one.
+  if (m.distributionNote) {
+    out.push(`  ${m.distributionNote}`);
     out.push("");
   }
 

@@ -360,6 +360,35 @@ describe("buildReportModel disclosures", () => {
     expect(m.notes.some((n) => n.includes("deleted"))).toBe(false);
   });
 
+  it("keeps the citation distribution out of the notes, so a complete sweep is not called partial", () => {
+    // The third disclosure that describes a result rather than a shortfall.
+    // A sweep that checked everything it set out to check is not a partial
+    // review, and a banner firing on every sweep is one a reader learns to
+    // skip — the reasoning the filter and coverage notes are kept out for.
+    const m = buildReportModel(
+      changeset({}),
+      [
+        finding({ id: "citation_rot:docs/a.md:3:x", file: "docs/a.md" }),
+        finding({ id: "citation_rot:docs/b.md:9:y", file: "docs/b.md" }),
+      ],
+      { warnings: [], citationSweep: true },
+    );
+    expect(m.distributionNote).toContain("docs/");
+    expect(m.notes.some((n) => n.includes("docs/"))).toBe(false);
+    expect(m.notes).toHaveLength(0);
+  });
+
+  it("describes no distribution when citations were not swept, only checked against the change", () => {
+    // Default mode scopes citations to files the range touched, so there are
+    // few of them and their spread says nothing. The note is for the audit.
+    const m = buildReportModel(
+      changeset({}),
+      [finding({ id: "citation_rot:docs/a.md:3:x", file: "docs/a.md" })],
+      { warnings: [] },
+    );
+    expect(m.distributionNote).toBeUndefined();
+  });
+
   it("words the untracked note as both surfaces print it today", () => {
     const m = buildReportModel(changeset({ untrackedCount: 2 }), [], { warnings: [] });
     expect(m.notes).toContain(
