@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
+import { extractText, getDocumentProxy } from "unpdf";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   baselineReadsCappedNote,
@@ -24,6 +25,7 @@ import { makeFact } from "../src/analyze/index.js";
 import { openOrExplain, parseArgs, review, streamsFor, USAGE, type CliOptions } from "../src/cli.js";
 import { DEFAULT_MODEL, INTENT_ABSENT_NOTE } from "../src/interpret/index.js";
 import { BEYOND_INTENT_MEANING, KIND_NOTES } from "../src/report/model.js";
+import { renderPdf } from "../src/report/pdf.js";
 import type { Analyzer } from "../src/types.js";
 
 // Only `requestClaims` is mocked, so this file still makes no network call.
@@ -861,6 +863,100 @@ describe("review", () => {
       // Present because it was requested; empty because nothing was written.
       expect(parsed.exportPaths).toEqual({});
       expect(existsSync(join(noExportRepo, ".urtext"))).toBe(false);
+    });
+  });
+
+  describe("the moments a model is built", () => {
+    // Neither test here was ever red: `review` already builds its models at
+    // the moments they pin. They are tripwires — the thing that goes off when
+    // someone later "simplifies" those builds into one — so each was proved
+    // to discriminate by making exactly that collapse in `cli.ts` and
+    // watching this test fail, then restoring the file. A tripwire nobody has
+    // seen fail is a comment with a test's syntax.
+
+    /**
+     * The whitespace-collapsing extraction from `test/report/pdf.test.ts`,
+     * copied rather than shared: it is a few lines, and the alternative is a
+     * helpers module two files import for one assertion each. The collapse is
+     * the point — pdfkit wraps long lines at word boundaries and unpdf
+     * renders each wrap as a newline, so a phrase asserted verbatim could be
+     * split anywhere the layout happened to break it.
+     */
+    const textOf = async (buf: Buffer): Promise<string> => {
+      const pdf = await getDocumentProxy(new Uint8Array(buf));
+      const { text } = await extractText(pdf, { mergePages: true });
+      return text.replace(/\s+/g, " ");
+    };
+
+    it("keeps a failure that came after the export model off the pdf built from it", async () => {
+      // The model builds are moments, not redundancy: each surface carries
+      // what was known when its model was assembled. Collapsing them into one
+      // build would either backdate a warning onto a document that could not
+      // have known it, or drop it from one that must say it.
+      //
+      // `exporters` is `review`'s fourth parameter — `analyzers` is third and
+      // takes its default here — the same seam "degrades a failing export to
+      // a warning, leaving findings, exit code, and the other export
+      // untouched" uses. The real `renderPdf` stands beside the exploding md
+      // renderer, because the assertion below reads the pdf it produced.
+      const r = await review(
+        repo,
+        { command: "review", json: true, noLlm: true, help: false, exportFormats: ["md", "pdf"] },
+        undefined,
+        {
+          md: () => {
+            throw new Error("md exporter exploded");
+          },
+          pdf: renderPdf,
+        },
+      );
+      const parsed = JSON.parse(r.output);
+      // The run that failed to render the md export says so on the surface
+      // built after that failure...
+      expect(parsed.warnings.some((w: string) => w.includes("md export"))).toBe(true);
+      const pdfText = await textOf(readFileSync(parsed.exportPaths.pdf));
+      // ...and the disclosure channel that would have carried it reaches this
+      // document, printing the `--no-llm` note through the same `notes` array
+      // the md failure joined. So the absence below is a fact about when this
+      // pdf's model was built, not about a pdf with no disclosures on it.
+      expect(pdfText).toContain("This review is partial.");
+      expect(pdfText).toContain("--no-llm was set");
+      expect(pdfText).not.toContain("md export");
+    });
+
+    it("puts a failure that came before the export model onto the Markdown built from it", async () => {
+      // The mirror of the test above, on the other side of the export model:
+      // with `.urtext` occupied by a plain file — the arrangement "still
+      // returns the review's findings when the report fails to write" uses —
+      // the report write fails, so moment one produced an HTML document that
+      // was never written and could not have named its own failure to be. The
+      // Markdown is built after that attempt and says what no report could.
+      const brokenRepo = mkCanonicalTempDir("urtext-cli-moments-");
+      const run = (args: string[]) => gitIn(brokenRepo, args);
+      run(["init", "-b", "main"]);
+      run(["config", "user.email", "test@example.com"]);
+      run(["config", "user.name", "Test"]);
+      writeFileSync(join(brokenRepo, "svc.ts"), "export function load(id: string) {\n  return id;\n}\n");
+      run(["add", "-A"]);
+      run(["commit", "-m", "first"]);
+      writeFileSync(
+        join(brokenRepo, "svc.ts"),
+        "export function load(id: string) {\n  return fetch(id);\n}\n",
+      );
+      writeFileSync(join(brokenRepo, ".urtext"), "not a directory");
+
+      const r = await review(brokenRepo, {
+        command: "review",
+        json: false,
+        noLlm: true,
+        help: false,
+        stdout: "md",
+      });
+      // No report exists, so nothing else on disk carries this sentence.
+      expect(r.reportPath).toBeUndefined();
+      expect(r.markdown).toBeDefined();
+      expect(r.markdown).toContain("# urtext review");
+      expect(r.markdown).toContain("could not write the report");
     });
   });
 

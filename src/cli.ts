@@ -467,6 +467,15 @@ export async function review(
     try {
       reportPath = await writeReport(
         root,
+        // Moment one, and the earliest a model can honestly be built: nothing
+        // has been written yet, so this one knows what the review found and
+        // nothing about what became of it. A report cannot name its own
+        // failure to be written, and no export exists yet to fail. The two
+        // moments below know strictly more, which is why they are separate
+        // builds rather than this one reused — see `test/cli.test.ts`, "keeps
+        // a failure that came after the export model off the pdf built from
+        // it", and the timing rule in the spec.
+        //
         // `warnings` already carries `result.skipped` (pushed above, where
         // every reason a review fell short goes). Passing it separately as
         // well is what printed the skipped-stage line twice in the banner of
@@ -508,11 +517,21 @@ export async function review(
     // file. See `test/cli.test.ts`, "gives the stream and the file
     // byte-identical Markdown from one model".
     if (exportFormats.length > 0 || opts.stdout !== undefined) {
-      // Built once, and every requested export walks this one instance. A
-      // second model rather than the one the HTML above walked, because the
-      // two are built at different moments: that one was assembled before the
-      // report write was attempted, this one after, so these documents can
-      // carry a failure the HTML could not have known about.
+      // Moment two, and built once: every requested export, and the stream,
+      // walk this one instance. A second model rather than the one the HTML
+      // above walked, because the two are built at different moments: that
+      // one was assembled before the report write was attempted, this one
+      // after, so these documents can carry a failure the HTML could not have
+      // known about. And built here rather than inside the loop below,
+      // because no export can report a failure to write itself: rebuilding
+      // per format would let whichever export ran last name the earlier one's
+      // failure while the earlier one stayed silent about its own, so two
+      // documents of one review would disagree about what the run did.
+      //
+      // Both halves are pinned in `test/cli.test.ts`: "puts a failure that
+      // came before the export model onto the Markdown built from it" for the
+      // first, "keeps a failure that came after the export model off the pdf
+      // built from it" for the second.
       const exportModel = buildReportModel(changeset, findings, metaFor());
       if (opts.stdout === "md") {
         try {
@@ -556,6 +575,12 @@ export async function review(
     // is the single source of what a surface may say, and deciding here which
     // findings are citations — or tallying the tiers again — would be a second
     // copy of a rule that already exists, free to drift and drifting silently.
+    //
+    // Moment three, which has two build sites rather than one: this branch
+    // returns, so a run reaches either this build or the terminal's below,
+    // never both. Same moment either way — everything has been written or has
+    // failed to be by now, so the last surface a run produces is the one that
+    // can say so.
     const jsonModel = buildReportModel(changeset, findings, metaFor());
     const counts = jsonModel.counts;
     // What the analyzers did not look at, in the machine-readable output too.
@@ -638,6 +663,12 @@ export async function review(
   // walker prints one line each, under the "Full report" line and labelled
   // like every other path the model carries — this surface no longer has
   // anything appended to it after it has returned.
+  //
+  // Moment three, the other of its two sites (see the JSON build above). The
+  // terminal is the last thing a non-JSON run produces, and the only surface
+  // that knows every path this run wrote, so it is the only one that can be
+  // handed them: the two moments above are earlier than the writes they would
+  // have to describe.
   const written = exportFormats.flatMap((format) => {
     const path = exportPaths[format];
     return path ? [{ format, path }] : [];
