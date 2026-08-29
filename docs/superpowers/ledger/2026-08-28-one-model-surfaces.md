@@ -70,6 +70,60 @@ the second test rather than sharpen the first.
 The dead `over` parameter on `withSymbols` went at the same time: no test in
 this task passes it and none in Task 3 needs it.
 
+### Task 6 — the count "erratum" was the plan changing its own subject
+
+The executor reported the plan's site counts as wrong: 61 `renderHtml` calls in
+`html.test.ts`, not 60; 67 total, not 66. Both numbers were **correct when the
+plan was written**, and I verified it — at `bc60b3b`, the commit before Task 3,
+`html.test.ts` held exactly 60. Task 3 added the symbol-concealment test, which
+added the 61st site.
+
+**Ruling:** not an erratum, and the plan is not corrected. What is recorded
+instead is the lesson: a plan that cites counts is citing them *as of writing*,
+and a plan whose own earlier tasks add call sites invalidates its own later
+arithmetic. Future plans should say "as of writing" beside any count, and an
+executor should re-measure rather than trust.
+
+### Task 6 — a comment this task falsified, in the file it was not looking at
+
+`cli.ts:511-513` read "`renderHtml` above still builds its own internally — its
+public signature takes the raw pieces and is out of this change's scope." Both
+clauses die with this task. The plan names the comments to fix in Tasks 3 and 5
+but not this one — the same shape of miss as Task 5's fourth orphaned import,
+and in the same file.
+
+**Ruling:** the executor rewrote it to state why two models exist at all — they
+are different moments, one before the report write was attempted and one after,
+so the exports can carry a failure the HTML could not have known. That is Task
+7's rationale arriving one task early, which is fine: Task 7 formalises it at
+all three sites.
+
+### Task 6 — the escape hazard fired again, and needed a different workaround
+
+The editing tool could not match the two escape-bearing blocks in
+`html.test.ts` in either escaped or raw form; the executor could not reliably
+emit a literal backslash-`u` through it at all. It rewrote both blocks with
+Python line surgery that *reindents the original lines* rather than retyping
+the escapes, then byte-checked: no raw U+202E, U+202C, U+200B, U+200D, U+0007,
+or U+FEFF anywhere in the file, and all nine `\uXXXX` escapes intact.
+
+**Ruling:** the Global Constraint stands as written (byte-check after writing
+an escape), with the executor's technique added to it in spirit — when an
+escape cannot be typed, move the existing line rather than rewriting it.
+
+### Task 6 — residual duplication collapsed, since it is the change's own thesis
+
+The executor left `model.test.ts`'s "prints a kind's guidance…" test building
+three identical models, one per surface, on the correct ground that the plan
+mandated collapsing only the sibling block. Collapsed here: one model handed to
+all three surfaces. It is a stronger assertion, not merely a shorter one —
+three separately built models can agree because they were built the same way,
+while one instance pins that every surface reads *the same* model.
+
+`identity.test.ts` took no helper (no `meta()` or module-level fixture to hang
+one on; both sites use a changeset from a real `extract()`), which matches what
+`model.test.ts` already does. Left as the executor decided.
+
 ### Task 5 — the tripwire earned its place, and proved the plan's warning true
 
 **What the plan feared:** the export lines placed *after* the walker's trailing

@@ -756,14 +756,14 @@ describe("the per-kind guidance reaches every surface", () => {
   const note = KIND_NOTES.export_added;
 
   it("prints a kind's guidance in the terminal, the Markdown, and the HTML", () => {
-    const terminal = renderTerminal(buildReportModel(changeset(), findings, { warnings: [] }));
-    expect(terminal).toContain(note);
-
-    const md = renderMarkdown(buildReportModel(changeset(), findings, { warnings: [] }));
-    expect(md).toContain(note);
-
-    const html = renderHtml(buildReportModel(changeset(), findings, { warnings: [] }));
-    expect(html).toContain(note);
+    // One model, three surfaces — expressible only now, and the stronger
+    // claim: three separately built models could agree merely because they
+    // were built the same way, while this pins that every surface reads the
+    // same instance.
+    const m = buildReportModel(changeset(), findings, { warnings: [] });
+    expect(renderTerminal(m)).toContain(note);
+    expect(renderMarkdown(m)).toContain(note);
+    expect(renderHtml(m)).toContain(note);
   });
 });
 
