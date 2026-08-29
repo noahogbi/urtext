@@ -39,7 +39,7 @@
     "review": "npx tsx src/bin.ts review"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.117.1",
+    "@anthropic-ai/sdk": "^0.121.0",
     "pdfkit": "^0.20.1",
     "typescript": "^5.4.0"
   },
