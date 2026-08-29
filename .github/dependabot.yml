@@ -1,0 +1,39 @@
+version: 2
+
+# A SHA-pinned action gets no security updates on its own — pinning trades a
+# supply-chain risk for a staleness one, and this file is the other half of
+# that trade. Dependabot understands the `uses: owner/name@<sha> # vX.Y.Z`
+# form, opens a pull request when the pinned action moves, and rewrites both
+# the SHA and the trailing version comment.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # `action.yml` at the repository root is the action consumers run in their
+    # own runners, so its one dependency is the one that matters most here;
+    # Dependabot covers it under the same root directory as the workflows.
+    commit-message:
+      prefix: "chore(actions)"
+    labels:
+      - dependencies
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - dependencies
+    groups:
+      # The test toolchain moves together — vitest, vite, and their shared
+      # transitive dependencies — so grouping keeps one reviewable pull
+      # request instead of four that must land in the same order.
+      test-toolchain:
+        patterns:
+          - vitest
+          - "@vitest/*"
+          - vite
+          - vite-node
+          - esbuild
