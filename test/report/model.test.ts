@@ -289,6 +289,56 @@ describe("buildReportModel structural concealment", () => {
   });
 });
 
+describe("buildReportModel surface symbols", () => {
+  const withSymbols = (over: Partial<Changeset["files"][number]> = {}) =>
+    changeset({
+      files: [
+        {
+          path: "a.ts",
+          status: "modified",
+          hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1 }],
+          symbols: [
+            {
+              name: "send",
+              qualifiedName: "send",
+              kind: "function",
+              exported: true,
+              range: { startLine: 1, endLine: 2 },
+              change: "modified",
+            },
+          ],
+          ...over,
+        },
+      ],
+    });
+
+  it("carries only the exported declarations, with their file", () => {
+    const m = buildReportModel(withSymbols(), [], { warnings: [] });
+    expect(m.surfaceSymbols).toHaveLength(1);
+    expect(plainText(m.surfaceSymbols[0].qualifiedName)).toBe("send");
+    expect(plainText(m.surfaceSymbols[0].kind)).toBe("function");
+    expect(plainText(m.surfaceSymbols[0].file)).toBe("a.ts");
+    expect(m.surfaceSymbols[0].change).toBe("modified");
+  });
+
+  it("leaves an unexported declaration out, as the symbol table always has", () => {
+    const cs = withSymbols();
+    cs.files[0].symbols[0].exported = false;
+    expect(buildReportModel(cs, [], { warnings: [] }).surfaceSymbols).toEqual([]);
+  });
+
+  it("conceals a symbol name, so no surface has to", () => {
+    // The reason this view exists rather than the HTML reading the changeset:
+    // concealment happens in the model, and a symbol name is text the author
+    // of the reviewed change controls.
+    const cs = withSymbols();
+    cs.files[0].symbols[0].qualifiedName = `sen${RLO}d`;
+    const m = buildReportModel(cs, [], { warnings: [] });
+    expect(plainText(m.surfaceSymbols[0].qualifiedName)).toBe("sen[U+202E]d");
+    expect(JSON.stringify(m)).not.toContain(RLO);
+  });
+});
+
 describe("buildReportModel provenance", () => {
   it("gates provenance on a model name AND a model-derived tier", () => {
     const none = buildReportModel(changeset(), [finding()], {

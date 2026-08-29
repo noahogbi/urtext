@@ -184,6 +184,31 @@ export interface FindingView {
   beyondIntent?: string;
 }
 
+/**
+ * One exported declaration in the API-surface table. Exactly the fields
+ * `surfaceLens` renders and nothing else from the changeset: a whole
+ * `Changeset` on the model would carry raw, author-controlled text through a
+ * model whose cleanliness is enforced by stringifying it — see
+ * `test/report/model.test.ts`, "carries no raw concealing character
+ * anywhere", whose fixture plants one in the range label.
+ *
+ * Supersedes the 2026-08-19 design's addendum ruling 3, which kept symbols
+ * out of the model and concealed them renderer-side. The table is rendered to
+ * a reader, so "changeset data, not report content" was pragmatic rather than
+ * principled, and it cost this project its one renderer-side concealment path.
+ */
+export interface SurfaceSymbolView {
+  /**
+   * Kept as its union rather than segmented: a controlled vocabulary this
+   * project writes, not text from the reviewed change, and the HTML uses it
+   * for a class name as well as copy.
+   */
+  change: "added" | "modified" | "removed";
+  qualifiedName: ConcealSegment[];
+  kind: ConcealSegment[];
+  file: ConcealSegment[];
+}
+
 export interface ReportModel {
   /** "44 files, 2384 lines changed · vs master" — the terminal's wording. */
   scope: string;
@@ -260,6 +285,12 @@ export interface ReportModel {
    * group and may never drop a finding.
    */
   findings: FindingView[];
+  /**
+   * The exported declarations the API-surface pane tabulates, in changeset
+   * order. Always present, empty included — a walker iterates without
+   * branching.
+   */
+  surfaceSymbols: SurfaceSymbolView[];
 }
 
 /**
@@ -655,6 +686,20 @@ export function buildReportModel(
       )
     : undefined;
 
+  // Exported only, in changeset order — the filter and the order the HTML's
+  // symbol table has always applied, moved here so the concealment moves with
+  // it.
+  const surfaceSymbols: SurfaceSymbolView[] = changeset.files.flatMap((file) =>
+    file.symbols
+      .filter((sym) => sym.exported)
+      .map((sym) => ({
+        change: sym.change,
+        qualifiedName: segmentConcealed(sym.qualifiedName),
+        kind: segmentConcealed(sym.kind),
+        file: segmentConcealed(file.path),
+      })),
+  );
+
   const model: ReportModel = {
     scope,
     fileCount,
@@ -664,6 +709,7 @@ export function buildReportModel(
     notes,
     findings: findings.map((f) => toFindingView(f, modelName)),
     kindNotes: kindNotesFor(findings),
+    surfaceSymbols,
   };
   if (provenance) model.provenance = provenance;
   if (modelName) model.modelName = modelName;
