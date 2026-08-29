@@ -11,7 +11,7 @@ import { labelConcealed } from "./report/conceal.js";
 import { deletedFilesNote, deletedTypeScriptFiles } from "./report/coverage.js";
 import { renderHtml } from "./report/html.js";
 import { renderMarkdown } from "./report/markdown.js";
-import { buildReportModel, type ReportModel } from "./report/model.js";
+import { buildReportModel, type ReportMeta, type ReportModel } from "./report/model.js";
 import { renderPdf } from "./report/pdf.js";
 import { renderTerminal } from "./report/terminal.js";
 import {
@@ -23,7 +23,7 @@ import {
   type ExportFormat,
 } from "./report/write.js";
 import { reconcile } from "./score/reconcile.js";
-import type { Analyzer, Tier } from "./types.js";
+import type { Analyzer } from "./types.js";
 
 /**
  * Every format `--stdout` can carry. One member today, and a union rather
@@ -442,6 +442,20 @@ export async function review(
   let markdown: string | undefined;
   const exportFormats = opts.exportFormats ?? [];
   const exportPaths: { md?: string; pdf?: string } = {};
+  // Every model this run builds comes through here, so a new model input is
+  // added once rather than in four places — which is how `citationSweep`
+  // ended up threaded down each path separately, and how `renderTerminal`
+  // grew a seventh positional parameter to carry it.
+  //
+  // `warnings` is the live array, not a copy: a model built at a later moment
+  // must see what was pushed since (see the timing rule in the spec, and the
+  // comments at each build site below).
+  const metaFor = (): ReportMeta => ({
+    model: result.model,
+    warnings,
+    suppressed,
+    citationSweep: opts.citations === true,
+  });
   if (exitCode === 0) {
     try {
       reportPath = await writeReport(
@@ -450,12 +464,7 @@ export async function review(
         // every reason a review fell short goes). Passing it separately as
         // well is what printed the skipped-stage line twice in the banner of
         // every `--no-llm` run.
-        renderHtml(changeset, findings, {
-          model: result.model,
-          warnings,
-          suppressed,
-          citationSweep: opts.citations === true,
-        }),
+        renderHtml(changeset, findings, metaFor()),
       );
     } catch (err) {
       // A degraded review beats no review, the same rule `runAnalyzers`
@@ -495,12 +504,7 @@ export async function review(
       // Built once, and every requested export walks this one instance.
       // `renderHtml` above still builds its own internally — its public
       // signature takes the raw pieces and is out of this change's scope.
-      const exportModel = buildReportModel(changeset, findings, {
-        model: result.model,
-        warnings,
-        suppressed,
-        citationSweep: opts.citations === true,
-      });
+      const exportModel = buildReportModel(changeset, findings, metaFor());
       if (opts.stdout === "md") {
         try {
           markdown = exporters.md(exportModel);
@@ -534,8 +538,19 @@ export async function review(
   }
 
   if (opts.json) {
-    const counts: Record<Tier, number> = { verified: 0, inferred: 0, model: 0 };
-    for (const f of findings) counts[f.tier]++;
+    // Built before `counts` below, which reads it: one derivation, not two.
+    // The model computes exactly this tally (`buildReportModel`), and a
+    // second loop over the same findings is the shape that let the finding
+    // band map be derived twice and disagree.
+    //
+    // Built for one sentence, and built rather than recomposed on purpose:
+    // the model is the single source of what a surface may say, and deciding
+    // here which findings are citations would be a second copy of a rule that
+    // already exists — free to drift, and drifting silently. That this is
+    // another model build on a `--json` run is the known cost recorded
+    // against renderers taking a prebuilt model, not a new one.
+    const jsonModel = buildReportModel(changeset, findings, metaFor());
+    const counts = jsonModel.counts;
     // What the analyzers did not look at, in the machine-readable output too.
     // Both renderers say it (see `deletedFilesNote`); a script reading `--json`
     // could not see it at all, which made "stated the same way on every
@@ -543,18 +558,6 @@ export async function review(
     // the gap. The array is always present so a consumer can test it without
     // branching on the key; the sentence is there only when there is one.
     const deleted = deletedTypeScriptFiles(changeset);
-    // Built for one sentence, and built rather than recomposed on purpose:
-    // the model is the single source of what a surface may say, and deciding
-    // here which findings are citations would be a second copy of a rule that
-    // already exists — free to drift, and drifting silently. That this is
-    // another model build on a `--json` run is the known cost recorded
-    // against renderers taking a prebuilt model, not a new one.
-    const jsonModel = buildReportModel(changeset, findings, {
-      model: result.model,
-      warnings,
-      suppressed,
-      citationSweep: opts.citations === true,
-    });
     return {
       output: JSON.stringify(
         {
