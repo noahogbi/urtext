@@ -239,6 +239,12 @@ export interface ReportModel {
    */
   distributionNote?: string;
   /**
+   * What each kind of finding in this review means, once per kind rather than
+   * once per finding. Empty when no kind present has guidance. Composed by
+   * `kindNotesFor`; see `KIND_NOTES` for why these left the bodies.
+   */
+  kindNotes: string[];
+  /**
    * BEYOND_INTENT_MEANING, present exactly when at least one finding carries
    * the mark. Deliberately NOT in `notes`: a badge doing its job is not a
    * shortfall, and it must not trip partial-review copy — the same rule
@@ -358,11 +364,19 @@ export const MODEL_CAUTION_CLAIM =
 /** How many referencing sites a finding lists before it stops listing them. */
 export const REACH_SITES_SHOWN = 5;
 
+/**
+ * What a grouping pass in `../score/reach.ts` appends to a kind to make the
+ * id prefix of the finding that replaces a file's findings of that kind.
+ * Written once and composed below, so the two prefixes and the rule that
+ * recovers a kind from them (`kindOf`) cannot drift apart.
+ */
+const GROUP_SUFFIX = "_group";
+
 /** The id `groupAddedExports` gives the finding that replaces a file's added-export findings. */
-const EXPORT_GROUP_PREFIX = "export_added_group";
+const EXPORT_GROUP_PREFIX = `export_added${GROUP_SUFFIX}`;
 
 /** The id `groupSignatureChanges` gives the finding that replaces a file's signature_changed findings. */
-const SIGNATURE_GROUP_PREFIX = "signature_changed_group";
+const SIGNATURE_GROUP_PREFIX = `signature_changed${GROUP_SUFFIX}`;
 
 /**
  * Total over `FactKind` — `satisfies` makes a new kind a compile error here
@@ -397,6 +411,77 @@ const SUBJECT_OF_KIND = {
  * produces starts with its own fact kind" — a fixture written to match the
  * code cannot notice the code changing.
  */
+/**
+ * What a kind of finding means, said once for a review rather than once per
+ * finding.
+ *
+ * These sentences used to close every body of their kind. On a real pull
+ * request that put "The wider the reach, the more a subtle change costs."
+ * on seven consecutive findings and "A changed contract can break callers…"
+ * on five more — twelve of fourteen rows above the one finding naming
+ * something a person could go and fix, each ending in the same words. The
+ * repetition is not merely wasteful: identical closing sentences make
+ * adjacent findings scan as one block, which is how a reader skims past the
+ * one that differs.
+ *
+ * They are guidance about the kind, not facts about the finding, so they
+ * belong where a reader meets them once. What stays in the body is what only
+ * that finding can say.
+ *
+ * Keyed by kind prefix, matching `subjectOf` above — kind rather than
+ * subject because `signature_changed` and `export_added` share the `surface`
+ * subject and mean different things.
+ */
+export const KIND_NOTES: Record<string, string> = {
+  blast_radius: "Reach findings report how widely a changed export is used. Wide reach is not a defect; it is the cost of getting one wrong.",
+  signature_changed:
+    "A changed contract can break callers without breaking the build at the file that changed, so check the call sites.",
+  export_added:
+    "Newly exported surface is worth a look, but it cannot break an existing caller.",
+};
+
+/**
+ * The kind a finding's id names, with a grouping pass's suffix removed: a
+ * group speaks for members that were all of one kind, so it means that kind
+ * here. Without this a grouped finding matches no note at all — and grouping
+ * happens exactly when a file has several findings of one kind, which is the
+ * review that most needs the kind explained.
+ *
+ * A real kind is answered as itself before the suffix is considered, which
+ * matters for a kind whose own name ends in `_group`: stripping first would
+ * hand it the note belonging to whatever the remainder happens to name — a
+ * wrong sentence, silently, with neither `KIND_NOTES` nor any test able to
+ * object. `SUBJECT_OF_KIND` is total over `FactKind` (its `satisfies` makes a
+ * missing kind a compile error), so it is the one list here that cannot fall
+ * behind the kinds that exist.
+ */
+function kindOf(id: string): string | undefined {
+  const colon = id.indexOf(":");
+  if (colon < 0) return undefined;
+  const prefix = id.slice(0, colon);
+  if (Object.hasOwn(SUBJECT_OF_KIND, prefix)) return prefix;
+  return prefix.endsWith(GROUP_SUFFIX) ? prefix.slice(0, -GROUP_SUFFIX.length) : prefix;
+}
+
+/**
+ * The guidance for every kind this review actually produced, deduplicated and
+ * in the order the kinds first appear.
+ */
+function kindNotesFor(findings: Finding[]): string[] {
+  const seen = new Set<string>();
+  const notes: string[] = [];
+  for (const f of findings) {
+    const kind = kindOf(f.id);
+    if (kind === undefined) continue;
+    const note = KIND_NOTES[kind];
+    if (note && !seen.has(kind)) {
+      seen.add(kind);
+      notes.push(note);
+    }
+  }
+  return notes;
+}
+
 function subjectOf(id: string): Subject | undefined {
   const colon = id.indexOf(":");
   // An id with no colon has no kind prefix at all. Slicing to what `indexOf`
@@ -578,6 +663,7 @@ export function buildReportModel(
     counts,
     notes,
     findings: findings.map((f) => toFindingView(f, modelName)),
+    kindNotes: kindNotesFor(findings),
   };
   if (provenance) model.provenance = provenance;
   if (modelName) model.modelName = modelName;

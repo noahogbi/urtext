@@ -103,7 +103,7 @@ export function reconcile(
   onSuppressed?: (count: number) => void,
 ): Finding[] {
   const byId = new Map(facts.map((f) => [f.id, f]));
-  const { findings: ranked, absorbedBy } = rankWithAbsorption(facts);
+  const { findings: ranked, absorbedBy, bands: band } = rankWithAbsorption(facts);
 
   // Indexed so a standalone finding's id can stay unique even when two
   // claims share a model-generated `id` — a model's ids are not guaranteed
@@ -206,8 +206,20 @@ export function reconcile(
       }),
     );
 
+  // The band `rankWithAbsorption` applied, carried through here because this
+  // sort runs last and would otherwise discard it. Not hypothetical: the band
+  // was added there alone first, and a unit test over `rank` passed while the
+  // shipped ordering never moved — `rank` is not the path a review takes.
+  //
+  // Taken from that call rather than recomputed from `facts`: a grouped
+  // finding's id belongs to no fact, so anything derived here would answer for
+  // none of them. A standalone model claim comes from no fact either, has no
+  // entry, and so lands in the defect band — score still orders it against
+  // other defects, and it now sits above every context row regardless of
+  // score, which is right for a finding that alleges a problem.
   return [...kept, ...standalone].sort(
     (a, b) =>
+      (band.get(a.id) ?? 0) - (band.get(b.id) ?? 0) ||
       b.score - a.score ||
       a.file.localeCompare(b.file) ||
       a.line - b.line ||

@@ -243,6 +243,11 @@ export async function renderPdf(model: ReportModel): Promise<Buffer> {
     if (model.distributionNote) {
       strongLine(doc, model.distributionNote);
     }
+    // Once per kind. Not bold: this is orientation, not a disclosure about
+    // what the run did or did not do.
+    for (const note of model.kindNotes) {
+      doc.font(SANS).fontSize(META_SIZE).text(note);
+    }
     // Whole-line bold, like every honesty-critical line on this surface:
     // never restyled away.
     if (model.beyondIntentLegend) {

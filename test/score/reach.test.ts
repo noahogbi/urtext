@@ -343,6 +343,24 @@ describe("groupAddedExports", () => {
     expect(groupAddedExports(findings, 3).absorbedBy.size).toBe(0);
   });
 
+  it("keeps an export group's body to that group's own facts, not the kind's guidance", () => {
+    // What new exports can and cannot break is true of every added export, so
+    // it is said once per review (`KIND_NOTES`, `src/report/model.ts`) rather
+    // than once per finding. A group is where that repetition is worst: this
+    // body would otherwise carry the guidance directly beneath the same
+    // guidance in the notes above it, and beside any below-threshold export
+    // finding from another file carrying it too.
+    //
+    // Asserted as the whole body rather than as the absence of a sentence: an
+    // absence check passes the moment the guidance is reworded, which is the
+    // edit most likely to reintroduce it.
+    const findings = ["one", "two", "three"].map((name) =>
+      finding({ id: `export_added:a.ts:${name}`, title: `${name} is newly exported` }),
+    );
+    const { findings: out } = groupAddedExports(findings, 3);
+    expect(out[0].body).toBe("New public surface: one, three, two.");
+  });
+
   it("counts a referencing line shared by several members as one place, not one per member", () => {
     const shared = ev("consumer.ts", 2);
     const findings = ["one", "two", "three"].map((name) =>
@@ -391,9 +409,24 @@ describe("groupSignatureChanges", () => {
     for (const name of ["one", "two", "three"]) {
       expect(out[0].body).toContain(`${name} was string and is now number.`);
     }
-    expect(out[0].body).toContain("check the call sites");
+    // What the rest of this body may and may not contain is pinned whole by
+    // "keeps a signature group's body to that group's own facts", below.
     expect(out[0].evidence).toHaveLength(3);
     expect(out[0].tier).toBe("verified");
+  });
+
+  it("keeps a signature group's body to that group's own facts, not the kind's guidance", () => {
+    // The same rule the added-export group follows above, and for the same
+    // reason: "check the call sites" is true of every signature change, so it
+    // is said once per review (`KIND_NOTES`, `src/report/model.ts`). Pinned as
+    // the whole body — the members' sentences and nothing else — because an
+    // absence check stops meaning anything the moment the guidance is
+    // reworded.
+    const findings = [sig("one"), sig("two"), sig("three")];
+    const { findings: out } = groupSignatureChanges(findings, detailsFor(findings), 3);
+    expect(out[0].body).toBe(
+      ["one", "three", "two"].map((n) => `${n} was string and is now number.`).join(" "),
+    );
   });
 
   it("leaves a file below the signature-change threshold alone", () => {

@@ -571,6 +571,13 @@ export async function review(
             deletedTypeScriptFiles: deleted,
             ...(deleted.length > 0 ? { note: deletedFilesNote(deleted) } : {}),
           },
+          // What each kind of finding means, once per kind. This text used to
+          // close every body of its kind, and `findings` above carries bodies
+          // verbatim — so saying it once for the review took it off this
+          // surface, which had it yesterday. A consumer cannot recompose it:
+          // the sentences live in the report model, not in any fact. Always
+          // present, empty array included, by the same rule as `suppressed`.
+          kindNotes: jsonModel.kindNotes,
           // Present exactly when `--citations` swept, following the same rule
           // as `exports` below: a consumer that asked can read the object
           // without branching, one that did not never sees a field about a

@@ -23,7 +23,7 @@ import {
 import { makeFact } from "../src/analyze/index.js";
 import { openOrExplain, parseArgs, review, streamsFor, USAGE, type CliOptions } from "../src/cli.js";
 import { DEFAULT_MODEL, INTENT_ABSENT_NOTE } from "../src/interpret/index.js";
-import { BEYOND_INTENT_MEANING } from "../src/report/model.js";
+import { BEYOND_INTENT_MEANING, KIND_NOTES } from "../src/report/model.js";
 import type { Analyzer } from "../src/types.js";
 
 // Only `requestClaims` is mocked, so this file still makes no network call.
@@ -393,6 +393,23 @@ describe("review", () => {
     // Present even at zero, so a consumer can test it without branching on
     // the key.
     expect(parsed.suppressed).toBe(0);
+  });
+
+  it("carries the per-kind guidance into --json, not onto the human surfaces alone", async () => {
+    // These sentences used to close every finding body of their kind, and
+    // `--json` emits bodies verbatim — so moving them out of the bodies took
+    // them off the machine surface, which had them the day before. A script
+    // reading this output would otherwise have to know the guidance itself to
+    // recover what every human surface prints.
+    const r = await review(repo, { command: "review", json: true, noLlm: true, help: false });
+    const parsed = JSON.parse(r.output);
+    // `load` changes its signature; the other finding here is an effect,
+    // whose kind carries no guidance — so this pins the absent note as much
+    // as the present one.
+    expect(parsed.kindNotes).toEqual([KIND_NOTES.signature_changed]);
+
+    const term = await review(repo, { command: "review", json: false, noLlm: true, help: false });
+    for (const note of parsed.kindNotes) expect(term.output).toContain(note);
   });
 
   it("discloses a suppressed standalone reach row on both surfaces instead of vanishing it", async () => {

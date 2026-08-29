@@ -86,8 +86,13 @@ megabytes.
 
 ### In CI
 
-`action.yml` at this repository's root is a composite GitHub Action that reviews a
-pull request and posts the result as one comment, edited in place on every push:
+**The CI integration does not come from npm.** `npm install urtext` gives you the CLI;
+the GitHub Action is `action.yml` at the root of
+[noahogbi/urtext](https://github.com/noahogbi/urtext), referenced by `uses:` rather than
+installed as a dependency. Nothing needs to be on the runner beforehand.
+
+That action is a composite that reviews a pull request and posts the result as one
+comment, edited in place on every push:
 
 ```yaml
 name: urtext review

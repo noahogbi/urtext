@@ -391,7 +391,7 @@ export function toFinding(fact: Fact): Finding {
     case "export_added": {
       const name = str(fact.detail.export, "an export");
       title = `${name} is newly exported`;
-      body = `This file did not export ${name} before. New public surface is worth a look, but it cannot break an existing caller.`;
+      body = `This file did not export ${name} before.`;
       break;
     }
     case "export_removed": {
@@ -403,7 +403,7 @@ export function toFinding(fact: Fact): Finding {
     case "signature_changed": {
       const d = describeSignatureChange(fact);
       title = `${d.name} changed its signature`;
-      body = `${d.sentence} A changed contract can break callers without breaking the build at this file, so check the call sites.${d.typeUnresolved ? ` ${typeUnresolvedNoteFor([d.name])}` : ""}`;
+      body = `${d.sentence}${d.typeUnresolved ? ` ${typeUnresolvedNoteFor([d.name])}` : ""}`;
       break;
     }
     case "blast_radius": {
@@ -415,7 +415,7 @@ export function toFinding(fact: Fact): Finding {
       const verb = refs === 1 ? "references" : "reference";
       title = `${symbol} changed and is referenced in ${places}`;
       const leadingSymbol = hasSymbol ? symbol : capitalize(symbol);
-      body = `${leadingSymbol} was modified, and ${places} in this repository ${verb} it. The wider the reach, the more a subtle change costs.`;
+      body = `${leadingSymbol} was modified, and ${places} in this repository ${verb} it.`;
       break;
     }
     case "citation_rot": {
@@ -539,13 +539,74 @@ export function toFinding(fact: Fact): Finding {
  * caller that needs this; everything else calls `rank`, the one-line
  * delegate below, which just discards it.
  */
+/**
+ * Kinds that report reach or arrival rather than a defect. A finding of one
+ * of these names no problem by itself: "this changed and a lot of code uses
+ * it", or "this is newly exported" — each is context a reader may want, and
+ * neither is something to go and fix.
+ *
+ * `scoreFact` already caps a blast-radius score so that "no reference count
+ * may push it above a fact that does [name a problem]", but a cap is a single
+ * number and had to be chosen against the defect kinds that existed when it
+ * was written. `citation_rot` arrived later and below it, so on a real pull
+ * request a widely-referenced export ranked seven places above the only
+ * finding naming something a person could act on.
+ *
+ * Sorting by band fixes that without touching either weight, and both weights
+ * were right: a rotted citation genuinely is less severe than a removed
+ * guard, and forty callers genuinely differ from three. The error was using
+ * one number to answer two questions — how bad is this, and is it a defect at
+ * all. See `test/score/index.test.ts`, "ranks a rotted citation above a
+ * widely-referenced export".
+ */
+const CONTEXT_KINDS: ReadonlySet<Fact["kind"]> = new Set<Fact["kind"]>([
+  "blast_radius",
+  "export_added",
+]);
+
+/**
+ * Which band a fact's finding sorts into: the defect band first, the context
+ * band after. (Bands are named rather than numbered in this comment because a
+ * bare small integer here reads as a restated WEIGHTS value to this
+ * repository's comment contract.)
+ *
+ * Takes the fact's own `kind` rather than recovering it from an id prefix.
+ * The report model parses prefixes because a `Finding` is all it ever has;
+ * scoring holds the `Fact` itself, and guessing from a string here would be
+ * a second, weaker copy of a fact the code already knows — one that answers
+ * wrongly for any id not built from a kind, which the tests construct and
+ * which nothing forbids.
+ */
+function bandOf(kind: Fact["kind"]): number {
+  return CONTEXT_KINDS.has(kind) ? 1 : 0;
+}
+
+/**
+ * The band of every finding a fact list will produce, keyed by fact id.
+ *
+ * A finding with no entry — a standalone model claim, which comes from no
+ * fact — sorts in the defect band. Its position within that band is governed
+ * by score as before, though it now sits above every context finding whatever
+ * their scores: a claim alleges a problem, so the band it lands in is the
+ * right one, but that is a change to where claims rank, not a preservation.
+ */
+function bandsFor(facts: Fact[]): Map<string, number> {
+  return new Map(facts.map((fact) => [fact.id, bandOf(fact.kind)]));
+}
+
 export function rankWithAbsorption(
   facts: Fact[],
-): { findings: Finding[]; absorbedBy: Map<string, string> } {
+): { findings: Finding[]; absorbedBy: Map<string, string>; bands: Map<string, number> } {
   const { facts: kept, reach, absorbedBy: radiusAbsorbedBy } = foldReach(
     facts,
     (fact) => WEIGHTS.factKind[fact.kind],
   );
+
+  // Recorded while the facts are still in hand, because the sort below runs
+  // over findings and a finding does not carry its kind. Group ids are added
+  // once the grouping passes have run — see the extension below, which is not
+  // optional: `export_added` both groups and is context.
+  const band = bandsFor(kept);
 
   const findings = kept.map((fact) => {
     const finding = toFinding(fact);
@@ -607,6 +668,22 @@ export function rankWithAbsorption(
   // can answer for both when the chain below resolves a sibling.
   const groupAbsorbedBy = new Map([...signatureAbsorbedBy, ...exportAbsorbedBy]);
 
+  // A group's id belongs to no fact, so `bandsFor` above cannot have answered
+  // for it, and an unanswered id takes the default — the defect band. That is
+  // wrong for exactly the kind this banding exists to demote: a file's added
+  // exports collapse into one finding that scores as its highest member, so
+  // the aggregate would outrank every rotted citation while its two-member
+  // form, below the grouping threshold, sorted underneath. A member's band is
+  // the group's because grouping is per-kind: every member of a group shares
+  // one kind, and `groupAbsorbedBy` — the merged grouping maps, not the fuller
+  // `absorbedBy` built below — is exactly the record of which members went
+  // where. See `test/score/reconcile.test.ts`, "puts a rotted citation above a
+  // file's grouped new exports".
+  for (const [factId, groupId] of groupAbsorbedBy) {
+    const memberBand = band.get(factId);
+    if (memberBand !== undefined) band.set(groupId, memberBand);
+  }
+
   // A blast_radius fact's sibling can itself have been grouped away, so its
   // id no longer names a finding either — resolve through the grouping
   // absorption maps too, falling back to the sibling's own id when it was
@@ -621,9 +698,22 @@ export function rankWithAbsorption(
 
   return {
     findings: grouped.sort(
-      (a, b) => b.score - a.score || a.file.localeCompare(b.file) || a.line - b.line,
+      (a, b) =>
+        (band.get(a.id) ?? 0) - (band.get(b.id) ?? 0) ||
+        b.score - a.score ||
+        a.file.localeCompare(b.file) ||
+        a.line - b.line,
     ),
     absorbedBy,
+    // Handed to `reconcile` rather than recomputed there, because two sorts
+    // order findings and both must agree. Recomputing was the earlier design
+    // and it was a second, weaker copy: the group ids above exist only here,
+    // where the grouping passes ran, so a caller deriving bands from the
+    // facts alone answers wrongly for every grouped finding. Agreement is not
+    // optional — `reconcile`'s sort runs last and governs what a reader sees;
+    // when the band was applied here alone, a unit test over `rank` passed
+    // while the shipped ordering never moved.
+    bands: band,
   };
 }
 
