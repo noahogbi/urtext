@@ -543,12 +543,10 @@ export async function review(
     // second loop over the same findings is the shape that let the finding
     // band map be derived twice and disagree.
     //
-    // Built for one sentence, and built rather than recomposed on purpose:
-    // the model is the single source of what a surface may say, and deciding
-    // here which findings are citations would be a second copy of a rule that
-    // already exists — free to drift, and drifting silently. That this is
-    // another model build on a `--json` run is the known cost recorded
-    // against renderers taking a prebuilt model, not a new one.
+    // Built rather than recomposed, for every sentence it supplies: the model
+    // is the single source of what a surface may say, and deciding here which
+    // findings are citations — or tallying the tiers again — would be a second
+    // copy of a rule that already exists, free to drift and drifting silently.
     const jsonModel = buildReportModel(changeset, findings, metaFor());
     const counts = jsonModel.counts;
     // What the analyzers did not look at, in the machine-readable output too.
