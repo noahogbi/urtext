@@ -299,7 +299,7 @@ describe("reconcile", () => {
       id: "cr",
       correspondsTo: "blast_radius:m.ts:validate",
       summary: "widely used, changed anyway",
-      reasoning: "12 call sites depend on the old guard behaviour",
+      reasoning: "12 call sites depend on the old guard behavior",
     });
 
     // Facts deliberately ordered signature-then-guard, so a fix that just
@@ -310,7 +310,7 @@ describe("reconcile", () => {
     const guardFinding = out.find((f) => f.id === "guard_removed:m.ts:m.ts:validate")!;
     const signatureFinding = out.find((f) => f.id === "signature_changed:m.ts:m.ts:validate")!;
     expect(guardFinding.tier).toBe("inferred");
-    expect(guardFinding.claim?.reasoning).toContain("old guard behaviour");
+    expect(guardFinding.claim?.reasoning).toContain("old guard behavior");
     // Confirms the coordinator's "rank's output is unchanged" requirement:
     // the non-absorbing sibling is still amplified by the same reach and
     // carries no claim, exactly as it would without this fix.

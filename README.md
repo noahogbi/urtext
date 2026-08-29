@@ -231,11 +231,36 @@ And the outputs a later step can read:
 Every default lives in `action.yml` and is deliberately not restated here, so there is
 one place to read it and one place to change it.
 
+## What leaves your machine
+
+**Nothing reaches the author of this tool.** urtext has no server, no telemetry, and no
+account. The CLI runs on your machine; the action runs in your own runner, installing
+from its own checkout.
+
+**With `--no-llm`, nothing leaves at all.** Every analyzer is local, every finding is
+`verified`, and the review makes no network call.
+
+**With a key, your code goes to Anthropic under _your_ key and your agreement with
+them** — never through anything the author operates. What is sent is the diff of the
+reviewed range, the contents of the files it touches, and the commit messages in it.
+Those commit messages carry author names and email addresses, which is worth knowing
+before pointing this at a private repository. Nothing is sent when the key is absent,
+and every review states which mode it ran in.
+
+The report is written to `.urtext/` in your own repository. In CI it is also attached to
+the workflow run as an artifact, which your repository's retention settings govern.
+
+**Something wrong with a finding?** Errors, bad output, or a model claim that should
+never have been printed: [open an issue](https://github.com/noahogbi/urtext/issues). A
+`model`-tier finding that turned out to be nonsense is a useful report rather than a
+nuisance — that tier exists because it is expected to be wrong sometimes, and reports
+are how often gets measured.
+
 ## Layout
 
 - `src/extract/` — git range → changeset (files, hunks, changed symbols)
 - `src/analyze/` — analyzers producing typed facts with source evidence
-- `src/interpret/` — the model stage: facts in, labelled claims out
+- `src/interpret/` — the model stage: facts in, labeled claims out
 - `src/score/` — importance weights, tier assignment, ranking
 - `src/report/` — terminal and HTML renderers, and report writing
 - `src/cli.ts` — entry point

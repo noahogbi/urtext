@@ -35,7 +35,7 @@
  *   Selectors Supplement above the Tag block. They can carry a payload the
  *   same way tag characters can, but `U+FE0F` is load-bearing for ordinary
  *   emoji presentation and the supplement encodes legitimate ideographic
- *   variants, so labelling them would corrupt real content in a string
+ *   variants, so labeling them would corrupt real content in a string
  *   literal or a comment. They are also the weakest of these channels: a
  *   variation selector cannot reorder the text around it or hide another
  *   character — it can only hold data for a decoder that is already

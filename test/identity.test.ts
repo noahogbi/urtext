@@ -746,7 +746,7 @@ describe("a nested declaration is not the top-level export that shares its name"
   // claim ever attaches, and a single caller would put the export under
   // MIN_STANDALONE_REFERENCES (src/score/reconcile.ts) — the claim-free
   // one-reference standalone row is suppressed after reconcile, which would
-  // hide the identity behaviour this suite exists to pin. Suppression and
+  // hide the identity behavior this suite exists to pin. Suppression and
   // its claim-survival edge are pinned in test/score/reconcile.test.ts, not
   // here.
   const callers = {

@@ -347,7 +347,7 @@ describe("buildReportModel written paths", () => {
     // The plan planted the concealing character in the report path alone,
     // which left the title's plural unearned: `labelConcealed` could be
     // dropped from the export paths and this test would still have passed. An
-    // export path carries one too, so each labelling is pinned by an
+    // export path carries one too, so each labeling is pinned by an
     // assertion of its own — and the untouched pdf path pins that a path with
     // nothing to conceal comes back exactly as it went in.
     const m = buildReportModel(changeset(), [], {

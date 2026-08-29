@@ -115,7 +115,7 @@ export function reconcile(
   // `absorbedBy` redirects to whichever finding absorbed it if `rank`
   // folded it into a sibling's reach or a file's export group. The model is
   // shown facts, not findings, so citing a fact that a machine step later
-  // merged away is expected behaviour, not a mistake — on a real range a
+  // merged away is expected behavior, not a mistake — on a real range a
   // large share of facts get folded this way.
   //
   // First claim wins when the target repeats, deterministically: claims are

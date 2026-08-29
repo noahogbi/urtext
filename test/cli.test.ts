@@ -33,7 +33,7 @@ import type { Analyzer, Finding } from "../src/types.js";
 // Every existing test here either passes `--no-llm` (which returns before the
 // client is reached) or deletes the API key (which returns at
 // `unavailableReason`, taken from the real module below), so the mock changes
-// no existing behaviour — it only lets the stated-intent cases run the stage.
+// no existing behavior — it only lets the stated-intent cases run the stage.
 const requestClaims = vi.fn();
 vi.mock("../src/interpret/client.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/interpret/client.js")>();
@@ -640,7 +640,7 @@ describe("review", () => {
     // `kindNotes` reached three surfaces and missed this one, because this
     // object is composed field by field rather than walked. It cannot simply
     // become a walker — its `warnings` are deliberately raw where the model's
-    // `notes` are labelled, and its shape is a published contract — so the
+    // `notes` are labeled, and its shape is a published contract — so the
     // rule is that a new model field is a decision, not an oversight.
     //
     // Only keys the object does NOT emit belong below: `emitted.has(k)`
@@ -663,7 +663,7 @@ describe("review", () => {
       rangeLabel: "present as `range.label`",
       provenance: "prose about `model`, which is present",
       modelName: "present as `model`",
-      notes: "labelled prose over `warnings` and `untrackedCount`, both present",
+      notes: "labeled prose over `warnings` and `untrackedCount`, both present",
       coverageNote: "present as `coverage.note`",
       filterNote: "prose about `suppressed`, which is present",
       distributionNote: "present as `citations.distributionNote`, under the flag that composes it",

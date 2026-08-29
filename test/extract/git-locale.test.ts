@@ -8,7 +8,7 @@ import { git } from "../../src/extract/git.js";
 // NLS message catalogs installed for a specific locale, which this machine
 // may not have, and a test that silently no-ops when catalogs are absent
 // would be dishonest. Asserting on the exact options passed to execFile is
-// the honest, environment-independent way to cover this behaviour.
+// the honest, environment-independent way to cover this behavior.
 const { execFileMock } = vi.hoisted(() => ({ execFileMock: vi.fn() }));
 
 vi.mock("node:child_process", () => ({
