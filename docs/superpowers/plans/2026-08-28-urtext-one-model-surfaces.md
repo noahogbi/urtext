@@ -46,7 +46,7 @@ No signature changes and no behaviour change — this task exists so the three m
 
 **Interfaces:**
 - Consumes: nothing new
-- Produces: `metaFor(over?)` local to `review()`, used by every model build in the file
+- Produces: `metaFor()` local to `review()`, used by every model build in the file. It gains its `Partial<Pick<ReportMeta, "reportPath" | "exportPaths">>` override in Task 5, where the first caller passes one
 
 - [ ] **Step 1: Add the assembler above the first build site**
 
@@ -356,7 +356,7 @@ Update its call site: `surface: surfaceLens(m)`.
 
 - [ ] **Step 4: Delete `visible` and the exception it existed for**
 
-Remove the `visible` function (`html.ts:104-113`) and its doc comment. Remove the `conceals` and `codePointLabel` imports if nothing else uses them (`grep -n "conceals\|codePointLabel" src/report/html.ts`). In the file header, delete the paragraph at `:36-37` naming the symbol table as a scoped exception and the bullet at `:60` (`the symbol table's changeset data → visible`) — `:59` is the `seg` bullet and must stay, and replace with one sentence:
+Remove the `visible` function (`html.ts:104-113`) and its doc comment. Remove the `conceals` and `codePointLabel` imports if nothing else uses them (`grep -n "conceals\|codePointLabel" src/report/html.ts`). In the file header, delete the paragraph at `:36-37` naming the symbol table as a scoped exception and the bullet at `:59` (`the symbol table's changeset data → visible`), and replace with one sentence:
 
 ```
  * Every string on this page comes from the model, concealment already
@@ -560,6 +560,28 @@ check (`test/cli.test.ts:775-779`, `:1068-1072`, `:1076-1080`), and the fixture
 that exercises the tip is one of them. The tripwire in the step below is
 therefore not sufficient on its own — check the three cases by eye: no report,
 report only, report plus exports.
+
+**First give `metaFor` the parameter Task 1 deferred** — this is the step that
+task promised, and the call below is its first caller:
+
+```ts
+  // Only the two fields a later moment *learns* may be overridden. Widening
+  // this to `Partial<ReportMeta>` would let one moment quietly hand a
+  // different `warnings` or `citationSweep` than another, reopening inside
+  // the one file meant to close it the door this whole change exists to shut.
+  const metaFor = (
+    over: Partial<Pick<ReportMeta, "reportPath" | "exportPaths">> = {},
+  ): ReportMeta => ({
+    model: result.model,
+    warnings,
+    suppressed,
+    citationSweep: opts.citations === true,
+    ...over,
+  });
+```
+
+If a compile error tempts you to widen that type instead, the paragraph above
+is the reason not to.
 
 Then delete the loop at `cli.ts:639-642` and populate the meta instead:
 
@@ -810,8 +832,9 @@ uncommitted work.
 Copy the occupied-`.urtext` fixture from **"still returns the review's findings
 when the report fails to write"** (`test/cli.test.ts:694`) — the title cited in
 this plan's first draft, "writes no report when the path is occupied", does not
-exist. That test's options are built on `jsonOpts`; the copy needs
-`json: false, stdout: "md"` instead, and asserts the returned `markdown`
+exist. That test's options are an inline literal (`jsonOpts` is declared at `:741`,
+inside the later exports describe, and is not in scope there); the copy needs
+`json: false, stdout: "md"`, and asserts the returned `markdown`
 contains "could not write the report".
 
 - [ ] **Step 5: Gates and commit**
@@ -830,7 +853,8 @@ git commit -m "test(cli): pin the three build moments against collapse"
 `--json` is not a walker and this change does not make it one (the spec says why). This guard makes the gap loud instead of silent — a new `ReportModel` field either reaches the JSON object or is exempted with a stated reason.
 
 **Files:**
-- Test: `test/cli.test.ts` (or `test/comment-contract.test.ts`, whose house style this follows — put it in `cli.test.ts`, since it is about the CLI's contract)
+- Modify: `src/cli.ts` (Step 2 emits `untrackedCount`)
+- Test: `test/cli.test.ts` — the house style is `test/comment-contract.test.ts`'s, but this guard is about the CLI's own contract
 
 - [ ] **Step 1: Write the guard**
 
@@ -857,6 +881,13 @@ git commit -m "test(cli): pin the three build moments against collapse"
       filterNote: "prose about `suppressed`, which is present",
       beyondIntentLegend: "legend for a mark carried on each finding",
       surfaceSymbols: "recomputable by rerunning extraction; not in the diff alone",
+      // Not dead, despite looking like the entries above it that were: the
+      // model always carries this key (Task 4 builds it as `?? []`) while the
+      // JSON emits it only under `--export`, which this run does not ask for
+      // — pinned by "omits exportPaths from --json entirely when no export was
+      // requested" (`test/cli.test.ts:770`). Without this entry the guard is
+      // red the first time it runs.
+      exportPaths: "emitted only when --export was given; this run asked for none",
     };
     const r = await review(repo, { command: "review", json: true, noLlm: true, help: false });
     const emitted = new Set(Object.keys(JSON.parse(r.output)));
@@ -887,7 +918,9 @@ is the `kindNotes` failure again, found by writing down why a key was exempt
 and not being able to finish the sentence.
 
 Add `untrackedCount` to the JSON object beside `suppressed`, always present,
-zero included, with a comment naming the same rule. Then `notes`' exemption
+zero included, with a comment naming the same rule. The field is optional on
+`Changeset`, so write `changeset.untrackedCount ?? 0` — the idiom `model.ts:636`
+already uses. Then `notes`' exemption
 reason above is true. Add a test asserting a run over a repository with an
 untracked file reports it on both surfaces.
 
@@ -901,7 +934,7 @@ Add a throwaway field to `ReportModel` and its builder, run the test, confirm it
 npx tsc --noEmit
 npx vitest run
 git add src/cli.ts test/cli.test.ts
-git commit -m "test(cli): make a model field's absence from --json a decision"
+git commit -m "feat(cli): emit the untracked count, and guard the model's keys"
 ```
 
 ---
