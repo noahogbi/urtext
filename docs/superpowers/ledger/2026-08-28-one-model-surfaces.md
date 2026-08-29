@@ -70,6 +70,54 @@ the second test rather than sharpen the first.
 The dead `over` parameter on `withSymbols` went at the same time: no test in
 this task passes it and none in Task 3 needs it.
 
+### Task 5 — the tripwire earned its place, and proved the plan's warning true
+
+**What the plan feared:** the export lines placed *after* the walker's trailing
+blank push instead of inside the report-path block would insert a blank line
+that does not exist today and drop the final newline, gluing `cli.ts`'s
+gitignore tip onto the last export line — while every existing assertion, being
+a substring check, stayed green.
+
+**What the executor did:** got the placement right first time, then deliberately
+broke it to check the tripwire discriminates. Under the wrong placement the new
+tail-exact test failed with the expected diff **and all 81 `test/cli.test.ts`
+tests still passed.** The regression really would have shipped silently. The
+placement was restored by editing, not by `git checkout --`.
+
+Independently confirmed here against the real binary (`node dist/bin.js review
+master --no-llm --export md`): the output tail is
+`Full report: …html\n  md export: …md\n` — no blank between, trailing newline
+present, byte-identical to the shape `cli.ts` produced before the move.
+
+**Ruling on a deviation:** the executor wrote the assertion as
+`expect(out.slice(-tail.length)).toBe(tail)` rather than the plan's
+`endsWith(...)`. Kept, and the plan updated to match — `endsWith` fails with
+"expected false to be true", which tells a reader nothing, while this form
+prints the actual tail beside the expected one. That difference is what let the
+discrimination check above be read at a glance.
+
+### Task 5 — three more plan defects, one of them a self-contradiction
+
+1. **A fifth orphaned import the plan missed.** Deleting `cli.ts`'s
+   export-path loop orphans `labelConcealed` at `cli.ts:10`; the plan named
+   only the three in `terminal.ts`. `noUnusedLocals` makes it a red gate.
+2. **The tail test's title contradicted its own step.** The plan titled it
+   "…with one blank after" three paragraphs below its own explanation that the
+   string ends with *no* blank line. Retitled "…and ends there", which is what
+   the fixture asserts.
+3. **The blank-line test over-promised — the fourth title defect of this
+   plan.** Titled "whichever kind they are" while exercising only the untracked
+   kind, so a gate narrowed back to `untrackedCount` alone would have passed
+   it. The executor added the analyzer-warning case; the plan's snippet now
+   carries both.
+
+**One ambiguity resolved rather than deferred:** `model.test.ts`'s comment "the
+terminal takes findings, not a model, so it gets the same two" becomes false at
+*this* task, though the plan assigns its deletion to Task 6. The executor passed
+the already-built model to the terminal and reworded the sentence to name the
+HTML — true until Task 6 retires both halves, and Task 6's step still reads
+correctly against what is there now.
+
 ### Task 4 — a title that promised plural coverage a single fixture could not give
 
 **The plan said:** title the test "labels the paths of what was written, like

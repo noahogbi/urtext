@@ -524,7 +524,9 @@ Delete the seven parameters, the internal `buildReportModel` call, and the parag
 **Then clean the imports, or the gate fails.** `noUnusedLocals` is on, and this
 leaves `labelConcealed` (`:1`), `buildReportModel` (`:3`), and the
 `Changeset`/`Finding` type import (`:11`) with no users in `terminal.ts`. Keep
-`ReportModel` and whatever the walker still names.
+`ReportModel` and whatever the walker still names. **`cli.ts` orphans one too:**
+deleting its export-path loop (Step 3) leaves `labelConcealed` at `cli.ts:10`
+with no user — the plan's first draft named only the three in `terminal.ts`.
 
 - [ ] **Step 2: Rule on the blank line**
 
@@ -621,7 +623,7 @@ proof, for the reason stated above.
 **Add the assertion that would have caught it.** In `test/report/terminal.test.ts`:
 
 ```ts
-  it("runs the export lines straight on from the report line, with one blank after", () => {
+  it("runs the export lines straight on from the report line, and ends there", () => {
     const m = buildReportModel({ ...changeset, untrackedCount: 0 }, [], {
       warnings: [],
       reportPath: "/r/review.html",
@@ -640,12 +642,17 @@ proof, for the reason stated above.
   it("separates the disclosures from the findings whichever kind they are", () => {
     // `changeset` is a const in this file, not a factory — the `changeset({...})`
     // idiom belongs to model.test.ts. Spread it, as `:134` already does.
-    const withUntracked = buildReportModel({ ...changeset, untrackedCount: 2 }, [finding()], {
-      warnings: [],
-    });
-    const out = renderTerminal(withUntracked);
-    const noteLine = out.split("\n").findIndex((l) => l.includes("untracked file"));
-    expect(out.split("\n")[noteLine + 1]).toBe("");
+    const lineAfter = (m: ReportModel, marker: string): string => {
+      const lines = renderTerminal(m).split("\n");
+      return lines[lines.findIndex((l) => l.includes(marker)) + 1];
+    };
+    // Both kinds, or the title is unearned: the gate now reads `notes`, which
+    // merges analyzer warnings with the untracked note. A gate narrowed back
+    // to either kind alone still passes a test exercising only the other.
+    expect(lineAfter(model({ ...changeset, untrackedCount: 2 }, [finding()]), "untracked file")).toBe("");
+    expect(
+      lineAfter(model(changeset, [finding()], { warnings: ["the surfaceAnalyzer analyzer failed"] }), "surfaceAnalyzer"),
+    ).toBe("");
   });
 ```
 
@@ -673,6 +680,13 @@ The rewrite rule, applied to every site:
 | `renderTerminal(cs, fs, path, warnings, name, n, true)` | `...{ ..., citationSweep: true }` |
 
 Note `warnings` defaults to `[]` in the helper, so a site passing no warnings must not gain any, and a site passing `[]` explicitly can drop it.
+
+**`test/report/copy-guard.test.ts` takes no helper.** It already builds the
+models this task wants — `const model` at `:83` and `citationModel` at `:202` —
+and then hands the *pieces* they were built from to `renderTerminal` at `:105`
+and `:213`. Those two calls become `renderTerminal(model)` and
+`renderTerminal(citationModel)`: this whole change in one line each. A per-file
+helper named `model` would collide with that constant anyway.
 
 **The review point for this task:** read the diff for *meta content*, not for compilation. `tsc` cannot catch a dropped `suppressed: 3` or a changeset swapped for the file default. Check each rewritten site's arguments against the original line.
 
