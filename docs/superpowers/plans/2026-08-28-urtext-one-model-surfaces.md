@@ -934,6 +934,11 @@ git commit -m "test(cli): pin the three build moments against collapse"
       filterNote: "prose about `suppressed`, which is present",
       beyondIntentLegend: "legend for a mark carried on each finding",
       surfaceSymbols: "recomputable by rerunning extraction; not in the diff alone",
+      // Emitted, but NESTED, so a top-level key check does not see it. It
+      // stays green on a fixture that never passes `--citations` and would
+      // flag the moment one did — the latent-oversight shape this guard
+      // exists to catch, found in the guard's own list.
+      distributionNote: "present as `citations.distributionNote`, under the flag that composes it",
       // Not dead, despite looking like the entries above it that were: the
       // model always carries this key (Task 4 builds it as `?? []`) while the
       // JSON emits it only under `--export`, which this run does not ask for

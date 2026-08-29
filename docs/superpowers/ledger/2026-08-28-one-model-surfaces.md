@@ -70,6 +70,38 @@ the second test rather than sharpen the first.
 The dead `over` parameter on `withSymbols` went at the same time: no test in
 this task passes it and none in Task 3 needs it.
 
+### Task 8 — the guard's own list had the defect the guard exists to catch
+
+**The plan's `EXEMPT` list omitted `distributionNote`.** It is a `ReportModel`
+key, and `--json` emits it *nested* — `citations.distributionNote` — so a
+top-level `emitted.has("distributionNote")` is false and the guard's own rule
+flags it. It stayed green only because the guard's fixture never passes
+`--citations`, so the conditional key never materialises.
+
+That is precisely the latent-oversight shape the guard was written to prevent,
+sitting inside the guard's own list. Verified here: `cli.ts:647-648` composes
+it under the `citations` object. **Ruling:** entry added with a true reason,
+plan corrected, and the nesting called out — because a key that is emitted but
+not top-level is the one case a keys check reads as missing.
+
+**Every other exemption survived verification.** The executor checked all
+twelve against the JSON composition and the builder rather than trusting them.
+`notes`' reason became true only after Step 2 emitted `untrackedCount` — which
+is the point: that gap was found by trying to finish the sentence and failing.
+
+**Two strengthenings beyond the plan, both kept.** The guard's model build
+passes the `reportPath` the run actually wrote, converting a conditional key
+from invisible to accounted. And the untracked disclosure got two tests rather
+than one compound title, because "reported on both surfaces" and "present at
+zero" are different facts and one fixture cannot answer both — a compound title
+would have been unanswerable, which is the failure six titles in this plan
+already made.
+
+**One honest flag, no action:** `fileCount`/`lineCount`'s reason
+("recomputable from the diff the consumer already has") is soft — a `--json`
+consumer holds the repo and the range, so recomputing costs them a `git diff`.
+The claim is true and does not overstate, so it stands.
+
 ### Task 7 — the tripwires were proved to fail, which was the whole job
 
 Both tests pass on arrival by design. The executor proved each discriminates by
