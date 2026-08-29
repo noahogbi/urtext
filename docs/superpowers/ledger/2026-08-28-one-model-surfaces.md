@@ -70,6 +70,62 @@ the second test rather than sharpen the first.
 The dead `over` parameter on `withSymbols` went at the same time: no test in
 this task passes it and none in Task 3 needs it.
 
+### Task 7 — the tripwires were proved to fail, which was the whole job
+
+Both tests pass on arrival by design. The executor proved each discriminates by
+making the exact collapse it guards against:
+
+| Test | Mutation | Failure |
+|---|---|---|
+| pdf / moment two | rebuilt the pdf's model inside the export loop, after md had thrown | the extracted PDF carried "could not write the md export: md exporter exploded" |
+| Markdown / moment one | hoisted one model above the `writeReport` try and used it for both the HTML and the exports | the Markdown no longer carried "could not write the report" |
+
+Both restored by editing, never `git checkout --`; the committed diff contains
+comments only, so no mutation residue shipped.
+
+### Task 7 — "three build sites" was wrong: there are four
+
+**The plan said** "at each of the three sites". `cli.ts` builds a model at the
+HTML, the export model, the JSON model, and the terminal — **four** calls. The
+JSON and terminal builds are one *moment* (both run after everything is written
+or has failed to be) reached by mutually exclusive branches, since the JSON
+branch returns.
+
+The spec had this right — its table pairs `--json` and the terminal in one row.
+The plan flattened moments into sites and lost the distinction. **Ruling:** all
+four sites are commented, and the two sharing a moment name each other, so a
+reader who finds the fourth build does not conclude the moments story is
+incomplete. Plan corrected.
+
+### Task 7 — both of the plan's test titles failed answerability, one was false
+
+"Keeps a late failure off the surfaces that were already rendered" is not just
+vague — it is **wrong**. The PDF is not already rendered when the md export
+fails; it is rendered *afterwards*, from a model built before. The title
+asserted the opposite of the mechanism it was pinning.
+
+**Ruling:** renamed to a symmetric pair naming the mechanism — "keeps a failure
+that came after the export model off the pdf built from it" and "puts a failure
+that came before the export model onto the Markdown built from it". For a
+tripwire the title is the entire explanation the next reader gets, so a wrong
+one is worse here than anywhere. Fifth and sixth title defects in this plan,
+all mine.
+
+### Task 7 — a hole in the plan's assertion design
+
+The plan's PDF test asserted only `not.toContain("md export")`. That passes on
+an empty PDF, an unreadable one, or one whose disclosure section never
+rendered — none of which is the fact being pinned. The executor added positive
+controls: the PDF must carry a disclosure that *predates* the failure, so the
+absence means "built before" rather than "nothing rendered". The plan now says
+to do this.
+
+Also: the plan omitted the `unpdf` import its copied helper needs.
+
+**Environment note, cost one amended commit:** backticks inside a double-quoted
+`git commit -m` are command-substituted by bash here, silently eating a word
+from the message. Use `-F -` with a heredoc, as the rest of this branch does.
+
 ### Task 6 — the count "erratum" was the plan changing its own subject
 
 The executor reported the plan's site counts as wrong: 61 `renderHtml` calls in

@@ -795,7 +795,15 @@ git commit -m "refactor(html): walk a model, closing the last piece-taking signa
 
 - [ ] **Step 1: Comment each build site**
 
-At each of the three sites, one sentence naming what that moment can honestly know — for example, above the moment-2 build:
+**Four sites, three moments.** `cli.ts` calls `buildReportModel` at the HTML,
+the export model, the JSON model, and the terminal. The last two are the same
+moment — both run after everything is written or has failed to be — reached by
+mutually exclusive branches, since the JSON branch returns. Comment all four
+and say so at the two that share a moment, or a reader who finds an
+uncommented fourth build concludes the moments story is incomplete.
+
+At each site, one sentence naming what that moment can honestly know — for
+example, above the moment-2 build:
 
 ```ts
       // Moment two. Built after the report write attempt, so the Markdown and
@@ -807,7 +815,7 @@ At each of the three sites, one sentence naming what that moment can honestly kn
 - [ ] **Step 2: Write the failing test — moment 2 against moment 3**
 
 ```ts
-  it("keeps a late failure off the surfaces that were already rendered", async () => {
+  it("keeps a failure that came after the export model off the pdf built from it", async () => {
     // The three model builds are moments, not redundancy: each surface
     // carries what was known when it was produced. Collapsing them into one
     // build would either backdate a warning onto a document that could not
@@ -836,9 +844,18 @@ At each of the three sites, one sentence naming what that moment can honestly kn
   });
 ```
 
-Import `renderPdf`, and copy the `extracted`/`textOf` pair from
-`test/report/pdf.test.ts:65-71` (seven lines, not four) — it collapses
-whitespace, which makes the assertion safe against pdfkit's line wrapping.
+Import `renderPdf`, and `extractText`/`getDocumentProxy` from `unpdf`. Copy the
+whitespace-collapsing extraction from `test/report/pdf.test.ts:65-71` — the
+collapse is what makes an assertion safe against pdfkit's line wrapping. Only
+`textOf` is needed; `extracted`'s page-count split serves assertions this test
+does not make.
+
+**Assert something present, not only something absent.** `not.toContain("md
+export")` passes on an empty PDF, an unreadable one, or one whose disclosure
+section never rendered — none of which is the fact being pinned. Assert that
+the PDF *does* carry a disclosure that predates the failure (the `--no-llm`
+note travels through the same `notes` array the md failure would have joined),
+so the absence means "built before" rather than "nothing rendered".
 
 - [ ] **Step 3: Run it**
 
@@ -859,7 +876,7 @@ uncommitted work.
 - [ ] **Step 4: Add the moment 1 / moment 2 case**
 
 ```ts
-  it("tells the stream what no report could say", async () => {
+  it("puts a failure that came before the export model onto the Markdown built from it", async () => {
     // With `.urtext` occupied by a plain file the report write fails, so
     // moment one produces nothing; the Markdown on stdout is built at moment
     // two and carries the failure the HTML never existed to carry.
