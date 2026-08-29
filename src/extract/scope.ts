@@ -242,7 +242,7 @@ function isStatementScope(node: ts.Node): boolean {
  *
  * A function's body block is a statement scope like any other: a `const`
  * declared in it is a local no other file can reach, not a member of the
- * function. Walking through it to the function — the old behaviour, when the
+ * function. Walking through it to the function — the old behavior, when the
  * root rule fired only on an empty frame stack — is what let a function-local
  * `handlers` wear a merged namespace's member path.
  */

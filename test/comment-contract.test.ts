@@ -477,7 +477,7 @@ describe("test title contract", () => {
     //
     // Scoped to within a file on purpose. The same title in two different
     // files is not ambiguous under that citation form and is often
-    // deliberate: the surfaces test parallel behaviour and saying so
+    // deliberate: the surfaces test parallel behavior and saying so
     // identically is the point. Widening this to the whole suite would
     // forbid that parallelism to fix an ambiguity that does not exist.
     //

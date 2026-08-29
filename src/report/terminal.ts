@@ -14,7 +14,7 @@ import {
  * `buildReportModel` — what this file owns is format mechanics: spacing,
  * indentation, line wrapping, the gutter labels, and the width-limited
  * excerpt cut. Model text arrives with concealment already applied
- * (structurally, as `ConcealSegment` arrays, or as labelled strings for
+ * (structurally, as `ConcealSegment` arrays, or as labeled strings for
  * identifier-shaped fields), so this walker joins segments through
  * `plainText` and never re-derives concealment for model content.
  */
@@ -46,7 +46,7 @@ const BODY_WIDTH = 64;
  * Whitespace-trims an excerpt's edges without ever deleting a concealed
  * segment: only ordinary text segments are trimmed. A raw-string trim would
  * silently drop the whitespace-classed concealing characters at either edge;
- * here they stay visible as their labels, which is the point of labelling
+ * here they stay visible as their labels, which is the point of labeling
  * them.
  */
 function trimSegments(segments: ConcealSegment[]): ConcealSegment[] {
@@ -175,7 +175,7 @@ export function renderTerminal(m: ReportModel): string {
         out.push(...wrap(plainText(f.modelNote.text), BODY_WIDTH, "    "));
       } else if (f.modelNote && m.modelName) {
         // The analyzer's paragraphs already said what was found; this is the
-        // model's added explanation of why it matters, labelled rather than
+        // model's added explanation of why it matters, labeled rather than
         // folded silently into the same paragraph — a reader deciding how
         // much to trust an [inferred] finding needs to see the two apart.
         //

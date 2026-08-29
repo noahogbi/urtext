@@ -171,7 +171,7 @@ describe("renderMarkdown concealment", () => {
     expect(md).not.toContain(rlo);
   });
 
-  it("carries no raw concealing character from any labelled field", () => {
+  it("carries no raw concealing character from any labeled field", () => {
     const md = renderMarkdown(
       modelWith(
         { title: "send\u200D changed", body: "It reads \u0007 from the socket." },

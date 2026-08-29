@@ -672,7 +672,7 @@ export async function review(
 
   // Only the exports that were actually written, in the order they were
   // requested: a failed one already has its warning in the notes above. The
-  // walker prints one line each, under the "Full report" line and labelled
+  // walker prints one line each, under the "Full report" line and labeled
   // like every other path the model carries — this surface no longer has
   // anything appended to it after it has returned.
   //
@@ -702,7 +702,7 @@ export async function review(
 
 /**
  * Acts on `--open`. `openReport` ignores an absent path, which is right for it
- * and wrong as the whole behaviour: a user who asked for the report to be
+ * and wrong as the whole behavior: a user who asked for the report to be
  * opened and gets no window is owed the reason. There are two — the review
  * failed hard enough that no report is written, and the write itself failed —
  * and the output above states whichever applies, so this points at that rather

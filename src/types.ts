@@ -185,7 +185,7 @@ export interface Finding {
  * A model's interpretation of a change. A claim is not evidence: it carries
  * no `EvidenceRef` of its own, and it can never overwrite a fact. It either
  * annotates a fact — earning that fact's finding a richer explanation — or
- * stands alone as something the analyzers did not see, labelled `model` so a
+ * stands alone as something the analyzers did not see, labeled `model` so a
  * reader knows to check it.
  */
 export interface Claim {

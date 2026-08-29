@@ -115,7 +115,7 @@ jobs:
 can. It was cut on a green cross-platform CI run — the check you can see for yourself
 on this repository.
 
-Four of the action's behaviours were verified against live pull requests, and it is
+Four of the action's behaviors were verified against live pull requests, and it is
 worth being exact about where that evidence sits: it was recorded during development,
 in a private repository this one does not descend from, so **you cannot follow it from
 here.** What was observed there — the workflow posted one marked comment carrying a
@@ -138,7 +138,7 @@ be observed "from a branch" and was read — including by its author — as need
 It does not. `pull_request_target` fires for pull requests from branches in the same
 repository too; the only requirement is that the workflow live on the default branch.
 
-**One behaviour remains unverified and is not claimed:** a pull request from a fork,
+**One behavior remains unverified and is not claimed:** a pull request from a fork,
 where `GITHUB_TOKEN` is read-only and the post is expected to fail visibly. That one
 genuinely needs a second account, and it is being left for the first real fork pull
 request rather than manufactured — its failure mode is a visible, harmless warning on
@@ -231,11 +231,36 @@ And the outputs a later step can read:
 Every default lives in `action.yml` and is deliberately not restated here, so there is
 one place to read it and one place to change it.
 
+## What leaves your machine
+
+**Nothing reaches the author of this tool.** urtext has no server, no telemetry, and no
+account. The CLI runs on your machine; the action runs in your own runner, installing
+from its own checkout.
+
+**With `--no-llm`, nothing leaves at all.** Every analyzer is local, every finding is
+`verified`, and the review makes no network call.
+
+**With a key, your code goes to Anthropic under _your_ key and your agreement with
+them** — never through anything the author operates. What is sent is the diff of the
+reviewed range, the contents of the files it touches, and the commit messages in it.
+Those commit messages carry author names and email addresses, which is worth knowing
+before pointing this at a private repository. Nothing is sent when the key is absent,
+and every review states which mode it ran in.
+
+The report is written to `.urtext/` in your own repository. In CI it is also attached to
+the workflow run as an artifact, which your repository's retention settings govern.
+
+**Something wrong with a finding?** Errors, bad output, or a model claim that should
+never have been printed: [open an issue](https://github.com/noahogbi/urtext/issues). A
+`model`-tier finding that turned out to be nonsense is a useful report rather than a
+nuisance — that tier exists because it is expected to be wrong sometimes, and reports
+are how often gets measured.
+
 ## Layout
 
 - `src/extract/` — git range → changeset (files, hunks, changed symbols)
 - `src/analyze/` — analyzers producing typed facts with source evidence
-- `src/interpret/` — the model stage: facts in, labelled claims out
+- `src/interpret/` — the model stage: facts in, labeled claims out
 - `src/score/` — importance weights, tier assignment, ranking
 - `src/report/` — terminal and HTML renderers, and report writing
 - `src/cli.ts` — entry point

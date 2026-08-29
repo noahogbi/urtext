@@ -83,7 +83,7 @@ describe("action.yml", () => {
     // The trigger and the refusal together. A script that names
     // pull_request_target and then does not exit is not a refusal, and
     // asserting only the mention leaves the nonzero exit deletable in
-    // silence — a test whose name claims behaviour it never checks. The
+    // silence — a test whose name claims behavior it never checks. The
     // numeral is spelled in the pattern below and never here, because this
     // repository's comment contract reads a bare small integer in a comment
     // as a restated constant. Still shape only:
@@ -111,7 +111,7 @@ describe("action.yml", () => {
   });
 
   it("has exactly one `uses:` step, and it is the upload", () => {
-    // Every statement this action makes about its own failure behaviour
+    // Every statement this action makes about its own failure behavior
     // rests on this: a `run:` step captures its own status in the shell, and
     // a `uses:` step cannot. A second `uses:` step added later would
     // introduce a second unguarded failure path in silence. Asserted as an

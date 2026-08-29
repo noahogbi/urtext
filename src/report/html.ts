@@ -21,7 +21,7 @@ import type { ChangedSymbol } from "../types.js";
  * data-free copy only this surface shows: the lens blurbs, the empty-lens
  * wording, the provenance tail, the legend framing. Model text arrives with
  * concealment already applied — structurally, as `ConcealSegment` arrays
- * this walker wraps in its own markup, or as labelled strings for
+ * this walker wraps in its own markup, or as labeled strings for
  * identifier-shaped fields — so nothing here re-derives concealment for
  * model content. Every string on this page comes from the model, concealment
  * already applied; this file has no concealment path of its own.
@@ -45,7 +45,7 @@ const ESCAPES: Record<string, string> = {
  * each:
  *
  * - a segmented content field → `seg` (or `prose`, which builds on it)
- * - a labelled model string, or a string literal written in this file → `esc`
+ * - a labeled model string, or a string literal written in this file → `esc`
  *
  * `seg` calls this one, so the escaping below is the floor under both
  * contexts, not an alternative to them.
@@ -120,7 +120,7 @@ function modelBlock(note: ModelNoteView): string {
  * working tree, and this report has no repository path to resolve an
  * after-side ref against either, so every location here is text to read or
  * copy rather than something to click. The file path arrives from the model
- * as a labelled string, so only the entity layer is applied.
+ * as a labeled string, so only the entity layer is applied.
  */
 function location(ref: { file: string; line: number; side?: "before" | "after" }): string {
   const marker =
@@ -690,7 +690,7 @@ export function renderHtml(m: ReportModel): string {
     `<meta charset="utf-8">`,
     `<meta name="viewport" content="width=device-width, initial-scale=1">`,
     // `<title>` is RCDATA, where markup would show literally — the model's
-    // labelled range label plus the entity layer keeps it both inert and
+    // labeled range label plus the entity layer keeps it both inert and
     // free of concealing characters, like every attribute value here.
     `<title>urtext — ${esc(m.rangeLabel)}</title>`,
     `<style>${STYLE}</style>`,
