@@ -4,6 +4,15 @@ description: >-
   comment, edited in place on every push. Deterministic by default.
 author: noahogbi
 
+# Required to list this action on the GitHub Marketplace, inert everywhere
+# else: `icon` is a name from the Feather set GitHub accepts, `color` one of
+# the eight it allows. `eye` because this action reads a change and reports
+# what it saw — the evidence tiers are the whole product — and it is one of
+# the few accepted names about looking rather than about building or shipping.
+branding:
+  icon: eye
+  color: purple
+
 inputs:
   range:
     description: >-
