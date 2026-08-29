@@ -411,18 +411,28 @@ Model fields only. The terminal starts reading them in Task 5, which is where it
 
 - [ ] **Step 1: Write the failing test**
 
+Both tests go in a new `describe("buildReportModel written paths")` block, after
+the surface-symbols block from Task 2.
+
 ```ts
   it("labels the paths of what was written, like every other path it carries", () => {
     const m = buildReportModel(changeset(), [], {
       warnings: [],
       reportPath: `/tmp/.urtext/rev${RLO}iew.html`,
       exportPaths: [
-        { format: "md", path: "/tmp/.urtext/review.md" },
+        // An export path carries a concealing character too, or the title's
+        // plural is unearned: with the report path as the only one, dropping
+        // `labelConcealed` from the export paths leaves this test green and
+        // that line of the implementation covered nowhere. The pdf path stays
+        // clean, pinning that a path with nothing to conceal passes through
+        // unchanged.
+        { format: "md", path: `/tmp/.urtext/rev${RLO}iew.md` },
         { format: "pdf", path: "/tmp/.urtext/review.pdf" },
       ],
     });
     expect(m.reportPath).toBe("/tmp/.urtext/rev[U+202E]iew.html");
     expect(m.exportPaths.map((e) => e.format)).toEqual(["md", "pdf"]);
+    expect(m.exportPaths[0].path).toBe("/tmp/.urtext/rev[U+202E]iew.md");
     expect(m.exportPaths[1].path).toBe("/tmp/.urtext/review.pdf");
     expect(JSON.stringify(m)).not.toContain(RLO);
   });
@@ -437,7 +447,7 @@ Model fields only. The terminal starts reading them in Task 5, which is where it
 - [ ] **Step 2: Run it and watch it fail**
 
 ```bash
-npx vitest run test/report/model.test.ts -t "like every other path it carries"
+npx vitest run test/report/model.test.ts -t "buildReportModel written paths"
 ```
 Expected: FAIL — `m.reportPath` is undefined and `m.exportPaths` does not exist.
 

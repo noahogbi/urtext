@@ -70,6 +70,39 @@ the second test rather than sharpen the first.
 The dead `over` parameter on `withSymbols` went at the same time: no test in
 this task passes it and none in Task 3 needs it.
 
+### Task 4 — a title that promised plural coverage a single fixture could not give
+
+**The plan said:** title the test "labels the paths of what was written, like
+every other path it carries", and plant the concealing character in
+`reportPath` only, with both export paths clean.
+
+**The problem:** `path: labelConcealed(e.path)` — the one line of Task 4's
+implementation that labels *export* paths — could have been written
+`path: e.path` and the test would still have passed. Not merely an
+over-promising title, as in Task 2: there, the word "only" was earned by a
+neighbouring test, so renaming lost nothing. Here the behaviour was covered
+**nowhere in the suite**, so renaming would have shipped an unlabelled path as
+a silent possibility.
+
+**Ruling:** strengthen rather than rename — the opposite call to Task 2's, for
+the reason above. The md export path now carries a concealing character and is
+asserted labelled; the pdf path stays clean, which pins the other half (a path
+with nothing to conceal comes back exactly as it went in). The executor made
+this call itself and recorded the deviation in the test; the plan's snippet is
+updated to match, so a re-run produces what actually landed.
+
+**The pattern across three tasks:** every test-title defect in this plan is
+mine, and each survived four review rounds because a reviewer reads a title
+against the *implementation it describes*, while only running it against the
+*fixture* shows what it can actually catch. That is an argument for executing
+plans with fresh subagents rather than inlining them — the executor is the
+first reader who has to make the title true.
+
+Two smaller calls, neither specified: the `describe` block's name
+("buildReportModel written paths" — the plan's snippet was indented into a
+block it never named, now fixed), and running the red check for the second test
+too rather than only the one the plan's command filtered to. Both were red.
+
 ### Task 3 — the escape round-tripped into the raw character, twice, to two actors
 
 **What happened:** the executor wrote `RLO` into `test/report/html.test.ts` as
