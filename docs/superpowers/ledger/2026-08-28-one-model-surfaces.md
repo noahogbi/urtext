@@ -70,6 +70,51 @@ the second test rather than sharpen the first.
 The dead `over` parameter on `withSymbols` went at the same time: no test in
 this task passes it and none in Task 3 needs it.
 
+### Task 3 — the escape round-tripped into the raw character, twice, to two actors
+
+**What happened:** the executor wrote `RLO` into `test/report/html.test.ts` as
+the six-character escape and the editing tool stored the U+202E *character*
+instead. It caught this with a byte check, rewrote the range through Python,
+and verified zero raw bytes before running anything. The identical thing
+happened to me earlier the same day, editing this plan — my first fix of a raw
+U+202E re-planted it.
+
+**Ruling:** this is a tool behaviour, not a mistake either actor can avoid by
+being careful, so it becomes a Global Constraint rather than a note: after
+writing a `\uXXXX` escape into any file, byte-check that file; if the escape
+did not survive, rewrite that range with Python. The plan already warned about
+the character. What it assumed — that writing the escape is sufficient — is
+false here.
+
+Verified after this task: zero raw concealing characters across all of `src/`,
+`test/`, and `docs/`.
+
+### Task 3 — the plan's staging line contradicted its own step
+
+**The plan said:** Step 4, rewrite `src/report/conceal.ts`'s header "in this
+commit, not be left for a reader to trip over". Step 6, `git add
+src/report/html.ts test/report/html.test.ts`.
+
+Following Step 6 literally leaves `conceal.ts` dirty, carrying a comment that
+names a function this task deletes, to be swept into Task 4's commit — exactly
+what Step 4 forbids. The executor staged all three and flagged it.
+
+**Ruling:** plan corrected; the staging line and the task's Files list now name
+`conceal.ts`. The executor's observation that Task 5 uses a `test/` wildcard
+where this task used a fixed list is right, and is why the remaining staging
+lines were audited rather than assumed.
+
+### Task 3 — one comment the plan left to the executor's judgement
+
+The `esc()` doc had to lose a count ("Three contexts", "Both wrappers") and the
+plan gave no target text, unlike every other comment it rewrites. The executor
+wrote "The one wrapper calls this one", noting the awkwardness itself.
+
+**Ruling:** changed to name the function instead of counting — "`seg` calls
+this one" — since `prose` builds on `seg` rather than on `esc`, which is what
+made "both wrappers" loose to begin with. A count that needs a caveat is worse
+than a name.
+
 ### Task 2 — a forward defect in Task 6, fixed before its executor arrives
 
 Task 6 said the type import at `html.ts:16` "loses its users". The line is

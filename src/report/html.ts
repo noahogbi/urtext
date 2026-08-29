@@ -55,8 +55,8 @@ const ESCAPES: Record<string, string> = {
  * - a segmented content field → `seg` (or `prose`, which builds on it)
  * - a labelled model string, or a string literal written in this file → `esc`
  *
- * The one wrapper calls this one, so the escaping below is the floor under
- * both contexts, not an alternative to them.
+ * `seg` calls this one, so the escaping below is the floor under both
+ * contexts, not an alternative to them.
  *
  * Nothing untrusted is ever interpolated into the inline script or the
  * stylesheet, where escaping would not help — the script is a fixed string

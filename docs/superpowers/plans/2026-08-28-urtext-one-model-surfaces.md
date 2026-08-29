@@ -17,6 +17,12 @@
 - **Every test title must be unique within its file** — `test/comment-contract.test.ts` enforces it, and it fired twice during the previous change.
 - **No bare small integer in a comment that collides with a `WEIGHTS` value** — same guard file. Spell such numbers as words.
 - **Worktree files are CRLF on disk.** Scripted patches must account for it; prefer the Edit tool.
+- **After writing a `\uXXXX` escape into any file, byte-check that file** — the editing
+  tool has twice round-tripped the escape back into the raw character it stands
+  for, once in this plan and once in a test file. Writing the escape is not
+  enough; verify it survived:
+  `python -c "print([hex(ord(c)) for c in open('PATH',encoding='utf-8').read() if ord(c) in (0x202E,0x200B)])"`
+  If it did not, rewrite that byte range with Python rather than the editor.
 - **Never `git checkout -- <file>` to undo an experiment** on a file carrying uncommitted work — it discards the work too. Mutate in a `git archive` scratch copy.
 - **Do not weaken a test to make a change pass.** If an assertion blocks the change, that is a finding to report, not an obstacle to remove. Where this plan deliberately changes an assertion, it says so and says why.
 - Concealment happens in the model, never in a renderer. After Task 3 no renderer contains a concealment path at all.
@@ -291,7 +297,7 @@ git commit -m "feat(model): carry the API-surface symbols, concealed"
 ### Task 3: The HTML walks `surfaceSymbols`; `visible` is deleted
 
 **Files:**
-- Modify: `src/report/html.ts` (`surfaceLens` at `:368`, `visible` at `:104`, the header paragraph at `:36-37` and `:59`)
+- Modify: `src/report/html.ts` (`surfaceLens` at `:368`, `visible` at `:104`, the header paragraph at `:35-38` and the bullet at `:59`), `src/report/conceal.ts` (header)
 - Test: `test/report/html.test.ts`
 
 **Interfaces:**
@@ -356,7 +362,7 @@ Update its call site: `surface: surfaceLens(m)`.
 
 - [ ] **Step 4: Delete `visible` and the exception it existed for**
 
-Remove the `visible` function (`html.ts:104-113`) and its doc comment. Remove the `conceals` and `codePointLabel` imports if nothing else uses them (`grep -n "conceals\|codePointLabel" src/report/html.ts`). In the file header, delete the paragraph at `:36-37` naming the symbol table as a scoped exception and the bullet at `:59` (`the symbol table's changeset data → visible`), and replace with one sentence:
+Remove the `visible` function (`html.ts:104-113`) and its doc comment. Remove the `conceals` and `codePointLabel` imports if nothing else uses them (`grep -n "conceals\|codePointLabel" src/report/html.ts`). In the file header, delete the paragraph at `:35-38` naming the symbol table as a scoped exception and the bullet at `:59` (`the symbol table's changeset data → visible`), and replace with one sentence:
 
 ```
  * Every string on this page comes from the model, concealment already
@@ -386,7 +392,7 @@ Expected: all green with no test edited. If any HTML assertion changes, stop —
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/report/html.ts test/report/html.test.ts
+git add src/report/html.ts src/report/conceal.ts test/report/html.test.ts
 git commit -m "refactor(html): tabulate symbols from the model, not the changeset"
 ```
 
