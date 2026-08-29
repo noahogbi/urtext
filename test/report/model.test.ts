@@ -289,6 +289,89 @@ describe("buildReportModel structural concealment", () => {
   });
 });
 
+describe("buildReportModel surface symbols", () => {
+  const withSymbols = () =>
+    changeset({
+      files: [
+        {
+          path: "a.ts",
+          status: "modified",
+          hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1 }],
+          symbols: [
+            {
+              name: "send",
+              qualifiedName: "send",
+              kind: "function",
+              exported: true,
+              range: { startLine: 1, endLine: 2 },
+              change: "modified",
+            },
+          ],
+        },
+      ],
+    });
+
+  // Titled for what it asserts. The plan called this "carries only the
+  // exported declarations", but the fixture holds one exported symbol —
+  // delete the `exported` filter and it still passes. The word "only" is
+  // earned by the next test, which is where it now lives.
+  it("carries an exported declaration's change, name, kind, and file", () => {
+    const m = buildReportModel(withSymbols(), [], { warnings: [] });
+    expect(m.surfaceSymbols).toHaveLength(1);
+    expect(plainText(m.surfaceSymbols[0].qualifiedName)).toBe("send");
+    expect(plainText(m.surfaceSymbols[0].kind)).toBe("function");
+    expect(plainText(m.surfaceSymbols[0].file)).toBe("a.ts");
+    expect(m.surfaceSymbols[0].change).toBe("modified");
+  });
+
+  it("leaves an unexported declaration out, as the symbol table always has", () => {
+    const cs = withSymbols();
+    cs.files[0].symbols[0].exported = false;
+    expect(buildReportModel(cs, [], { warnings: [] }).surfaceSymbols).toEqual([]);
+  });
+
+  it("conceals a symbol name, so no surface has to", () => {
+    // The reason this view exists rather than the HTML reading the changeset:
+    // concealment happens in the model, and a symbol name is text the author
+    // of the reviewed change controls.
+    const cs = withSymbols();
+    cs.files[0].symbols[0].qualifiedName = `sen${RLO}d`;
+    const m = buildReportModel(cs, [], { warnings: [] });
+    expect(plainText(m.surfaceSymbols[0].qualifiedName)).toBe("sen[U+202E]d");
+    expect(JSON.stringify(m)).not.toContain(RLO);
+  });
+});
+
+describe("buildReportModel written paths", () => {
+  it("labels the paths of what was written, like every other path it carries", () => {
+    // The plan planted the concealing character in the report path alone,
+    // which left the title's plural unearned: `labelConcealed` could be
+    // dropped from the export paths and this test would still have passed. An
+    // export path carries one too, so each labelling is pinned by an
+    // assertion of its own — and the untouched pdf path pins that a path with
+    // nothing to conceal comes back exactly as it went in.
+    const m = buildReportModel(changeset(), [], {
+      warnings: [],
+      reportPath: `/tmp/.urtext/rev${RLO}iew.html`,
+      exportPaths: [
+        { format: "md", path: `/tmp/.urtext/rev${RLO}iew.md` },
+        { format: "pdf", path: "/tmp/.urtext/review.pdf" },
+      ],
+    });
+    expect(m.reportPath).toBe("/tmp/.urtext/rev[U+202E]iew.html");
+    expect(m.exportPaths.map((e) => e.format)).toEqual(["md", "pdf"]);
+    expect(m.exportPaths[0].path).toBe("/tmp/.urtext/rev[U+202E]iew.md");
+    expect(m.exportPaths[1].path).toBe("/tmp/.urtext/review.pdf");
+    expect(JSON.stringify(m)).not.toContain(RLO);
+  });
+
+  it("carries an empty export list rather than none, and no path when none was written", () => {
+    const m = buildReportModel(changeset(), [], { warnings: [] });
+    expect(m.exportPaths).toEqual([]);
+    expect(m.reportPath).toBeUndefined();
+  });
+});
+
 describe("buildReportModel provenance", () => {
   it("gates provenance on a model name AND a model-derived tier", () => {
     const none = buildReportModel(changeset(), [finding()], {
@@ -673,14 +756,14 @@ describe("the per-kind guidance reaches every surface", () => {
   const note = KIND_NOTES.export_added;
 
   it("prints a kind's guidance in the terminal, the Markdown, and the HTML", () => {
-    const terminal = renderTerminal(changeset(), findings);
-    expect(terminal).toContain(note);
-
-    const md = renderMarkdown(buildReportModel(changeset(), findings, { warnings: [] }));
-    expect(md).toContain(note);
-
-    const html = renderHtml(changeset(), findings, { warnings: [] });
-    expect(html).toContain(note);
+    // One model, three surfaces — expressible only now, and the stronger
+    // claim: three separately built models could agree merely because they
+    // were built the same way, while this pins that every surface reads the
+    // same instance.
+    const m = buildReportModel(changeset(), findings, { warnings: [] });
+    expect(renderTerminal(m)).toContain(note);
+    expect(renderMarkdown(m)).toContain(note);
+    expect(renderHtml(m)).toContain(note);
   });
 });
 
@@ -705,33 +788,16 @@ describe("the distribution note reaches every surface", () => {
     expect(note).not.toBe("");
 
     // Rendered through each surface's own entry point rather than by reading
-    // the model back, so a renderer that never consults the field fails.
-    // The terminal takes findings, not a model, so it gets the same two.
-    const terminal = renderTerminal(
-      changeset({}),
-      [
-        finding({ id: "citation_rot:docs/a.md:3:x", file: "docs/a.md" }),
-        finding({ id: "citation_rot:src/b.ts:9:y", file: "src/b.ts" }),
-      ],
-      undefined,
-      [],
-      undefined,
-      0,
-      true,
-    );
+    // the model back, so a renderer that never consults the field fails. One
+    // model reaches all three: every surface takes one now, so a second build
+    // of the same fixture would only be a chance for the three to diverge.
+    const terminal = renderTerminal(m);
     expect(terminal).toContain("Citations:");
 
     const md = renderMarkdown(m);
     expect(md).toContain("Citations:");
 
-    const html = renderHtml(
-      changeset({}),
-      [
-        finding({ id: "citation_rot:docs/a.md:3:x", file: "docs/a.md" }),
-        finding({ id: "citation_rot:src/b.ts:9:y", file: "src/b.ts" }),
-      ],
-      { warnings: [], citationSweep: true },
-    );
+    const html = renderHtml(m);
     expect(html).toContain("Citations:");
     // And it must not be inside the partial-review banner on any of them.
     expect(html).not.toMatch(/This review is partial[\s\S]{0,200}Citations:/);

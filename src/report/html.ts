@@ -1,7 +1,5 @@
-import { codePointLabel, conceals } from "./conceal.js";
 import {
   BEYOND_INTENT_MARK,
-  buildReportModel,
   EMPTY_LENS_COPY,
   LENSES,
   TIER_GLYPH,
@@ -13,14 +11,7 @@ import {
   type ModelNoteView,
   type ReportModel,
 } from "./model.js";
-import type { Changeset, ChangedSymbol, Finding } from "../types.js";
-
-// ReportMeta lives in `./model.js` now — the report model consumes it too,
-// and neither module may import the other's rendering — re-exported here so
-// existing importers keep working unchanged.
-import type { ReportMeta } from "./model.js";
-
-export type { ReportMeta } from "./model.js";
+import type { ChangedSymbol } from "../types.js";
 
 /**
  * The HTML surface, a walker over the report model. Every sentence, tier,
@@ -32,10 +23,8 @@ export type { ReportMeta } from "./model.js";
  * concealment already applied — structurally, as `ConcealSegment` arrays
  * this walker wraps in its own markup, or as labelled strings for
  * identifier-shaped fields — so nothing here re-derives concealment for
- * model content. The one scoped exception, recorded in the design spec's
- * addendum, is the API-surface symbol table: symbols are changeset data the
- * model omits by design, so that table reads the changeset directly and
- * applies the concealment defense renderer-side through `visible`.
+ * model content. Every string on this page comes from the model, concealment
+ * already applied; this file has no concealment path of its own.
  */
 
 const ESCAPES: Record<string, string> = {
@@ -52,15 +41,14 @@ const ESCAPES: Record<string, string> = {
  * Everything the model hands this walker is untrusted — a signature
  * containing `Array<T>` and a claim containing a literal `<script>` are the
  * same problem, and only one of them is hostile — so format escaping is
- * applied to ALL model-provided text uniformly. Three contexts, one function
+ * applied to ALL model-provided text uniformly. Two contexts, one function
  * each:
  *
  * - a segmented content field → `seg` (or `prose`, which builds on it)
- * - the symbol table's changeset data → `visible`
  * - a labelled model string, or a string literal written in this file → `esc`
  *
- * Both wrappers call this one, so the escaping below is the floor under all
- * three contexts, not an alternative to them.
+ * `seg` calls this one, so the escaping below is the floor under both
+ * contexts, not an alternative to them.
  *
  * Nothing untrusted is ever interpolated into the inline script or the
  * stylesheet, where escaping would not help — the script is a fixed string
@@ -88,28 +76,6 @@ function seg(segments: ConcealSegment[]): string {
         : esc(s.text),
     )
     .join("");
-}
-
-/**
- * Escaped, and with every concealing character replaced by a visible label
- * of its own code point. Only for the API-surface symbol table — the one
- * place this walker renders text that does not come from the model, the
- * scoped exception described in this file's header — so the concealment
- * defense is applied here, renderer-side, exactly where model coverage ends.
- *
- * The raw character is dropped rather than kept beside the label, matching
- * what the model does to its own fields: copying a symbol name out of this
- * report should not carry an invisible payload with it.
- */
-function visible(text: string): string {
-  let out = "";
-  for (const ch of esc(text)) {
-    const code = ch.codePointAt(0) ?? 0;
-    out += conceals(code)
-      ? `<span class="ctrl" title="concealing character">${codePointLabel(code)}</span>`
-      : ch;
-  }
-  return out;
 }
 
 /**
@@ -365,29 +331,23 @@ const SYMBOL_CHANGE_MARK: Record<ChangedSymbol["change"], string> = {
   removed: "−",
 };
 
-function surfaceLens(changeset: Changeset, findings: FindingView[]): string {
-  // The symbol table is the scoped exception named in this file's header:
-  // it reads the changeset, not the model, so its text goes through
-  // `visible` rather than arriving pre-labelled.
+function surfaceLens(model: ReportModel): string {
   const rows: string[] = [];
-  for (const file of changeset.files) {
-    for (const sym of file.symbols) {
-      if (!sym.exported) continue;
-      rows.push(
-        [
-          `<tr class="sym-${sym.change}">`,
-          // The mark carries the colour and the word carries the meaning, in
-          // one cell: as two columns they said the same thing twice.
-          `<td class="change"><span aria-hidden="true">${SYMBOL_CHANGE_MARK[sym.change]}</span> ${esc(sym.change)}</td>`,
-          `<td class="mono">${visible(sym.qualifiedName)}</td>`,
-          `<td class="muted">${visible(sym.kind)}</td>`,
-          `<td class="mono muted">${visible(file.path)}</td>`,
-          `</tr>`,
-        ].join(""),
-      );
-    }
+  for (const sym of model.surfaceSymbols) {
+    rows.push(
+      [
+        `<tr class="sym-${sym.change}">`,
+        // The mark carries the colour and the word carries the meaning, in
+        // one cell: as two columns they said the same thing twice.
+        `<td class="change"><span aria-hidden="true">${SYMBOL_CHANGE_MARK[sym.change]}</span> ${esc(sym.change)}</td>`,
+        `<td class="mono">${seg(sym.qualifiedName)}</td>`,
+        `<td class="muted">${seg(sym.kind)}</td>`,
+        `<td class="mono muted">${seg(sym.file)}</td>`,
+        `</tr>`,
+      ].join(""),
+    );
   }
-  const surfaceFindings = findings.filter((f) => f.subject === "surface");
+  const surfaceFindings = model.findings.filter((f) => f.subject === "surface");
 
   if (rows.length === 0 && surfaceFindings.length === 0) {
     return empty(
@@ -706,17 +666,11 @@ const TAB_SCRIPT = `
 })();
 `;
 
-export function renderHtml(
-  changeset: Changeset,
-  findings: Finding[],
-  meta: ReportMeta,
-): string {
-  const m = buildReportModel(changeset, findings, meta);
-
+export function renderHtml(m: ReportModel): string {
   const panes: Record<string, string> = {
     narrative: narrativeLens(m),
     effects: effectsLens(m.findings),
-    surface: surfaceLens(changeset, m.findings),
+    surface: surfaceLens(m),
   };
 
   const tabs = LENSES.map(

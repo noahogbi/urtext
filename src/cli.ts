@@ -7,11 +7,10 @@ import {
 import { createContext, extract, repoRoot } from "./extract/index.js";
 import { collectIntent } from "./extract/intent.js";
 import { DEFAULT_MODEL, interpret } from "./interpret/index.js";
-import { labelConcealed } from "./report/conceal.js";
 import { deletedFilesNote, deletedTypeScriptFiles } from "./report/coverage.js";
 import { renderHtml } from "./report/html.js";
 import { renderMarkdown } from "./report/markdown.js";
-import { buildReportModel, type ReportModel } from "./report/model.js";
+import { buildReportModel, type ReportMeta, type ReportModel } from "./report/model.js";
 import { renderPdf } from "./report/pdf.js";
 import { renderTerminal } from "./report/terminal.js";
 import {
@@ -23,7 +22,7 @@ import {
   type ExportFormat,
 } from "./report/write.js";
 import { reconcile } from "./score/reconcile.js";
-import type { Analyzer, Tier } from "./types.js";
+import type { Analyzer } from "./types.js";
 
 /**
  * Every format `--stdout` can carry. One member today, and a union rather
@@ -442,20 +441,46 @@ export async function review(
   let markdown: string | undefined;
   const exportFormats = opts.exportFormats ?? [];
   const exportPaths: { md?: string; pdf?: string } = {};
+  // Every model this run builds comes through here, so a new model input is
+  // added once rather than in four places — which is how `citationSweep`
+  // ended up threaded down each path separately, and how `renderTerminal`
+  // grew a seventh positional parameter to carry it.
+  //
+  // `warnings` is the live array, not a copy: a model built at a later moment
+  // must see what was pushed since (see the timing rule in the spec, and the
+  // comments at each build site below).
+  //
+  // Only the two fields a later moment *learns* may be overridden. Widening
+  // this to `Partial<ReportMeta>` would let one moment quietly hand a
+  // different `warnings` or `citationSweep` than another, reopening inside
+  // the one file meant to close it the door this whole change exists to shut.
+  const metaFor = (
+    over: Partial<Pick<ReportMeta, "reportPath" | "exportPaths">> = {},
+  ): ReportMeta => ({
+    model: result.model,
+    warnings,
+    suppressed,
+    citationSweep: opts.citations === true,
+    ...over,
+  });
   if (exitCode === 0) {
     try {
       reportPath = await writeReport(
         root,
+        // Moment one, and the earliest a model can honestly be built: nothing
+        // has been written yet, so this one knows what the review found and
+        // nothing about what became of it. A report cannot name its own
+        // failure to be written, and no export exists yet to fail. The two
+        // moments below know strictly more, which is why they are separate
+        // builds rather than this one reused — see `test/cli.test.ts`, "keeps
+        // a failure that came after the export model off the pdf built from
+        // it", and the timing rule in the spec.
+        //
         // `warnings` already carries `result.skipped` (pushed above, where
         // every reason a review fell short goes). Passing it separately as
         // well is what printed the skipped-stage line twice in the banner of
         // every `--no-llm` run.
-        renderHtml(changeset, findings, {
-          model: result.model,
-          warnings,
-          suppressed,
-          citationSweep: opts.citations === true,
-        }),
+        renderHtml(buildReportModel(changeset, findings, metaFor())),
       );
     } catch (err) {
       // A degraded review beats no review, the same rule `runAnalyzers`
@@ -492,15 +517,22 @@ export async function review(
     // file. See `test/cli.test.ts`, "gives the stream and the file
     // byte-identical Markdown from one model".
     if (exportFormats.length > 0 || opts.stdout !== undefined) {
-      // Built once, and every requested export walks this one instance.
-      // `renderHtml` above still builds its own internally — its public
-      // signature takes the raw pieces and is out of this change's scope.
-      const exportModel = buildReportModel(changeset, findings, {
-        model: result.model,
-        warnings,
-        suppressed,
-        citationSweep: opts.citations === true,
-      });
+      // Moment two, and built once: every requested export, and the stream,
+      // walk this one instance. A second model rather than the one the HTML
+      // above walked, because the two are built at different moments: that
+      // one was assembled before the report write was attempted, this one
+      // after, so these documents can carry a failure the HTML could not have
+      // known about. And built here rather than inside the loop below,
+      // because no export can report a failure to write itself: rebuilding
+      // per format would let whichever export ran last name the earlier one's
+      // failure while the earlier one stayed silent about its own, so two
+      // documents of one review would disagree about what the run did.
+      //
+      // Both halves are pinned in `test/cli.test.ts`: "puts a failure that
+      // came before the export model onto the Markdown built from it" for the
+      // first, "keeps a failure that came after the export model off the pdf
+      // built from it" for the second.
+      const exportModel = buildReportModel(changeset, findings, metaFor());
       if (opts.stdout === "md") {
         try {
           markdown = exporters.md(exportModel);
@@ -534,8 +566,23 @@ export async function review(
   }
 
   if (opts.json) {
-    const counts: Record<Tier, number> = { verified: 0, inferred: 0, model: 0 };
-    for (const f of findings) counts[f.tier]++;
+    // Built before `counts` below, which reads it: one derivation, not two.
+    // The model computes exactly this tally (`buildReportModel`), and a
+    // second loop over the same findings is the shape that let the finding
+    // band map be derived twice and disagree.
+    //
+    // Built rather than recomposed, for every sentence it supplies: the model
+    // is the single source of what a surface may say, and deciding here which
+    // findings are citations — or tallying the tiers again — would be a second
+    // copy of a rule that already exists, free to drift and drifting silently.
+    //
+    // Moment three, which has two build sites rather than one: this branch
+    // returns, so a run reaches either this build or the terminal's below,
+    // never both. Same moment either way — everything has been written or has
+    // failed to be by now, so the last surface a run produces is the one that
+    // can say so.
+    const jsonModel = buildReportModel(changeset, findings, metaFor());
+    const counts = jsonModel.counts;
     // What the analyzers did not look at, in the machine-readable output too.
     // Both renderers say it (see `deletedFilesNote`); a script reading `--json`
     // could not see it at all, which made "stated the same way on every
@@ -543,18 +590,6 @@ export async function review(
     // the gap. The array is always present so a consumer can test it without
     // branching on the key; the sentence is there only when there is one.
     const deleted = deletedTypeScriptFiles(changeset);
-    // Built for one sentence, and built rather than recomposed on purpose:
-    // the model is the single source of what a surface may say, and deciding
-    // here which findings are citations would be a second copy of a rule that
-    // already exists — free to drift, and drifting silently. That this is
-    // another model build on a `--json` run is the known cost recorded
-    // against renderers taking a prebuilt model, not a new one.
-    const jsonModel = buildReportModel(changeset, findings, {
-      model: result.model,
-      warnings,
-      suppressed,
-      citationSweep: opts.citations === true,
-    });
     return {
       output: JSON.stringify(
         {
@@ -566,6 +601,18 @@ export async function review(
           // array below. Nonzero means reconcile's standalone-reach filter
           // removed that many claim-free low-signal rows.
           suppressed,
+          // What `git diff` never showed the analyzers, by the same rule and
+          // for the same reason as `suppressed` above: always present, zero
+          // included. Every human surface states this through the model's
+          // `notes`; this one carried no key for it at all — `warnings` holds
+          // the raw analyzer strings, not that sentence, and `range` holds no
+          // count — so a script could not recover "N untracked files were not
+          // reviewed" by any route. The `kindNotes` gap again, found by
+          // writing down why `notes` could be exempt from the model-keys
+          // guard and not being able to finish the sentence; see
+          // `test/cli.test.ts`, "accounts for every model field in the JSON
+          // object, or exempts it by name".
+          untrackedCount: changeset.untrackedCount ?? 0,
           warnings,
           coverage: {
             deletedTypeScriptFiles: deleted,
@@ -623,23 +670,24 @@ export async function review(
     };
   }
 
+  // Only the exports that were actually written, in the order they were
+  // requested: a failed one already has its warning in the notes above. The
+  // walker prints one line each, under the "Full report" line and labelled
+  // like every other path the model carries — this surface no longer has
+  // anything appended to it after it has returned.
+  //
+  // Moment three, the other of its two sites (see the JSON build above). The
+  // terminal is the last thing a non-JSON run produces, and the only surface
+  // that knows every path this run wrote, so it is the only one that can be
+  // handed them: the two moments above are earlier than the writes they would
+  // have to describe.
+  const written = exportFormats.flatMap((format) => {
+    const path = exportPaths[format];
+    return path ? [{ format, path }] : [];
+  });
   let output = renderTerminal(
-    changeset,
-    findings,
-    reportPath,
-    warnings,
-    result.model,
-    suppressed,
-    opts.citations === true,
+    buildReportModel(changeset, findings, metaFor({ reportPath, exportPaths: written })),
   );
-  // One path line per written export, right under the "Full report" line the
-  // walker prints — labeled like every other path this surface shows, and
-  // only for exports that were actually written: a failed one already has
-  // its warning in the notes above.
-  for (const format of exportFormats) {
-    const written = exportPaths[format];
-    if (written) output += `  ${format} export: ${labelConcealed(written)}\n`;
-  }
   // Detection without action: urtext asks git whether the repository already
   // ignores `.urtext/` (see `shouldSuggestGitignore` in report/write.ts,
   // which also absorbs a git failure at this late stage — the review has

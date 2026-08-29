@@ -7,6 +7,7 @@ import { runAnalyzers } from "../src/analyze/index.js";
 import { review } from "../src/cli.js";
 import { createContext, extract } from "../src/extract/index.js";
 import { renderHtml } from "../src/report/html.js";
+import { buildReportModel } from "../src/report/model.js";
 import { reconcile } from "../src/score/reconcile.js";
 import type { Claim, Finding } from "../src/types.js";
 
@@ -159,7 +160,7 @@ describe("one changed symbol is one symbol, however many declarations it has", (
   it("gives the API-surface table one row per symbol", async () => {
     const repo = overloaded("urtext-overload-table-");
     const changeset = await extract(repo);
-    const html = renderHtml(changeset, [], { warnings: [] });
+    const html = renderHtml(buildReportModel(changeset, [], { warnings: [] }));
     const rows = html.split("<tr").filter((row) => row.includes(">fmt<"));
     expect(rows).toHaveLength(1);
   });
@@ -784,7 +785,7 @@ describe("a nested declaration is not the top-level export that shares its name"
 
   it("keeps the exported function out of the API-surface table when only the local changed", async () => {
     const repo = shadowing("urtext-shadow-table-", localEdited);
-    const html = renderHtml(await extract(repo), [], { warnings: [] });
+    const html = renderHtml(buildReportModel(await extract(repo), [], { warnings: [] }));
     // The bug listed `format` as an exported *variable*, taking the kind from
     // the local it had merged in.
     expect(html.split("<tr").filter((row) => row.includes(">format<"))).toEqual([]);
