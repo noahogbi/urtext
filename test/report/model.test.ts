@@ -342,6 +342,36 @@ describe("buildReportModel surface symbols", () => {
   });
 });
 
+describe("buildReportModel written paths", () => {
+  it("labels the paths of what was written, like every other path it carries", () => {
+    // The plan planted the concealing character in the report path alone,
+    // which left the title's plural unearned: `labelConcealed` could be
+    // dropped from the export paths and this test would still have passed. An
+    // export path carries one too, so each labelling is pinned by an
+    // assertion of its own — and the untouched pdf path pins that a path with
+    // nothing to conceal comes back exactly as it went in.
+    const m = buildReportModel(changeset(), [], {
+      warnings: [],
+      reportPath: `/tmp/.urtext/rev${RLO}iew.html`,
+      exportPaths: [
+        { format: "md", path: `/tmp/.urtext/rev${RLO}iew.md` },
+        { format: "pdf", path: "/tmp/.urtext/review.pdf" },
+      ],
+    });
+    expect(m.reportPath).toBe("/tmp/.urtext/rev[U+202E]iew.html");
+    expect(m.exportPaths.map((e) => e.format)).toEqual(["md", "pdf"]);
+    expect(m.exportPaths[0].path).toBe("/tmp/.urtext/rev[U+202E]iew.md");
+    expect(m.exportPaths[1].path).toBe("/tmp/.urtext/review.pdf");
+    expect(JSON.stringify(m)).not.toContain(RLO);
+  });
+
+  it("carries an empty export list rather than none, and no path when none was written", () => {
+    const m = buildReportModel(changeset(), [], { warnings: [] });
+    expect(m.exportPaths).toEqual([]);
+    expect(m.reportPath).toBeUndefined();
+  });
+});
+
 describe("buildReportModel provenance", () => {
   it("gates provenance on a model name AND a model-derived tier", () => {
     const none = buildReportModel(changeset(), [finding()], {

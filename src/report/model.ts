@@ -71,6 +71,13 @@ export interface ReportMeta {
    * is noise; a sweep's shape is the thing a reader needs.
    */
   citationSweep?: boolean;
+  /**
+   * Where the HTML report was written, absent when none was — a review that
+   * failed hard enough writes none, and the surfaces say so.
+   */
+  reportPath?: string;
+  /** The exports that were written, in the order they were requested. */
+  exportPaths?: { format: "md" | "pdf"; path: string }[];
 }
 
 export type Lens = "narrative" | "effects" | "surface";
@@ -291,6 +298,10 @@ export interface ReportModel {
    * branching.
    */
   surfaceSymbols: SurfaceSymbolView[];
+  /** `labelConcealed` applied, like every other path the model carries. */
+  reportPath?: string;
+  /** Always present, empty included. */
+  exportPaths: { format: "md" | "pdf"; path: string }[];
 }
 
 /**
@@ -700,6 +711,11 @@ export function buildReportModel(
       })),
   );
 
+  const exportPaths = (meta.exportPaths ?? []).map((e) => ({
+    format: e.format,
+    path: labelConcealed(e.path),
+  }));
+
   const model: ReportModel = {
     scope,
     fileCount,
@@ -710,7 +726,9 @@ export function buildReportModel(
     findings: findings.map((f) => toFindingView(f, modelName)),
     kindNotes: kindNotesFor(findings),
     surfaceSymbols,
+    exportPaths,
   };
+  if (meta.reportPath) model.reportPath = labelConcealed(meta.reportPath);
   if (provenance) model.provenance = provenance;
   if (modelName) model.modelName = modelName;
   if (coverageNote) model.coverageNote = coverageNote;
