@@ -115,7 +115,7 @@ jobs:
 can. It was cut on a green cross-platform CI run — the check you can see for yourself
 on this repository.
 
-Four of the action's behaviours were verified against live pull requests, and it is
+Four of the action's behaviors were verified against live pull requests, and it is
 worth being exact about where that evidence sits: it was recorded during development,
 in a private repository this one does not descend from, so **you cannot follow it from
 here.** What was observed there — the workflow posted one marked comment carrying a
@@ -138,7 +138,7 @@ be observed "from a branch" and was read — including by its author — as need
 It does not. `pull_request_target` fires for pull requests from branches in the same
 repository too; the only requirement is that the workflow live on the default branch.
 
-**One behaviour remains unverified and is not claimed:** a pull request from a fork,
+**One behavior remains unverified and is not claimed:** a pull request from a fork,
 where `GITHUB_TOKEN` is read-only and the post is expected to fail visibly. That one
 genuinely needs a second account, and it is being left for the first real fork pull
 request rather than manufactured — its failure mode is a visible, harmless warning on

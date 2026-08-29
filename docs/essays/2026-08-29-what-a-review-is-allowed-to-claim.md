@@ -71,13 +71,13 @@ gracefully*, *fails safely*, *works with your existing workflow*.
 
 So urtext's README carries this paragraph:
 
-> **One behaviour remains unverified and is not claimed:** a pull request from a
+> **One behavior remains unverified and is not claimed:** a pull request from a
 > fork, where `GITHUB_TOKEN` is read-only and the post is expected to fail
 > visibly. That one genuinely needs a second account, and it is being left for
 > the first real fork pull request rather than manufactured.
 
 Everything the tool does on a fork pull request is documented, and none of it is
-claimed, because I have never seen it happen. The behaviour is almost certainly
+claimed, because I have never seen it happen. The behavior is almost certainly
 correct. It follows from documented GitHub semantics and the code is written for
 it. "Almost certainly correct" is exactly the tier that needs to be stated
 explicitly.
