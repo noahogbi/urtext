@@ -40,7 +40,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",
-    "pdfkit": "^0.19.1",
+    "pdfkit": "^0.20.1",
     "typescript": "^5.4.0"
   },
   "devDependencies": {
