@@ -23,10 +23,11 @@ import {
 } from "../src/analyze/citations.js";
 import { makeFact } from "../src/analyze/index.js";
 import { openOrExplain, parseArgs, review, streamsFor, USAGE, type CliOptions } from "../src/cli.js";
+import { extract } from "../src/extract/index.js";
 import { DEFAULT_MODEL, INTENT_ABSENT_NOTE } from "../src/interpret/index.js";
-import { BEYOND_INTENT_MEANING, KIND_NOTES } from "../src/report/model.js";
+import { BEYOND_INTENT_MEANING, buildReportModel, KIND_NOTES } from "../src/report/model.js";
 import { renderPdf } from "../src/report/pdf.js";
-import type { Analyzer } from "../src/types.js";
+import type { Analyzer, Finding } from "../src/types.js";
 
 // Only `requestClaims` is mocked, so this file still makes no network call.
 // Every existing test here either passes `--no-llm` (which returns before the
@@ -580,6 +581,118 @@ describe("review", () => {
     const parsed = JSON.parse(r.output);
     expect(parsed.coverage.deletedTypeScriptFiles).toEqual([]);
     expect(parsed.coverage.note).toBeUndefined();
+  });
+
+  it("counts an untracked file on both surfaces, the machine one included", async () => {
+    // `git diff` never shows an untracked file, so a brand-new module — the
+    // case this tool exists for — produces no finding at all. The human
+    // surfaces say so through the model's `notes`; the JSON said it nowhere,
+    // which left the one consumer that cannot read prose blind to the gap
+    // rather than merely unable to phrase it.
+    const untrackedRepo = mkCanonicalTempDir("urtext-cli-untracked-");
+    const run = (args: string[]) => gitIn(untrackedRepo, args);
+    run(["init", "-b", "main"]);
+    run(["config", "user.email", "test@example.com"]);
+    run(["config", "user.name", "Test"]);
+    writeFileSync(join(untrackedRepo, "svc.ts"), "export function load(id: string) {\n  return id;\n}\n");
+    run(["add", "-A"]);
+    run(["commit", "-m", "first"]);
+    // An edit git can see, so the range is a real review rather than an empty
+    // diff whose only content is the disclosure under test.
+    writeFileSync(
+      join(untrackedRepo, "svc.ts"),
+      "export function load(id: string) {\n  return fetch(id);\n}\n",
+    );
+    // Never added, so the review can count it and nothing more.
+    writeFileSync(join(untrackedRepo, "newcomer.ts"), "export const newcomer = true;\n");
+
+    const term = await review(untrackedRepo, {
+      command: "review",
+      json: false,
+      noLlm: true,
+      help: false,
+    });
+    expect(term.output).toContain("1 untracked file not reviewed");
+
+    const json = await review(untrackedRepo, {
+      command: "review",
+      json: true,
+      noLlm: true,
+      help: false,
+    });
+    const parsed = JSON.parse(json.output);
+    expect(parsed.untrackedCount).toBe(1);
+    // The finding the diff did reach, so the count above is not the whole
+    // output of a run that failed to review anything.
+    expect(parsed.findings.length).toBeGreaterThan(0);
+  });
+
+  it("reports untrackedCount at zero rather than omitting the key", async () => {
+    // The same rule as `suppressed`: always present, so a consumer tests it
+    // without branching. `repo` has no untracked file — urtext's own reports
+    // under `.urtext/` are excluded from the count, or every run after the
+    // first would announce the report the one before it wrote.
+    const r = await review(repo, { command: "review", json: true, noLlm: true, help: false });
+    expect(JSON.parse(r.output).untrackedCount).toBe(0);
+  });
+
+  it("accounts for every model field in the JSON object, or exempts it by name", async () => {
+    // `kindNotes` reached three surfaces and missed this one, because this
+    // object is composed field by field rather than walked. It cannot simply
+    // become a walker — its `warnings` are deliberately raw where the model's
+    // `notes` are labelled, and its shape is a published contract — so the
+    // rule is that a new model field is a decision, not an oversight.
+    //
+    // Only keys the object does NOT emit belong below: `emitted.has(k)`
+    // already accounts for the rest, and listing them would forgive a future
+    // *removal* in silence. Every reason must be true; an exemption whose
+    // reason is false is worse than no guard, because it reads as a decision
+    // someone made. Writing this list is what found the untracked count
+    // missing — see "counts an untracked file on both surfaces, the machine
+    // one included" above.
+    //
+    // The blind spot, stated rather than implied: this reads `Object.keys` of
+    // one built instance, and `buildReportModel` assigns seven of its fields
+    // conditionally (`if (x) model.y = ...`). A new field of that shape is
+    // invisible here on a fixture that does not trigger it, so this catches
+    // the common case, not every case.
+    const EXEMPT: Record<string, string> = {
+      scope: "prose over rangeLabel/fileCount/lineCount, all recoverable below",
+      fileCount: "recomputable from the diff the consumer already has",
+      lineCount: "recomputable from the diff the consumer already has",
+      rangeLabel: "present as `range.label`",
+      provenance: "prose about `model`, which is present",
+      modelName: "present as `model`",
+      notes: "labelled prose over `warnings` and `untrackedCount`, both present",
+      coverageNote: "present as `coverage.note`",
+      filterNote: "prose about `suppressed`, which is present",
+      distributionNote: "present as `citations.distributionNote`, under the flag that composes it",
+      beyondIntentLegend: "legend for a mark carried on each finding",
+      surfaceSymbols: "recomputable by rerunning extraction; not in the diff alone",
+      // Not dead, despite reading like the entries above it that describe
+      // absent keys: the model always carries this one (built as `?? []`)
+      // while the JSON emits it only under `--export`, which this run does
+      // not ask for — see "omits exportPaths from --json entirely when no
+      // export was requested". Without this entry the guard is red the first
+      // time it runs.
+      exportPaths: "emitted only when --export was given; this run asked for none",
+    };
+    const r = await review(repo, { command: "review", json: true, noLlm: true, help: false });
+    const parsed = JSON.parse(r.output);
+    const emitted = new Set(Object.keys(parsed));
+    // The same changeset the run reviewed, re-extracted, and that run's own
+    // findings read back off the surface under test — nothing new has to be
+    // exported from `cli.ts` for this, the way `test/report/pdf.test.ts`
+    // builds a model from real extraction. `reportPath` is passed because
+    // this run wrote one: it materializes a model key that would otherwise be
+    // one of the conditional seven the guard never sees, and the JSON emits
+    // it, so the guard accounts for it rather than missing it.
+    const m = buildReportModel(await extract(repo), parsed.findings as Finding[], {
+      warnings: parsed.warnings,
+      reportPath: r.reportPath,
+    });
+    const unaccounted = Object.keys(m).filter((k) => !emitted.has(k) && !(k in EXEMPT));
+    expect(unaccounted, "add the key to --json or to EXEMPT with a reason").toEqual([]);
   });
 
   describe("report writing", () => {

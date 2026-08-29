@@ -601,6 +601,18 @@ export async function review(
           // array below. Nonzero means reconcile's standalone-reach filter
           // removed that many claim-free low-signal rows.
           suppressed,
+          // What `git diff` never showed the analyzers, by the same rule and
+          // for the same reason as `suppressed` above: always present, zero
+          // included. Every human surface states this through the model's
+          // `notes`; this one carried no key for it at all — `warnings` holds
+          // the raw analyzer strings, not that sentence, and `range` holds no
+          // count — so a script could not recover "N untracked files were not
+          // reviewed" by any route. The `kindNotes` gap again, found by
+          // writing down why `notes` could be exempt from the model-keys
+          // guard and not being able to finish the sentence; see
+          // `test/cli.test.ts`, "accounts for every model field in the JSON
+          // object, or exempts it by name".
+          untrackedCount: changeset.untrackedCount ?? 0,
           warnings,
           coverage: {
             deletedTypeScriptFiles: deleted,
