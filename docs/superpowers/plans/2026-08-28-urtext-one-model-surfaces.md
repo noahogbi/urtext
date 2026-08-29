@@ -691,10 +691,16 @@ export function renderHtml(m: ReportModel): string {
 Delete the internal `buildReportModel` call. The three panes already read `m`; `surfaceLens(m)` came from Task 3.
 
 **Imports and a re-export go with it:** `buildReportModel` (`:4`), the
-`Changeset`/`Finding` types (`:16`), and the `ReportMeta` import (`:21`) all
-lose their users. So does the `export type { ReportMeta }` re-export at `:23` —
+`ReportMeta` import (`:21`), and — out of the type import at `:16` — the names
+`Changeset` and `Finding` only. That line reads
+`import type { Changeset, ChangedSymbol, Finding } from "../types.js";`, and
+`ChangedSymbol` keeps a user at `:362`, in `SYMBOL_CHANGE_MARK`'s
+`Record<ChangedSymbol["change"], string>`. Delete the two names, never the
+whole line — deleting the line fails `tsc`.
+
+The `export type { ReportMeta }` re-export at `:23` loses its purpose too:
 every consumer imports that type from `model.js` directly (`grep -rn
-"ReportMeta" src test`), so it and its explanatory comment go too.
+"ReportMeta" src test`), so it and its explanatory comment go with them.
 
 - [ ] **Step 2: Add the per-file helper and rewrite the call sites**
 

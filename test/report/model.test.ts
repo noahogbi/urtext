@@ -290,7 +290,7 @@ describe("buildReportModel structural concealment", () => {
 });
 
 describe("buildReportModel surface symbols", () => {
-  const withSymbols = (over: Partial<Changeset["files"][number]> = {}) =>
+  const withSymbols = () =>
     changeset({
       files: [
         {
@@ -307,12 +307,15 @@ describe("buildReportModel surface symbols", () => {
               change: "modified",
             },
           ],
-          ...over,
         },
       ],
     });
 
-  it("carries only the exported declarations, with their file", () => {
+  // Titled for what it asserts. The plan called this "carries only the
+  // exported declarations", but the fixture holds one exported symbol —
+  // delete the `exported` filter and it still passes. The word "only" is
+  // earned by the next test, which is where it now lives.
+  it("carries an exported declaration's change, name, kind, and file", () => {
     const m = buildReportModel(withSymbols(), [], { warnings: [] });
     expect(m.surfaceSymbols).toHaveLength(1);
     expect(plainText(m.surfaceSymbols[0].qualifiedName)).toBe("send");
