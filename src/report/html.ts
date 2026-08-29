@@ -1,6 +1,5 @@
 import {
   BEYOND_INTENT_MARK,
-  buildReportModel,
   EMPTY_LENS_COPY,
   LENSES,
   TIER_GLYPH,
@@ -12,14 +11,7 @@ import {
   type ModelNoteView,
   type ReportModel,
 } from "./model.js";
-import type { Changeset, ChangedSymbol, Finding } from "../types.js";
-
-// ReportMeta lives in `./model.js` now — the report model consumes it too,
-// and neither module may import the other's rendering — re-exported here so
-// existing importers keep working unchanged.
-import type { ReportMeta } from "./model.js";
-
-export type { ReportMeta } from "./model.js";
+import type { ChangedSymbol } from "../types.js";
 
 /**
  * The HTML surface, a walker over the report model. Every sentence, tier,
@@ -674,13 +666,7 @@ const TAB_SCRIPT = `
 })();
 `;
 
-export function renderHtml(
-  changeset: Changeset,
-  findings: Finding[],
-  meta: ReportMeta,
-): string {
-  const m = buildReportModel(changeset, findings, meta);
-
+export function renderHtml(m: ReportModel): string {
   const panes: Record<string, string> = {
     narrative: narrativeLens(m),
     effects: effectsLens(m.findings),

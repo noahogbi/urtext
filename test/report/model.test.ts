@@ -762,7 +762,7 @@ describe("the per-kind guidance reaches every surface", () => {
     const md = renderMarkdown(buildReportModel(changeset(), findings, { warnings: [] }));
     expect(md).toContain(note);
 
-    const html = renderHtml(changeset(), findings, { warnings: [] });
+    const html = renderHtml(buildReportModel(changeset(), findings, { warnings: [] }));
     expect(html).toContain(note);
   });
 });
@@ -788,22 +788,16 @@ describe("the distribution note reaches every surface", () => {
     expect(note).not.toBe("");
 
     // Rendered through each surface's own entry point rather than by reading
-    // the model back, so a renderer that never consults the field fails.
-    // The HTML still takes findings, not a model, so it gets the same two.
+    // the model back, so a renderer that never consults the field fails. One
+    // model reaches all three: every surface takes one now, so a second build
+    // of the same fixture would only be a chance for the three to diverge.
     const terminal = renderTerminal(m);
     expect(terminal).toContain("Citations:");
 
     const md = renderMarkdown(m);
     expect(md).toContain("Citations:");
 
-    const html = renderHtml(
-      changeset({}),
-      [
-        finding({ id: "citation_rot:docs/a.md:3:x", file: "docs/a.md" }),
-        finding({ id: "citation_rot:src/b.ts:9:y", file: "src/b.ts" }),
-      ],
-      { warnings: [], citationSweep: true },
-    );
+    const html = renderHtml(m);
     expect(html).toContain("Citations:");
     // And it must not be inside the partial-review banner on any of them.
     expect(html).not.toMatch(/This review is partial[\s\S]{0,200}Citations:/);

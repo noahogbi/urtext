@@ -103,7 +103,7 @@ async function pdfText(): Promise<string> {
 async function surfaces(): Promise<Array<[string, string]>> {
   return [
     ["terminal", renderTerminal(model)],
-    ["html", renderHtml(changeset, findings, meta)],
+    ["html", renderHtml(model)],
     ["markdown", renderMarkdown(model)],
     ["pdf", await pdfText()],
   ];
@@ -211,7 +211,7 @@ async function citationPdfText(): Promise<string> {
 async function citationSurfaces(): Promise<Array<[string, string]>> {
   return [
     ["terminal", renderTerminal(citationModel)],
-    ["html", renderHtml(changeset, citationFindings, citationMeta)],
+    ["html", renderHtml(citationModel)],
     ["markdown", renderMarkdown(citationModel)],
     ["pdf", await citationPdfText()],
   ];
