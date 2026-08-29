@@ -26,6 +26,24 @@ updates:
       prefix: "chore(deps)"
     labels:
       - dependencies
+    ignore:
+      # TypeScript 7 is the native compiler, and its npm package does not
+      # carry the API this project is built on. Its main entry exports two
+      # things — `version` and `versionMajorMinor`; `createProgram`,
+      # `SymbolFlags`, `isIdentifier` and the rest are absent. What exists
+      # lives under `typescript/unstable/*` subpaths, named unstable by its
+      # authors, with an out-of-process architecture rather than an in-process
+      # one.
+      #
+      # Five analyzers, the symbol extractor, and the scope model — thirteen
+      # files — read that API directly. Moving to 7 is a port against an
+      # explicitly unstable interface, not a version bump, so Dependabot is
+      # told not to keep proposing it weekly. Minor and patch updates inside
+      # 5.x still arrive, which is where security fixes for this line land.
+      #
+      # Revisit when the compiler API leaves `unstable/`.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
     groups:
       # The test toolchain moves together — vitest, vite, and their shared
       # transitive dependencies — so grouping keeps one reviewable pull
