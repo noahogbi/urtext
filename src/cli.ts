@@ -7,7 +7,6 @@ import {
 import { createContext, extract, repoRoot } from "./extract/index.js";
 import { collectIntent } from "./extract/intent.js";
 import { DEFAULT_MODEL, interpret } from "./interpret/index.js";
-import { labelConcealed } from "./report/conceal.js";
 import { deletedFilesNote, deletedTypeScriptFiles } from "./report/coverage.js";
 import { renderHtml } from "./report/html.js";
 import { renderMarkdown } from "./report/markdown.js";
@@ -450,11 +449,19 @@ export async function review(
   // `warnings` is the live array, not a copy: a model built at a later moment
   // must see what was pushed since (see the timing rule in the spec, and the
   // comments at each build site below).
-  const metaFor = (): ReportMeta => ({
+  //
+  // Only the two fields a later moment *learns* may be overridden. Widening
+  // this to `Partial<ReportMeta>` would let one moment quietly hand a
+  // different `warnings` or `citationSweep` than another, reopening inside
+  // the one file meant to close it the door this whole change exists to shut.
+  const metaFor = (
+    over: Partial<Pick<ReportMeta, "reportPath" | "exportPaths">> = {},
+  ): ReportMeta => ({
     model: result.model,
     warnings,
     suppressed,
     citationSweep: opts.citations === true,
+    ...over,
   });
   if (exitCode === 0) {
     try {
@@ -624,23 +631,18 @@ export async function review(
     };
   }
 
+  // Only the exports that were actually written, in the order they were
+  // requested: a failed one already has its warning in the notes above. The
+  // walker prints one line each, under the "Full report" line and labelled
+  // like every other path the model carries — this surface no longer has
+  // anything appended to it after it has returned.
+  const written = exportFormats.flatMap((format) => {
+    const path = exportPaths[format];
+    return path ? [{ format, path }] : [];
+  });
   let output = renderTerminal(
-    changeset,
-    findings,
-    reportPath,
-    warnings,
-    result.model,
-    suppressed,
-    opts.citations === true,
+    buildReportModel(changeset, findings, metaFor({ reportPath, exportPaths: written })),
   );
-  // One path line per written export, right under the "Full report" line the
-  // walker prints — labeled like every other path this surface shows, and
-  // only for exports that were actually written: a failed one already has
-  // its warning in the notes above.
-  for (const format of exportFormats) {
-    const written = exportPaths[format];
-    if (written) output += `  ${format} export: ${labelConcealed(written)}\n`;
-  }
   // Detection without action: urtext asks git whether the repository already
   // ignores `.urtext/` (see `shouldSuggestGitignore` in report/write.ts,
   // which also absorbs a git failure at this late stage — the review has

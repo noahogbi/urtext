@@ -102,7 +102,7 @@ async function pdfText(): Promise<string> {
 /** Every surface, rendered from the one marked fixture, named for the failure message. */
 async function surfaces(): Promise<Array<[string, string]>> {
   return [
-    ["terminal", renderTerminal(changeset, findings, undefined, meta.warnings, meta.model, meta.suppressed)],
+    ["terminal", renderTerminal(model)],
     ["html", renderHtml(changeset, findings, meta)],
     ["markdown", renderMarkdown(model)],
     ["pdf", await pdfText()],
@@ -210,7 +210,7 @@ async function citationPdfText(): Promise<string> {
 /** The same four surfaces, rendered from the citation fixture. */
 async function citationSurfaces(): Promise<Array<[string, string]>> {
   return [
-    ["terminal", renderTerminal(changeset, citationFindings, undefined, citationMeta.warnings)],
+    ["terminal", renderTerminal(citationModel)],
     ["html", renderHtml(changeset, citationFindings, citationMeta)],
     ["markdown", renderMarkdown(citationModel)],
     ["pdf", await citationPdfText()],

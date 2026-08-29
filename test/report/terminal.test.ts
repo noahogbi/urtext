@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BEYOND_INTENT_MEANING } from "../../src/report/model.js";
+import {
+  BEYOND_INTENT_MEANING,
+  buildReportModel,
+  type ReportMeta,
+  type ReportModel,
+} from "../../src/report/model.js";
 import { renderTerminal } from "../../src/report/terminal.js";
 import { toFinding } from "../../src/score/index.js";
 import { WORKTREE, type Changeset, type Finding } from "../../src/types.js";
@@ -24,6 +29,12 @@ const finding = (over: Partial<Finding> = {}): Finding => ({
   ...over,
 });
 
+// The changeset is a parameter, never closed over: several tests below pass a
+// fixture other than the default, and a helper that hid it would let a
+// rewrite swap one silently.
+const model = (cs: Changeset, findings: Finding[], over: Partial<ReportMeta> = {}) =>
+  buildReportModel(cs, findings, { warnings: [], ...over });
+
 describe("renderTerminal before-side evidence", () => {
   const removal = finding({
     file: "old.ts",
@@ -35,78 +46,81 @@ describe("renderTerminal before-side evidence", () => {
   });
 
   it("marks a before-side line so the reader does not click through to an unrelated line", () => {
-    const out = renderTerminal(changeset, [removal]);
+    const out = renderTerminal(model(changeset, [removal]));
     expect(out).toContain("old.ts:119 (before)");
     // Both the headline and the evidence line: they name the same place.
     expect(out.match(/old\.ts:119 \(before\)/g)).toHaveLength(2);
   });
 
   it("leaves after-side evidence unannotated", () => {
-    const out = renderTerminal(changeset, [finding()]);
+    const out = renderTerminal(model(changeset, [finding()]));
     expect(out).toContain("a.ts:3");
     expect(out).not.toContain("(before)");
   });
 
   it("prints a partial-review warning above the findings", () => {
-    const out = renderTerminal(changeset, [finding()], undefined, [
-      "the surfaceAnalyzer analyzer failed, so this review is partial: boom",
-    ]);
+    const out = renderTerminal(
+      model(changeset, [finding()], {
+        warnings: ["the surfaceAnalyzer analyzer failed, so this review is partial: boom"],
+      }),
+    );
     expect(out).toContain("surfaceAnalyzer analyzer failed");
     expect(out.indexOf("surfaceAnalyzer")).toBeLessThan(out.indexOf("introduces a network"));
   });
 
   it("says nothing about analyzers when none failed", () => {
-    expect(renderTerminal(changeset, [finding()])).not.toContain("partial");
+    expect(renderTerminal(model(changeset, [finding()]))).not.toContain("partial");
   });
 });
 
 describe("renderTerminal", () => {
   it("shows the range label and file count", () => {
-    const out = renderTerminal(changeset, [finding()]);
+    const out = renderTerminal(model(changeset, [finding()]));
     expect(out).toContain("vs origin/main");
     expect(out).toContain("2 files");
   });
 
   it("shows tier counts", () => {
-    const out = renderTerminal(changeset, [
-      finding({ id: "a" }),
-      finding({ id: "b", tier: "model" }),
-    ]);
+    const out = renderTerminal(
+      model(changeset, [finding({ id: "a" }), finding({ id: "b", tier: "model" })]),
+    );
     expect(out).toContain("EVIDENCE");
     expect(out).toContain("1 verified");
     expect(out).toContain("1 model-only");
   });
 
   it("prints each finding with its location and tier badge", () => {
-    const out = renderTerminal(changeset, [finding()]);
+    const out = renderTerminal(model(changeset, [finding()]));
     expect(out).toContain("a.ts:3");
     expect(out).toContain("[verified]");
     expect(out).toContain("introduces a network effect");
   });
 
   it("names the file once, in the location prefix rather than the title", () => {
-    const out = renderTerminal(changeset, [finding()]);
+    const out = renderTerminal(model(changeset, [finding()]));
     const head = out.split("\n").find((l) => l.includes("introduces"))!;
     expect(head).toContain("a.ts:3 — introduces a network effect");
     expect(head.match(/a\.ts/g)).toHaveLength(1);
   });
 
   it("shows the source excerpt behind each finding", () => {
-    const out = renderTerminal(changeset, [finding()]);
+    const out = renderTerminal(model(changeset, [finding()]));
     expect(out).toContain("fetch(u);");
     expect(out).toContain("a.ts:3  fetch(u);");
   });
 
   it("shows a couple of evidence refs and counts the rest", () => {
-    const out = renderTerminal(changeset, [
-      finding({
-        evidence: [
-          { file: "a.ts", line: 3, excerpt: "fetch(one);" },
-          { file: "a.ts", line: 7, excerpt: "fetch(two);" },
-          { file: "a.ts", line: 9, excerpt: "fetch(three);" },
-        ],
-      }),
-    ]);
+    const out = renderTerminal(
+      model(changeset, [
+        finding({
+          evidence: [
+            { file: "a.ts", line: 3, excerpt: "fetch(one);" },
+            { file: "a.ts", line: 7, excerpt: "fetch(two);" },
+            { file: "a.ts", line: 9, excerpt: "fetch(three);" },
+          ],
+        }),
+      ]),
+    );
     expect(out).toContain("fetch(one);");
     expect(out).toContain("fetch(two);");
     expect(out).not.toContain("fetch(three);");
@@ -125,18 +139,41 @@ describe("renderTerminal", () => {
         },
       ],
     };
-    const out = renderTerminal(deletionOnly, []);
+    const out = renderTerminal(model(deletionOnly, []));
     expect(out).toContain("3 lines changed");
     expect(out).not.toContain("0 lines changed");
   });
 
   it("says how many untracked files were left out", () => {
-    const out = renderTerminal({ ...changeset, untrackedCount: 2 }, []);
+    const out = renderTerminal(model({ ...changeset, untrackedCount: 2 }, []));
     expect(out).toContain("2 untracked files not reviewed");
   });
 
   it("stays quiet about untracked files when there are none", () => {
-    expect(renderTerminal(changeset, [])).not.toContain("untracked");
+    expect(renderTerminal(model(changeset, []))).not.toContain("untracked");
+  });
+
+  it("separates the disclosures from the findings whichever kind they are", () => {
+    // `changeset` is a const in this file, not a factory — the
+    // `changeset({...})` idiom belongs to model.test.ts. Spread it, as the
+    // untracked-count test above already does.
+    const lineAfter = (m: ReportModel, marker: string): string => {
+      const lines = renderTerminal(m).split("\n");
+      return lines[lines.findIndex((l) => l.includes(marker)) + 1];
+    };
+    // Both kinds, because the gate now reads `notes`, which merges them: an
+    // analyzer warning always had its separating blank line, and the
+    // untracked note — invisible to a walker holding only the model — gains
+    // one. A gate narrowed back to either kind alone fails on the other.
+    expect(lineAfter(model({ ...changeset, untrackedCount: 2 }, [finding()]), "untracked file")).toBe(
+      "",
+    );
+    expect(
+      lineAfter(
+        model(changeset, [finding()], { warnings: ["the surfaceAnalyzer analyzer failed"] }),
+        "surfaceAnalyzer",
+      ),
+    ).toBe("");
   });
 
   it("names deleted TypeScript files and what about them went unexamined", () => {
@@ -152,7 +189,7 @@ describe("renderTerminal", () => {
         },
       ],
     };
-    const out = renderTerminal(withDeletion, []);
+    const out = renderTerminal(model(withDeletion, []));
     expect(out).toContain("gone.ts");
     expect(out).toContain("1 deleted TypeScript file");
     expect(out).toContain("exports, callers, and guards are not analyzed");
@@ -162,51 +199,67 @@ describe("renderTerminal", () => {
   });
 
   it("says nothing about deleted files when none were deleted, and ignores a non-TypeScript deletion", () => {
-    expect(renderTerminal(changeset, [])).not.toContain("deleted TypeScript");
+    expect(renderTerminal(model(changeset, []))).not.toContain("deleted TypeScript");
     const deletedMarkdown: Changeset = {
       ...changeset,
       files: [{ path: "notes.md", status: "deleted", hunks: [], symbols: [] }],
     };
-    expect(renderTerminal(deletedMarkdown, [])).not.toContain("deleted TypeScript");
+    expect(renderTerminal(model(deletedMarkdown, []))).not.toContain("deleted TypeScript");
   });
 
   it("says so plainly when nothing was found", () => {
-    const out = renderTerminal(changeset, []);
+    const out = renderTerminal(model(changeset, []));
     expect(out).toContain("No findings");
     expect(out).not.toContain("EVIDENCE");
   });
 
   it("includes the report path when one is given", () => {
-    const out = renderTerminal(changeset, [finding()], ".urtext/review.html");
+    const out = renderTerminal(
+      model(changeset, [finding()], { reportPath: ".urtext/review.html" }),
+    );
     expect(out).toContain(".urtext/review.html");
   });
 
   it("omits the report line when no path is given", () => {
-    expect(renderTerminal(changeset, [finding()])).not.toContain("Full report");
+    expect(renderTerminal(model(changeset, [finding()]))).not.toContain("Full report");
   });
 
   it("prints the report path even when there are no findings", () => {
     // A genuinely clean review still writes a report; the reader needs to
     // be told where it went exactly when there is nothing else to read.
-    const out = renderTerminal(changeset, [], ".urtext/review.html");
+    const out = renderTerminal(model(changeset, [], { reportPath: ".urtext/review.html" }));
     expect(out).toContain("No findings");
     expect(out).toContain("Full report: .urtext/review.html");
+  });
+
+  it("runs the export lines straight on from the report line, and ends there", () => {
+    const m = model(changeset, [], {
+      reportPath: "/r/review.html",
+      exportPaths: [{ format: "md", path: "/r/review.md" }],
+    });
+    // Exact tail, not `toContain`: the defect this pins is a blank line in
+    // the wrong place and a missing final newline, and every substring
+    // assertion in the suite survives both. `cli.ts` writes its gitignore tip
+    // directly onto this string, so the trailing newline is what keeps the
+    // tip off the end of the last export line.
+    const tail = "  Full report: /r/review.html\n  md export: /r/review.md\n";
+    expect(renderTerminal(m).slice(-tail.length)).toBe(tail);
   });
 
   it("prints one filter footnote when standalone reach rows were suppressed", () => {
     // Beside "No findings", so the two cannot be read together as "this
     // range is clean" — one row existed, and the filter removed it. The
     // copy describes the filter, never the code.
-    const out = renderTerminal(changeset, [], undefined, [], undefined, 1);
+    const out = renderTerminal(model(changeset, [], { suppressed: 1 }));
     expect(out).toContain("Filtered: 1 finding suppressed (low-signal: single unclaimed reference).");
 
-    const plural = renderTerminal(changeset, [finding()], undefined, [], undefined, 2);
+    const plural = renderTerminal(model(changeset, [finding()], { suppressed: 2 }));
     expect(plural).toContain("Filtered: 2 findings suppressed (low-signal: single unclaimed reference).");
   });
 
   it("prints no filter footnote when nothing was suppressed", () => {
-    expect(renderTerminal(changeset, [finding()])).not.toContain("Filtered:");
-    expect(renderTerminal(changeset, [], undefined, [], undefined, 0)).not.toContain("Filtered:");
+    expect(renderTerminal(model(changeset, [finding()]))).not.toContain("Filtered:");
+    expect(renderTerminal(model(changeset, [], { suppressed: 0 }))).not.toContain("Filtered:");
   });
 });
 
@@ -218,29 +271,29 @@ describe("renderTerminal model tiers", () => {
   const modelOnly = finding({ id: "m1", tier: "model", evidence: [] });
 
   it("shows the model's reasoning beneath a finding that carries one", () => {
-    const out = renderTerminal(changeset, [inferred], undefined, [], "claude-opus-5-20260101");
+    const out = renderTerminal(model(changeset, [inferred], { model: "claude-opus-5-20260101" }));
     expect(out).toContain("This effect is on a hot request path.");
   });
 
   it("says nothing extra for a finding with no claim attached", () => {
-    const out = renderTerminal(changeset, [finding()], undefined, [], "claude-opus-5-20260101");
+    const out = renderTerminal(model(changeset, [finding()], { model: "claude-opus-5-20260101" }));
     expect(out).not.toContain("model:");
   });
 
   it("names the model in a provenance line when a finding is inferred or model-only", () => {
-    const out = renderTerminal(changeset, [inferred], undefined, [], "claude-opus-5-20260101");
+    const out = renderTerminal(model(changeset, [inferred], { model: "claude-opus-5-20260101" }));
     expect(out).toContain("claude-opus-5-20260101");
-    const out2 = renderTerminal(changeset, [modelOnly], undefined, [], "claude-opus-5-20260101");
+    const out2 = renderTerminal(model(changeset, [modelOnly], { model: "claude-opus-5-20260101" }));
     expect(out2).toContain("claude-opus-5-20260101");
   });
 
   it("omits the provenance line when every finding is verified", () => {
-    const out = renderTerminal(changeset, [finding()], undefined, [], "claude-opus-5-20260101");
+    const out = renderTerminal(model(changeset, [finding()], { model: "claude-opus-5-20260101" }));
     expect(out).not.toContain("claude-opus-5-20260101");
   });
 
   it("omits the provenance line when no model name is given, even with model-tier findings", () => {
-    const out = renderTerminal(changeset, [modelOnly]);
+    const out = renderTerminal(model(changeset, [modelOnly]));
     expect(out).not.toContain("MODEL");
   });
 
@@ -251,7 +304,7 @@ describe("renderTerminal model tiers", () => {
     // named. Both the provenance line and the per-finding reasoning line
     // must stay silent together, not just the line that happens to be
     // gated first.
-    const out = renderTerminal(changeset, [inferred, modelOnly]);
+    const out = renderTerminal(model(changeset, [inferred, modelOnly]));
     expect(out).not.toContain("MODEL");
     expect(out).not.toContain("model:");
     expect(out).not.toContain("This effect is on a hot request path.");
@@ -270,22 +323,26 @@ describe("renderTerminal concealing characters", () => {
   const ZWSP = "\u200B";
 
   it("labels a bidi override in an evidence excerpt instead of obeying it", () => {
-    const out = renderTerminal(changeset, [
-      finding({
-        evidence: [{ file: "a.ts", line: 3, excerpt: `const sneak = "a${RLO}b";` }],
-      }),
-    ]);
+    const out = renderTerminal(
+      model(changeset, [
+        finding({
+          evidence: [{ file: "a.ts", line: 3, excerpt: `const sneak = "a${RLO}b";` }],
+        }),
+      ]),
+    );
     expect(out).not.toContain(RLO);
     expect(out).toContain("[U+202E]");
   });
 
   it("labels concealing characters in titles and bodies", () => {
-    const out = renderTerminal(changeset, [
-      finding({
-        title: `sneak${RLO} changed its signature`,
-        body: `Payload${TAG_A} hidden${ZWSP} here.`,
-      }),
-    ]);
+    const out = renderTerminal(
+      model(changeset, [
+        finding({
+          title: `sneak${RLO} changed its signature`,
+          body: `Payload${TAG_A} hidden${ZWSP} here.`,
+        }),
+      ]),
+    );
     expect(out).not.toContain(RLO);
     expect(out).not.toContain(TAG_A);
     expect(out).not.toContain(ZWSP);
@@ -296,18 +353,19 @@ describe("renderTerminal concealing characters", () => {
 
   it("labels concealing characters in warnings and the model name", () => {
     const out = renderTerminal(
-      changeset,
-      [finding({ tier: "model", claim: undefined, evidence: [] })],
-      undefined,
-      [`warning with${RLO} an override`],
-      `model${RLO}name`,
+      model(changeset, [finding({ tier: "model", claim: undefined, evidence: [] })], {
+        warnings: [`warning with${RLO} an override`],
+        model: `model${RLO}name`,
+      }),
     );
     expect(out).not.toContain(RLO);
     expect(out.match(/\[U\+202E\]/g)!.length).toBeGreaterThanOrEqual(2);
   });
 
   it("leaves ordinary output byte-identical", () => {
-    const out = renderTerminal(changeset, [finding()], "path/to/report.html", ["a note"]);
+    const out = renderTerminal(
+      model(changeset, [finding()], { reportPath: "path/to/report.html", warnings: ["a note"] }),
+    );
     expect(out).toContain("a.ts:3 — introduces a network effect");
     expect(out).toContain("fetch(u);");
     expect(out).toContain("path/to/report.html");
@@ -318,9 +376,9 @@ describe("renderTerminal concealing characters", () => {
     // that renders as U+FFFD. Truncation counts code points now, so the
     // 55th point — the first emoji — survives whole ahead of the ellipsis.
     const excerpt = "x".repeat(54) + "\u{1F600}\u{1F600}\u{1F600}";
-    const out = renderTerminal(changeset, [
-      finding({ evidence: [{ file: "a.ts", line: 3, excerpt }] }),
-    ]);
+    const out = renderTerminal(
+      model(changeset, [finding({ evidence: [{ file: "a.ts", line: 3, excerpt }] })]),
+    );
     // No lone surrogate anywhere: strip well-formed pairs, then assert no
     // surrogate code unit is left over.
     const unpaired = /[\uD800-\uDFFF]/.test(
@@ -334,11 +392,11 @@ describe("renderTerminal concealing characters", () => {
 describe("renderTerminal beyond stated intent", () => {
   it("appends the mark after the tier badge and prints the legend once", () => {
     const out = renderTerminal(
-      changeset,
-      [finding({ tier: "inferred", beyondIntent: true, claim: { summary: "s", reasoning: "r" } })],
-      undefined,
-      [],
-      "claude-opus-5",
+      model(
+        changeset,
+        [finding({ tier: "inferred", beyondIntent: true, claim: { summary: "s", reasoning: "r" } })],
+        { model: "claude-opus-5" },
+      ),
     );
     expect(out).toContain("[inferred]  (beyond stated intent)");
     expect(out).toContain(BEYOND_INTENT_MEANING);
@@ -349,7 +407,7 @@ describe("renderTerminal beyond stated intent", () => {
   });
 
   it("prints neither the mark nor the legend when no finding carries one", () => {
-    const out = renderTerminal(changeset, [finding()]);
+    const out = renderTerminal(model(changeset, [finding()]));
     expect(out).not.toContain("beyond stated intent");
   });
 });
@@ -384,7 +442,7 @@ describe("renderTerminal citation findings", () => {
     // Whitespace collapsed before the containment checks: this surface wraps
     // body paragraphs and pads its evidence lines, so a sentence asserted
     // verbatim could otherwise be split anywhere the wrap happened to land.
-    const out = renderTerminal(changeset, [citationFinding()]).replace(/\s+/g, " ");
+    const out = renderTerminal(model(changeset, [citationFinding()])).replace(/\s+/g, " ");
     expect(out).toContain("docs/a.md:1 — cites `src/a.ts:1`, which no longer reads the same");
     expect(out).toContain(
       "The citation still resolves to a line; it no longer resolves to the same content.",

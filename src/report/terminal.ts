@@ -1,14 +1,12 @@
-import { labelConcealed } from "./conceal.js";
 import {
-  buildReportModel,
   location,
   NO_FINDINGS_COPY,
   plainText,
   TIER_ORDER,
   TIER_WORD,
   type ConcealSegment,
+  type ReportModel,
 } from "./model.js";
-import type { Changeset, Finding } from "../types.js";
 
 /**
  * The terminal surface, a walker over the report model. Every sentence, tier,
@@ -106,28 +104,7 @@ function excerpt(segments: ConcealSegment[]): string {
   return out + "…";
 }
 
-export function renderTerminal(
-  changeset: Changeset,
-  findings: Finding[],
-  reportPath?: string,
-  warnings: string[] = [],
-  model?: string,
-  suppressed = 0,
-  // A seventh positional parameter is the wrong shape, and it is deliberate
-  // rather than unnoticed: `renderHtml` takes a `ReportMeta` and this takes
-  // the pieces, so every field the model gains arrives here as another
-  // argument. Converting this signature is the right fix and belongs to a
-  // change about signatures, not to one adding a disclosure — the same
-  // judgement `review` in `../cli.ts` already records at its export-model
-  // call site. Optional, so no existing caller or test moves.
-  citationSweep = false,
-): string {
-  const m = buildReportModel(changeset, findings, {
-    model,
-    warnings,
-    suppressed,
-    citationSweep,
-  });
+export function renderTerminal(m: ReportModel): string {
   const out: string[] = [];
 
   out.push("");
@@ -143,10 +120,14 @@ export function renderTerminal(
   if (m.coverageNote) {
     out.push(`  Note: ${m.coverageNote}`);
   }
-  // Spacing only: analyzer warnings get a separating blank line before the
-  // findings, exactly as this surface always printed them; the untracked and
-  // coverage notes alone flow straight into the list.
-  if (warnings.length > 0) out.push("");
+  // Spacing only. Gated on the notes as a whole, not on analyzer warnings
+  // alone as it was: the model merges warnings and the untracked note into
+  // one `notes` array because "they are one thing to a reader", so a walker
+  // holding only the model cannot tell them apart — and widening the model to
+  // restore the distinction would contradict the merge. A run whose only
+  // disclosure is the untracked note therefore gains one blank line. A layout
+  // divergence, not a content one; see the spec's §2 ruling.
+  if (m.notes.length > 0) out.push("");
 
   if (m.findings.length === 0) {
     out.push(`  ${NO_FINDINGS_COPY}`);
@@ -238,10 +219,20 @@ export function renderTerminal(
   // still writes a report, and the reader needs to be told where it went
   // exactly as much as a reader who scrolled past a full list of findings
   // does — see `test/report/terminal.test.ts`, "prints the report path even
-  // when there are no findings". The path is the one string on this surface
-  // that does not come from the model, so the walker labels it itself.
-  if (reportPath) {
-    out.push(`  Full report: ${labelConcealed(reportPath)}`);
+  // when there are no findings".
+  if (m.reportPath) {
+    out.push(`  Full report: ${m.reportPath}`);
+    // One line per written export, under the report's and inside its block.
+    // Composed here rather than appended by `cli.ts` after this walker had
+    // returned: where a review was written is something the report says about
+    // itself. Inside the block, before the trailing blank, is the placement
+    // that reproduces today's bytes — the trailing empty element is what
+    // `join` turns into this surface's final newline, so export lines pushed
+    // after it would both insert a blank line that never existed and leave
+    // `cli.ts`'s gitignore tip glued onto the last export line.
+    for (const e of m.exportPaths) {
+      out.push(`  ${e.format} export: ${e.path}`);
+    }
     out.push("");
   }
 

@@ -756,7 +756,7 @@ describe("the per-kind guidance reaches every surface", () => {
   const note = KIND_NOTES.export_added;
 
   it("prints a kind's guidance in the terminal, the Markdown, and the HTML", () => {
-    const terminal = renderTerminal(changeset(), findings);
+    const terminal = renderTerminal(buildReportModel(changeset(), findings, { warnings: [] }));
     expect(terminal).toContain(note);
 
     const md = renderMarkdown(buildReportModel(changeset(), findings, { warnings: [] }));
@@ -789,19 +789,8 @@ describe("the distribution note reaches every surface", () => {
 
     // Rendered through each surface's own entry point rather than by reading
     // the model back, so a renderer that never consults the field fails.
-    // The terminal takes findings, not a model, so it gets the same two.
-    const terminal = renderTerminal(
-      changeset({}),
-      [
-        finding({ id: "citation_rot:docs/a.md:3:x", file: "docs/a.md" }),
-        finding({ id: "citation_rot:src/b.ts:9:y", file: "src/b.ts" }),
-      ],
-      undefined,
-      [],
-      undefined,
-      0,
-      true,
-    );
+    // The HTML still takes findings, not a model, so it gets the same two.
+    const terminal = renderTerminal(m);
     expect(terminal).toContain("Citations:");
 
     const md = renderMarkdown(m);
