@@ -6,9 +6,9 @@
  * execute in. One table and one substitution, so the surfaces cannot drift:
  * `buildReportModel` in `./model.ts` applies it to every content field while
  * the model is built (structurally via `segmentConcealed`, or as
- * `labelConcealed` strings for identifier-shaped fields), and `html.ts`
- * builds its `visible` wrapper — the symbol table's scoped renderer-side
- * exception — from `conceals` and `codePointLabel`.
+ * `labelConcealed` strings for identifier-shaped fields), and the surfaces
+ * only render what it produced — `html.ts` wraps every segmented field
+ * through `seg`, with no concealment path of its own.
  */
 
 /**

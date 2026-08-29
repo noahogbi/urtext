@@ -51,6 +51,14 @@ const noSymbols: Changeset = {
   files: changeset.files.map((f) => ({ ...f, symbols: [] })),
 };
 
+/**
+ * Written as an escape, never as the character itself: a literal concealing
+ * character in this file is invisible to the next reader, which is the whole
+ * problem this repository exists to make visible. `src/report/conceal.ts`
+ * writes its table as code points for the same reason.
+ */
+const RLO = "\u202E";
+
 const meta = (over: Partial<Parameters<typeof renderHtml>[2]> = {}) => ({
   warnings: [],
   ...over,
@@ -588,6 +596,16 @@ describe("renderHtml escaping", () => {
     for (const label of ["U+200B", "U+200D", "U+0007", "U+FEFF", "U+202E"]) {
       expect(html).toContain(label);
     }
+  });
+
+  it("labels a concealing character in an exported symbol's name", () => {
+    // The API-surface table renders text the author of the reviewed change
+    // controls, so it is covered by the same defense as every other surface.
+    const cs = structuredClone(changeset);
+    cs.files[0].symbols[0].qualifiedName = `sen${RLO}d`;
+    const html = renderHtml(cs, [], meta());
+    expect(html).toContain(`<span class="ctrl" title="concealing character">U+202E</span>`);
+    expect(html).not.toContain(RLO);
   });
 
   it("labels a tag-block payload smuggled into an excerpt", () => {
