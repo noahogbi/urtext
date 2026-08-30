@@ -1,16 +1,19 @@
 name: Scorecard
 
 # OpenSSF Scorecard runs a fixed set of supply-chain checks against this
-# repository and produces a number. The number is NOT published: `publish_results`
-# is false, so nothing is sent to the OpenSSF API and no badge claims anything.
-# Results land in this repository's Security tab, privately, where they can be
-# read and argued with before any decision to publish them is made.
+# repository and produces a number, now published to the OpenSSF API.
 #
-# That sequencing is deliberate. A published score is read as a claim about
+# It was not published at first, on purpose: a score is read as a claim about
 # whether this action is safe to run, and several of the checks it grades
-# hardest — branch protection on a single-maintainer repository, signed
-# releases, fuzzing — say nothing about that. Measure first, then decide what,
-# if anything, is worth claiming.
+# hardest say nothing about that. So it ran privately first, its results went
+# to this repository's Security tab, and the one check it flagged — branch
+# protection — was fixed rather than argued with. A later run flagged nothing.
+#
+# Publishing it now is therefore reporting a measurement rather than making a
+# claim, which is the order this project asks of every other assertion it
+# makes about itself. If a future run drops the score, the honest response is
+# to fix the finding or to stop publishing — not to leave a badge standing
+# that says something the checks no longer support.
 
 on:
   schedule:
@@ -45,8 +48,9 @@ jobs:
         with:
           results_file: results.sarif
           results_format: sarif
-          # False on purpose — see the note at the top of this file.
-          publish_results: false
+          # See the note at the top of this file for why this was false first
+          # and is true now.
+          publish_results: true
 
       # Kept for the run itself, so the raw findings can be read without the
       # Security tab. Ninety days is the default retention; nothing here is
