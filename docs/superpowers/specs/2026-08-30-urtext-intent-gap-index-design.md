@@ -41,9 +41,9 @@ A short index above the ranked findings, naming the findings the model marked
 
 ```
 Not described by this change's messages (4)
-  · [verified] guard_removed      src/auth/session.ts:142
+  · [inferred] guard_removed      src/auth/session.ts:142
   · [inferred] effect_added       src/lib/sync.ts:31
-  · [verified] export_added       src/api/admin.ts:88
+  · [inferred] export_added       src/api/admin.ts:88
   · [model]    retry loop may not terminate  src/lib/sync.ts:64
 
 Findings
@@ -51,9 +51,32 @@ Findings
   ...
 ```
 
-This example is what the code will actually produce under the ordering rule below. The
-first draft of this document showed a different order, justified by a claim about
-`MODEL_CEILING` that was false; see the next section, which exists because of it.
+### The index can never contain a `verified` entry
+
+Every tier chip above is `inferred` or `model`, and no fixture or future change can add a
+third. The mark originates only on a `Claim`, and it reaches a fact-backed finding through
+exactly one path — the claim-attachment branch at `src/score/reconcile.ts:149-177`, which
+sets `tier: tierFor(fact, entry.claim)` in the same object spread that carries the mark.
+`tierFor` returns `inferred` whenever the claim corresponds to the fact
+(`src/score/index.ts:153-157`), and `entry.factId` **is** `entry.claim.correspondsTo` by
+construction, so the code states the consequence directly: "`tierFor` can only ever return
+`inferred` here" (`reconcile.ts:153-156`). `toFinding` produces `verified` findings and
+never sets the mark; standalone claims are `model` tier. A marked group takes the same
+attach-to-absorber path and is likewise `inferred`.
+
+This follows from what the tiers mean. A `verified` finding is one the model said nothing
+about, and the mark is something the model says — so "marked and verified" is a
+contradiction, not a gap.
+
+**Two consequences the rest of this document depends on.** The trade in "Prominence" below
+is smaller than it first appears: no `verified` finding is ever repositioned by this
+feature, because none can be in the index. And the disclosure owed is larger: **the index
+is model-mediated in its entirety, and `inferred` is its strongest possible tier.** That is
+the honest framing for the heading's voice and for where the legend sits.
+
+Earlier drafts of this document showed `[verified]` entries and a different order. Both were
+wrong, and both were in the worked example rather than in a cited claim — see "Review
+history".
 
 ## Ordering: an explicit rule, because the implicit one does not hold
 
@@ -73,9 +96,11 @@ the consequence outright, in two places:
 > `src/score/index.ts:585-591`.
 
 `CONTEXT_KINDS` is `{blast_radius, export_added}` (`src/score/index.ts:562-565`). So a
-`verified` `export_added` finding sorts **below** an evidence-free model claim, and a
-filter-in-place index would print `[model]` above `[verified]` in the report's prime
-position — the exact inversion this design exists to avoid.
+fact-backed `export_added` finding sorts **below** an evidence-free model claim, and a
+filter-in-place index would print `[model]` above `[inferred]` in the report's prime
+position — an evidence-free claim above a finding an analyzer corroborated, which is the
+inversion this design exists to avoid. (`inferred`, not `verified`: a marked fact-backed
+finding is always `inferred`, per the section above.)
 
 **The rule.** The index is assembled in two passes, each preserving `findings` order:
 
@@ -99,16 +124,24 @@ What is genuinely dissolved: no key is inserted between band and score, no verif
 finding's **rank** is governed by model-tier data, and the unexpected/undetermined default
 never has to be chosen.
 
-What is **not** dissolved: prominence is a form of presentation. A model-tier mark now
-decides which verified findings appear in the report's first block, and an uncorroborated
-claim in that block draws more attention than its rank-12 slot below. The convention that
-model-tier data must not govern the presentation of verified findings is bent here, as it is
-already bent by the badge itself, which annotates verified findings on all four surfaces
-today (`terminal.ts:165`, `html.ts:192`, `markdown.ts:133`, `pdf.ts:144`).
+What is **not** dissolved: prominence is a form of presentation, and a model judgement now
+decides which findings lead the report. An uncorroborated claim in that block draws more
+attention than its rank-12 slot below.
 
-**The honest description is: relocated from rank to prominence, with the tier label and the
-two-pass order as the controls.** Stated plainly so a later reader evaluates the real trade
-rather than an elegance claim.
+But the trade is narrower than it first looks, for the reason established above: **no
+`verified` finding can appear in the index**, so the convention that model-tier data must
+not govern the presentation of verified findings is not bent by index membership at all.
+Every entry is already a finding the model spoke about — `inferred` at best. What the badge
+does today on all four surfaces (`terminal.ts:165`, `html.ts:192`, `markdown.ts:133`,
+`pdf.ts:144`) is annotate those same findings; the index aggregates the same marks into one
+place.
+
+**The honest description is: relocated from rank to prominence, over a set that is
+model-mediated end to end, with the tier label and the two-pass order as the controls.**
+The disclosure that matters is therefore not "some verified findings were promoted" — none
+were — but "this block is the model's judgement, and nothing in it is better than
+`inferred`." Stated plainly so a later reader evaluates the real trade rather than an
+elegance claim.
 
 ## What already exists, and what is new
 
@@ -153,7 +186,7 @@ export interface IntentGapEntry {
 location in its own idiom.
 
 **Deriving `label` needs plumbing this design must budget for.** `FindingView` carries no
-`kind` (`src/report/model.ts:139-167`), and `kindOf`/`subjectOf` are private to `model.ts`.
+`kind` (`src/report/model.ts:138-192`), and `kindOf`/`subjectOf` are private to `model.ts`.
 A fact-backed entry's label must therefore be derived inside `model.ts` where the id prefix
 is already parsed — not by a surface, and not by re-deriving the kind a second time
 elsewhere. An earlier draft's example used `effect_network`, which is not a kind at all: the
@@ -163,14 +196,30 @@ the effect's name lives in `fact.detail`, which the model layer never sees.
 **Attribution.** All model prose lives in `modelNote` so no surface can render it without
 attribution (`model.ts:170-174`). A standalone claim's summary appearing in the index is the
 same sentence in a less-attributed place, and a bare `[model]` tag is weaker than
-`MODEL_CAUTION_STANDALONE` (`model.ts:399-400`) requires elsewhere. **Rule:** when the index
-contains any standalone entry, the surface renders the model attribution adjacent to the
-index, not only beside the finding below. A surface that cannot place it adjacently omits
-standalone entries from its index rather than showing unattributed model prose.
+`MODEL_CAUTION_STANDALONE` (`model.ts:399-400`) requires elsewhere.
+
+**The model composes one attribution string for the index**, carried in its own field and
+present exactly when `intentGap` contains a standalone entry — the same
+absent-or-present gating `beyondIntentLegend` already uses (`model.ts:737-739`). It is built
+from the recorded model name, falling back to `UNNAMED_MODEL` (`model.ts:390-396`) so a run
+that recorded no name shows attribution that is visibly incomplete rather than absent, and
+it carries `MODEL_CAUTION_STANDALONE`. Every surface renders it unconditionally when
+present. It is new reader-facing copy, so it goes through the copy guard.
+
+An earlier draft made this conditional — "a surface that cannot place the attribution
+adjacently omits standalone entries instead." That was wrong three times over, and the fix
+is recorded rather than silently applied because the error is instructive. It delegated a
+**content** decision to renderers, contradicting the one-model-surfaces charter this very
+design cites as its authorization: "Everything a surface may say about content — which
+findings, in what order... is decided here, once; a renderer applies format mechanics...
+never a decision of its own" (`model.ts:21-25`). It would have let `--json` (which emits
+`intentGap` whole) disagree with any surface that took the exit. And it guarded a case that
+cannot arise: every surface renders the index as a block it controls, so there is no layout
+here where "adjacent" is unachievable.
 
 **Groups.** A claim citing an absorbed fact attaches to the group, and the mark travels with
 it (`reconcile.ts:140`, `:169-176`), so the index points at the **group id**. Its label is
-the group's own description, not `kindOf`'s stripped member kind — calling a seven-export
+the **group finding's title**, not `kindOf`'s stripped member kind — calling a seven-export
 group `export_added` beside one member's `file:line` would misdescribe it. Note that groups
 of context kinds sit in band 1, which the two-pass rule above already handles.
 
@@ -218,11 +267,21 @@ once already:
 
 Every test must be answerable — it must fail if the production change is reverted.
 
-- **The ordering rule, against the case that broke the first draft.** Construct a `verified`
-  `export_added` finding (context band) and a standalone model claim (defect band, score ≤ 3).
-  In `findings` the claim sorts **above** the export; in the index the export must come
-  first. Assert positionally. A fixture using a defect-band fact-backed finding would pass
-  under both the correct rule and the retracted one, and so proves nothing.
+- **The ordering rule, against the case that broke the first draft.** Construct an
+  `inferred` `export_added` finding (context band) and a standalone model claim (defect
+  band, score ≤ 3). In `findings` the claim sorts **above** the export; in the index the
+  export must come first. Assert positionally. A fixture using a defect-band fact-backed
+  finding would pass under both the correct rule and the retracted one, and so proves
+  nothing. The fixture is `inferred`, not `verified`, because `verified` is unreachable for
+  a marked finding — a test asserting on a state production cannot produce is a test whose
+  passing means nothing.
+- **One test drives the real path**, `reconcile` → `buildReportModel`, rather than
+  hand-built findings. This is not belt-and-braces: this repository's banding bug shipped
+  precisely because a unit test over `rank` passed while the path a review actually takes
+  was never exercised (`reconcile.ts:209-213`). Every other test here may use fixtures; at
+  least one must not.
+- **No index entry is ever `verified`.** Asserted through the real path, so it pins the tier
+  chain rather than the fixture builder.
 - Fact-backed entries preserve `findings` order among themselves; standalone entries preserve
   it among themselves. Construct at least two of each, interleaved in `findings`.
 - Every id in `intentGap` resolves to a finding in `findings`; no finding is dropped from
@@ -235,9 +294,11 @@ Every test must be answerable — it must fail if the production change is rever
   bidirectional override renders as a labeled code point in the index on every surface, not
   as the raw character. This is the Trojan Source guarantee, and the index is a new place for
   it to leak.
-- A surface that renders standalone entries also renders the model attribution adjacent.
+- Every surface renders the index attribution when the model carries it, and the model
+  carries it exactly when `intentGap` holds a standalone entry. A run with no recorded model
+  name renders `UNNAMED_MODEL` rather than omitting attribution.
 - A marked finding absorbed into a group produces one entry pointing at the group id, labeled
-  as the group.
+  with the group finding's **title**.
 - All five surfaces carry the index.
 - The heading clears the copy guard. `FORBIDDEN` is `unsanctioned`, `unauthorized`,
   `approved`, `permission`, `forbidden`, `allowed` (`test/report/copy-guard.test.ts:25-32`),
@@ -262,10 +323,16 @@ most common invocation drowns. The predecessor had a section titled "The working
 problem, which decides whether this works at all"; the first draft of this document did not
 contain the words "working tree."
 
-**Reject as noise** if more than a third of findings are marked on any tested range. The
-index is meant to be a handful of entries; at a third of the report it is a second copy of it.
+**Reject as noise** if the marked count exceeds `max(2, N/3)` on any tested range. The index
+is meant to be a handful of entries; at a third of the report it is a second copy of it. The
+floor matters because a bare fraction is decided by rounding on small reviews — 1 marked of
+3 findings should not trip a noise gate.
 
-**Reject as inert** if zero findings are marked across all five reviews.
+**Reject as inert** if zero findings are marked across all five reviews. For this to mean
+anything, **one range must be pre-registered as containing a known surprise** — a range whose
+messages demonstrably omit something the diff does. Without it, a zero outcome cannot
+distinguish "the mark never fires" from "nothing was beyond intent in these five," and the
+gate proves nothing either way.
 
 If either fires, this design is rejected like the other two, rather than rescued with a cap
 chosen once the number is known. A length cap may be right, but adopting one pre-emptively
@@ -281,7 +348,8 @@ it is that this goal ends at the badge that already ships.
 |---|---|
 | The model marks too many claims and the index becomes a second report | The numeric check above, with rejection as a real outcome |
 | Uncorroborated model claims gain prominence at the top of the report | The two-pass rule puts them after every fact-backed entry, and the tier label precedes each one. Named in "Prominence is the real trade" as a bent convention rather than a solved problem |
-| Model prose reaches a surface unsegmented or unattributed | `label` is `ConcealSegment[]`; the adjacency rule governs attribution; both are tested |
+| A reader takes the index for a list of verified problems | No entry can be `verified`, and every chip says `inferred` or `model`. The index attribution states whose judgement the block is |
+| Model prose reaches a surface unsegmented or unattributed | `label` is `ConcealSegment[]`; the model composes one attribution string rendered unconditionally by every surface; both are tested |
 | A reader takes an absent index as "nothing was unexpected" | Already closed by the existing skip disclosure at `cli.ts:422`, which fires on every keyless run |
 | The index and `findings` disagree about order | They do, by design, and the reason is stated. The positional test pins the intended difference so a future filter-in-place "simplification" fails |
 
@@ -300,8 +368,21 @@ drafting, and the pattern is more useful than either instance.
 - It typed `label` as a plain string, which would have made it the model's only unsegmented
   content field.
 - Its worked example used `effect_network`, which is not a kind.
+- **Second draft** showed `[verified]` entries in the index. Impossible: the mark only reaches
+  a fact-backed finding through the claim-attachment path, which forces `inferred`. It also
+  built the whole "Prominence" argument on verified findings being repositioned, when none
+  can be. And it made index attribution conditional on a surface's layout, delegating a
+  content decision to renderers in a document whose stated authorization is that the model
+  owns content decisions.
 
-**The rule this project should adopt:** every `file:line` claim in a spec is checked against
-the file before the status leaves "proposed" — and checking that a citation points at the
-right line is not the same as checking that the claim about its behavior is true. The first
-draft's citations were verified and its claims were not.
+**The rule this project should adopt**, in two clauses, because the first clause alone would
+have caught neither the second draft's error nor the third's:
+
+1. Every `file:line` claim in a spec is checked against the file before status leaves
+   "proposed" — and checking that a citation points at the right line is not the same as
+   checking that the claim about its behavior is true. The first draft's citations were all
+   correct and its claims were not.
+2. **A worked example is a behavioural claim and must be derived by tracing the real
+   pipeline, not composed by hand.** Every falsehood in this document's history lived in an
+   example, and the second draft's carried no citation at all — so clause 1 could never have
+   caught it. An example that shows output is asserting the code produces that output.
