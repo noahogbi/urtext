@@ -1,10 +1,89 @@
 # Least-expected-first ranking — design
 
 **Date:** 2026-08-30
-**Status:** proposed
+**Status:** **rejected — do not implement.** The design below is kept as the record of
+what was tried and what killed it. Measurement, not opinion, decided it; the numbers are
+in the next section so the next reader inherits them rather than re-deriving them.
 **Builds on** `2026-08-23-urtext-intent-design.md` (the `beyondIntent` marker) and the
 defect/context banding added in `2026-08-28-urtext-one-model-surfaces-design.md`'s change
 set.
+
+## Why this was rejected
+
+Three findings, from review and from measuring this repository's own history.
+
+### The signal does not fire, and when it fires it is wrong
+
+The design rests on one assumption: that a commit message names the symbols its change
+touches. Measured across this repository's 62 non-merge commits, excluding the initial
+import:
+
+> **Nine commits added ten exported symbols between them. Zero named the symbol in their
+> own message.** `renderHtml`, `exportPaths`, `SurfaceSymbolView`,
+> `citationDistributionNote`, `KIND_NOTES` — every one missed.
+
+Widening the match to every declaration, including locals, produces matches on 8 of 14
+commits — and every one of those matches is a common English word appearing in prose:
+`to`, `a`, `path`, `kind`, `band`, `commit`, `written`, `dropped`. So the matcher does not
+merely fail to fire. **The only time it fires is a false positive**, and it falls in the
+expensive direction the design itself identified: marking a real surprise as accounted for
+because a message contained the word "to".
+
+This repository is a favorable case — its commit bodies are unusually identifier-literate.
+They name the identifiers *around* a change while describing the change itself in
+behavior. That is how commit messages are written everywhere, and no tuning of the matcher
+repairs a premise that authors do not do the thing it depends on.
+
+The risk table below pre-registered exactly this measurement with an abort threshold. The
+threshold was met before a line of code existed. Recording that the discipline worked is
+the point of keeping this document.
+
+### A load-bearing claim about the codebase was false
+
+The working-tree section asserted that `changeset` already knows which files carry
+uncommitted changes, so the rule needed no new git call. It does not. `ChangedFile` is
+`{path, status, previousPath, hunks, symbols}` (`src/types.ts:72-79`) and carries no
+provenance; `untrackedCount` is range-level and describes *untracked* files, not dirty
+tracked ones. An implementer following the text and reaching for the only signal that does
+exist — the range-level `to === WORKTREE` flag — would have degraded the rule from
+per-file to whole-review, making the feature inert on every default `urtext review`.
+
+### One finding outlives this design
+
+Standalone model claims (`claim:i:*`, `src/score/reconcile.ts:189-207`) come from no fact,
+so an expectation map keyed on facts has no entry for them, and **both** available defaults
+break the evidence hierarchy:
+
+- Default to `unexpected` and uncorroborated model claims sort above verified findings —
+  the inversion this document's own problem statement names as disqualifying.
+- Default to `undetermined` and an accounted-for verified `guard_removed` at score 90 sorts
+  below a model claim capped at 3, silently repealing `MODEL_CEILING`
+  (`src/score/reconcile.ts:14`).
+
+This is a constraint on **any** ranking key inserted between band and score, not a defect
+of this particular signal. Whatever replaces this design must answer it explicitly and test
+for it.
+
+### What was right, and worth carrying forward
+
+The three settled decisions were not what failed. A deterministic, `verified`-grade signal
+that works under `--no-llm`; expectation *inside* the bands rather than above them; and
+strict matching over loose, because the error costs are asymmetric — all of these survive
+into any successor. So does the three-state model: the reasoning that a fact whose symbol
+does not exist has no answer, and that guessing either way costs something, is independent
+of which signal supplies the answer.
+
+What failed is narrower and worth naming exactly: **prose written by humans was used as a
+machine-readable index of the code it describes.** A successor should take its signal from
+the shape of the change or the repository's history — evidence the tool can read directly
+— rather than from whether someone wrote a good commit message.
+
+---
+
+# The rejected design
+
+*Everything below is the original document, unchanged apart from this heading. It is
+retained because the successor needs to know what was ruled out and on what grounds.*
 
 ## The problem
 
@@ -104,6 +183,11 @@ most common invocation.
 **Rule:** a fact whose file has uncommitted changes is `undetermined`, never `unexpected`.
 The messages had no opportunity to describe it. `changeset` already knows which files came
 from the working tree, so this needs no new git call.
+
+> **This paragraph's last sentence is false.** `ChangedFile` carries no per-file
+> provenance (`src/types.ts:72-79`); the rule requires a git call this design did not
+> budget for. See "A load-bearing claim about the codebase was false" above. Left in place
+> rather than silently corrected, because the error is part of what this record is for.
 
 The consequence is worth stating plainly: **on a working-tree review, most facts are
 undetermined and the ranking degrades to today's band-then-score behaviour.** That is
