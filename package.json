@@ -41,7 +41,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.121.0",
     "pdfkit": "^0.20.1",
-    "typescript": "^5.4.0"
+    "typescript": "^6.0.3"
   },
   "devDependencies": {
     "@types/node": "^26.3.0",

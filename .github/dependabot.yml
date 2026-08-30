@@ -28,22 +28,24 @@ updates:
       - dependencies
     ignore:
       # TypeScript 7 is the native compiler, and its npm package does not
-      # carry the API this project is built on. Its main entry exports two
-      # things — `version` and `versionMajorMinor`; `createProgram`,
-      # `SymbolFlags`, `isIdentifier` and the rest are absent. What exists
-      # lives under `typescript/unstable/*` subpaths, named unstable by its
-      # authors, with an out-of-process architecture rather than an in-process
-      # one.
+      # carry the API this project is built on. Measured: its main entry
+      # exports two things, `version` and `versionMajorMinor`. `createProgram`,
+      # `SymbolFlags`, `isIdentifier` and the rest are absent, and `tsc` fails
+      # with 225 errors across thirteen files. What exists lives under
+      # `typescript/unstable/*` — named unstable by its authors — with an
+      # out-of-process architecture rather than an in-process one. Adopting it
+      # is a port against an interface that advertises it will move.
       #
-      # Five analyzers, the symbol extractor, and the scope model — thirteen
-      # files — read that API directly. Moving to 7 is a port against an
-      # explicitly unstable interface, not a version bump, so Dependabot is
-      # told not to keep proposing it weekly. Minor and patch updates inside
-      # 5.x still arrive, which is where security fixes for this line land.
+      # Pinned by version rather than by update type, and the distinction is
+      # the whole point: an earlier version of this file ignored every major,
+      # which silently swallowed TypeScript 6 as well. Six keeps the full
+      # compiler API — two thousand exports, `tsc` clean, the suite green, and
+      # byte-identical analyzer output on a real range — so blocking it would
+      # have hidden its security patches for no reason.
       #
-      # Revisit when the compiler API leaves `unstable/`.
+      # Revisit seven when the compiler API leaves `unstable/`.
       - dependency-name: typescript
-        update-types: ["version-update:semver-major"]
+        versions: [">=7"]
     groups:
       # The test toolchain moves together — vitest, vite, and their shared
       # transitive dependencies — so grouping keeps one reviewable pull
