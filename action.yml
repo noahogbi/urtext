@@ -1,7 +1,10 @@
 name: urtext review
+# Kept under 125 characters because the Marketplace rejects a longer one, and
+# leading with the thesis rather than the mechanism so the listing card and the
+# README's first line say the same thing in the same words.
 description: >-
-  Review this pull request's change with urtext and post the result as one
-  comment, edited in place on every push. Deterministic by default.
+  A diff reviewer that shows its evidence. Posts one pull request comment,
+  edited in place on every push.
 author: noahogbi
 
 # Required to list this action on the GitHub Marketplace, inert everywhere
