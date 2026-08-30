@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   ANALYZERS,
   citationsAnalyzer,
@@ -81,6 +83,42 @@ export interface CliOptions {
    */
   citationsExclude?: string[];
   help: boolean;
+  /**
+   * Report what this build is and exit. Optional like `open`, so every
+   * pre-existing caller constructing a `CliOptions` literal still compiles.
+   */
+  version?: boolean;
+}
+
+/**
+ * What this build is, for `--version`.
+ *
+ * A version number alone cannot answer the question that matters here. The
+ * global `urtext` is very often a symlink into a checkout — `npm link`, or a
+ * global install from a local path — and then the command runs whatever
+ * `dist/` last held. `dist/` is gitignored, only a build regenerates it, and
+ * `package.json`'s version is identical before and after a pull. The commit is
+ * what distinguishes a fresh build from a stale one, so the build stamps it
+ * (see `scripts/stamp-build.mjs`) and this reads it back.
+ *
+ * Absent when running from source under `tsx`, where nothing has been built
+ * and there is no stamp to read — which is itself the honest answer, and is
+ * said rather than guessed at.
+ */
+export function versionLine(): string {
+  try {
+    const path = fileURLToPath(new URL("./build-info.json", import.meta.url));
+    const info = JSON.parse(readFileSync(path, "utf8")) as {
+      version?: string;
+      commit?: string;
+      builtAt?: string;
+    };
+    const commit = info.commit ? ` (${info.commit})` : "";
+    const built = info.builtAt ? `, built ${info.builtAt.slice(0, 10)}` : "";
+    return `urtext ${info.version ?? "unknown"}${commit}${built}`;
+  } catch {
+    return "urtext running from source — no build stamp, so no commit to report";
+  }
 }
 
 /** Exported so a test can check that it names the real default model. */
@@ -110,6 +148,7 @@ Options:
               terminal render and every note move to stderr. Cannot be
               combined with --json.
   --help      Show this message
+  --version   Report this build's version and the commit it was built from
 `;
 
 /**
@@ -201,6 +240,7 @@ export function parseArgs(argv: string[]): CliOptions {
       i++;
     }
     else if (arg === "--help" || arg === "-h") opts.help = true;
+    else if (arg === "--version" || arg === "-v") opts.version = true;
     else if (arg.startsWith("--model=")) {
       const value = arg.slice("--model=".length);
       // An empty value is a mistake, not a request for the default: silently
@@ -749,6 +789,10 @@ export async function main(): Promise<void> {
     // Inside the try: argument parsing now rejects unknown flags, and that
     // message deserves the same one-line treatment as any other failure.
     const opts = parseArgs(process.argv.slice(2));
+    if (opts.version) {
+      process.stdout.write(versionLine() + "\n");
+      return;
+    }
     if (opts.help) {
       process.stdout.write(USAGE);
       return;

@@ -22,7 +22,7 @@ import {
   type CitationsOptions,
 } from "../src/analyze/citations.js";
 import { makeFact } from "../src/analyze/index.js";
-import { openOrExplain, parseArgs, review, streamsFor, USAGE, type CliOptions } from "../src/cli.js";
+import { openOrExplain, parseArgs, review, streamsFor, USAGE, versionLine, type CliOptions } from "../src/cli.js";
 import { extract } from "../src/extract/index.js";
 import { DEFAULT_MODEL, INTENT_ABSENT_NOTE } from "../src/interpret/index.js";
 import { BEYOND_INTENT_MEANING, buildReportModel, KIND_NOTES } from "../src/report/model.js";
@@ -342,6 +342,25 @@ beforeAll(() => {
   // exactly one thing: how much history each carries.
   writeFileSync(join(rotRepo, "src", "other.ts"), "export const other = 2;\n");
   writeFileSync(join(shallowRepo, "src", "other.ts"), "export const other = 2;\n");
+});
+
+describe("--version", () => {
+  it("says it is running from source when nothing has stamped a build", () => {
+    // The test suite runs from `src/` under vitest, where `dist/` — and the
+    // stamp inside it — is not what is loaded. That is the honest answer and
+    // the point of the fallback: a build that cannot say which commit it came
+    // from says so, rather than reporting `package.json`'s version as though
+    // it settled the question.
+    expect(versionLine()).toContain("running from source");
+    expect(versionLine()).not.toMatch(/\(\w{7,}\)/);
+  });
+
+  it("parses both spellings of the flag, and neither is the help flag", () => {
+    expect(parseArgs(["--version"]).version).toBe(true);
+    expect(parseArgs(["-v"]).version).toBe(true);
+    expect(parseArgs(["--version"]).help).toBe(false);
+    expect(parseArgs(["--help"]).version).toBeUndefined();
+  });
 });
 
 describe("review", () => {
