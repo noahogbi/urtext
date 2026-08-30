@@ -1,0 +1,66 @@
+# A deliberately misconfigured review, run once to observe what the action
+# does when it cannot post.
+#
+# The README says a fork pull request cannot be commented on: `GITHUB_TOKEN` is
+# read-only there regardless of the `permissions:` block, so the post returns
+# HTTP 403 and the action is supposed to warn, set `posted: none`, leave the
+# review in the job summary and the artifact, and stay green. That behavior was
+# documented and explicitly NOT claimed, because it had never been observed.
+#
+# A fork needs a second account. A 403 does not. Omitting `pull-requests: write`
+# produces the same refusal from the same endpoint on the same code path — the
+# README already records the equivalence, in the note explaining that omitting
+# the block "reads exactly like a fork pull request".
+#
+# What this verifies: the handling. What it cannot verify: that GitHub really
+# returns 403 for a fork head, which remains a claim about GitHub's behavior
+# rather than about this action's. That distinction is the point of the
+# exercise and is stated wherever the result is cited.
+#
+# Runs only on the branch that carries it, so it cannot fire on an ordinary
+# pull request.
+name: Read-only token probe
+
+on: pull_request
+
+jobs:
+  probe:
+    if: github.head_ref == 'probe/readonly-token'
+    runs-on: ubuntu-latest
+    # The whole experiment: `pull-requests: write` is absent on purpose.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./
+        id: review
+        # Left at the default (false), unlike this repository's real review
+        # workflow: the question is whether a post that cannot happen leaves
+        # the job green, and `fail-on-error: true` would answer it by fiat.
+
+      - name: Report what the action did
+        if: always()
+        env:
+          OUTCOME: ${{ steps.review.outputs.outcome }}
+          POSTED: ${{ steps.review.outputs.posted }}
+          COMMENT_ID: ${{ steps.review.outputs.comment-id }}
+          ARTIFACT: ${{ steps.review.outputs.report-artifact-url }}
+        run: |
+          {
+            echo "## Read-only token probe"
+            echo ""
+            echo "| output | value |"
+            echo "| --- | --- |"
+            echo "| outcome | \`$OUTCOME\` |"
+            echo "| posted | \`$POSTED\` |"
+            echo "| comment-id | \`$COMMENT_ID\` |"
+            echo "| artifact | \`$ARTIFACT\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "outcome=$OUTCOME posted=$POSTED comment-id=$COMMENT_ID"
+          # The claim under test: a review was produced, it could not be
+          # posted, and neither fact was hidden.
+          test "$OUTCOME" = "reviewed" || { echo "expected outcome=reviewed"; exit 1; }
+          test "$POSTED" = "none"     || { echo "expected posted=none"; exit 1; }
+          test -z "$COMMENT_ID"       || { echo "expected an empty comment-id"; exit 1; }
