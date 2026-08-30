@@ -26,7 +26,8 @@ you:
 - **With a key, what goes to Anthropic goes under _your_ key** and your
   agreement with them. Exactly: the range label, each changed file's path and
   status and changed symbol names, one trimmed source line per analyzer fact,
-  and the commit subjects and bodies in the range with trailers stripped. The
+  and the abbreviated hash, subject and body of each commit in the range with
+  trailers stripped. The
   diff itself is not sent, nor the contents of the files it touches, nor git
   author names or email addresses — the intent stage asks git for hash,
   subject, and body, never for identity fields. `README.md` carries the same

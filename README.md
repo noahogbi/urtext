@@ -23,6 +23,11 @@ matters — ranked, with every claim labeled by the kind of evidence behind it:
 - `inferred` — a model claim that analysis corroborates but does not prove
 - `model` — a model claim nothing mechanical confirms
 
+**It analyses TypeScript.** The four code analyzers below read the TypeScript compiler,
+so they fire on `.ts`, `.tsx`, `.mts` and `.cts`. Point urtext at a Python, Go or Rust
+repository and the code analyzers find nothing; the citations analyzer still checks prose
+in `.md` and `.txt`, which is a fifth of the tool. That is a limit, not a roadmap item.
+
 Five analyzers run over the change:
 
 - **guards** — conditionals, early returns, and throws removed from code that survived
@@ -90,7 +95,10 @@ megabytes.
 **The CI integration does not come from npm.** `npm install urtext` gives you the CLI;
 the GitHub Action is `action.yml` at the root of
 [noahogbi/urtext](https://github.com/noahogbi/urtext), referenced by `uses:` rather than
-installed as a dependency. Nothing needs to be on the runner beforehand.
+installed as a dependency. Nothing is installed from the repository under review, and
+no script of its own is executed. The runner itself needs `node`, `npm`, `gh` and `jq`,
+all of which are preinstalled on GitHub-hosted runners; a self-hosted runner has to
+provide them.
 
 That action is a composite that reviews a pull request and posts the result as one
 comment, edited in place on every push:
@@ -112,9 +120,12 @@ jobs:
       - uses: noahogbi/urtext@v1
 ```
 
-`@v1` is a tag, so the action cannot change under you between runs the way `@master`
-can. It was cut on a green cross-platform CI run — the check you can see for yourself
-on this repository.
+`@v1` is a **moving** major tag: it is re-pointed at the default branch with each
+release, so it does change between runs, deliberately. That is the trade a major tag
+makes — you get fixes without editing your workflow, and you accept that the code moves.
+For a reference that cannot change, pin the commit SHA, which is what this repository
+does for every action it consumes itself. Each move is made from a green cross-platform
+CI run, the check you can see for yourself here.
 
 Four of the action's behaviors were verified against live pull requests, and it is
 worth being exact about where that evidence sits: it was recorded during development,
@@ -265,8 +276,9 @@ rather than described from the architecture, it is exactly this:
 - each changed file's path, its status, and the names of the symbols in it that changed;
 - for each analyzer fact: its kind, its `file:line`, its symbol, and **one trimmed
   source line** — the single line the finding points at;
-- the commit subjects and bodies in the range, used to compare the change against its
-  stated intent, with `Co-authored-by:` and `Signed-off-by:` trailers stripped first.
+- the abbreviated hash, subject and body of each commit in the range, used to compare
+  the change against its stated intent, with `Co-authored-by:` and `Signed-off-by:`
+  trailers stripped first.
 
 **The diff itself is not sent, and neither are the contents of the files it touches.**
 Only the one line per fact above. Git author names and email addresses are not sent
