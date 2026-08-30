@@ -85,7 +85,11 @@ outputs:
     description: The comment's html_url; empty when posted is none.
     value: ${{ steps.upsert.outputs.comment-url }}
   exit-code:
-    description: urtext's own exit code, verbatim. The action interprets it; it never rewrites it.
+    description: >-
+      urtext's own exit code when urtext ran, verbatim and never rewritten. It is
+      1 on the two paths where urtext could not be run at all: a range that could
+      not be resolved, and a build that failed on the runner. The run's log says
+      which.
     value: ${{ steps.urtext.outputs.exit-code }}
   omitted-findings:
     description: How many findings the character cap left out. 0 when nothing was omitted.
