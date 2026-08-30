@@ -138,24 +138,27 @@ be observed "from a branch" and was read — including by its author — as need
 It does not. `pull_request_target` fires for pull requests from branches in the same
 repository too; the only requirement is that the workflow live on the default branch.
 
-**The unpostable path has now been observed, and it is worth being exact about which
-half.** A fork pull request cannot be commented on because `GITHUB_TOKEN` is read-only
-there; the action is supposed to warn, set `posted: none`, keep the review in the job
-summary and the artifact, and stay green. A fork needs a second account — a 403 does
-not. Omitting `pull-requests: write` produces the same refusal from the same endpoint on
-the same code path, and
-[this run](https://github.com/noahogbi/urtext/actions/runs/33291306506) did exactly that.
-What it showed: `outcome: reviewed`, `posted: none`, an empty `comment-id`, the artifact
-uploaded and linked, the job **green**, and the warning verbatim — *"urtext could not
-post its review (the workflow's token may be read-only, which is the case on pull
-requests from forks). The full review is in this run's job summary."* Unlike the
-evidence above, that run is public and you can read it yourself.
+**The fork case is verified, and it took two runs because no single run could
+show all of it.**
 
-**What is still not claimed** is the other half: that GitHub really hands a fork-head
-pull request a read-only token. That is GitHub's documented behavior rather than this
-action's, and no run in this repository can demonstrate it. So the handling is verified;
-the trigger for it is taken from GitHub's documentation, and the first real fork pull
-request will be the thing that closes the gap.
+A [pull request from a fork](https://github.com/noahogbi/urtext/actions/runs/33295925588)
+— a real one, from another organization — showed that GitHub does hand the workflow a
+token that cannot comment: the post failed, the action warned in its own words
+(*"the workflow's token may be read-only, which is the case on pull requests from
+forks"*), `outcome` came back `reviewed`, `posted` came back `none`, and the review
+survived in the job summary and a 395-byte artifact. That run is **red**, and the reason
+is this repository's own choice rather than the action's behavior: the workflow above
+sets `fail-on-error: true`, which is the opposite of the default and is set only here,
+because a urtext failure in urtext's own repository is a defect in the thing under test.
+
+The green half is [a second run](https://github.com/noahogbi/urtext/actions/runs/33291306506),
+on a workflow that simply omits `pull-requests: write` — the same 403 from the same
+endpoint on the same path — with `fail-on-error` left at its default. It stayed green
+with `posted: none`, which is what a consumer gets.
+
+So: GitHub's read-only token is real, the handling is what this file says, and the
+default keeps the job green. Both runs are public and you can read them yourself, unlike
+the four behaviors above.
 
 The `permissions:` block sits at the job level, not the workflow level, so adopting
 this does not widen the token for a repository's other jobs. `issues: write` is not

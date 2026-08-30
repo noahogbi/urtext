@@ -45,8 +45,10 @@ create a comment — a fork pull request, or a workflow missing
 review in the job summary and the uploaded artifact, and leaves the job green.
 Green is deliberate: a red check on a contributor's first pull request reads as
 a judgment about their change, when what happened is that a tool could not reach
-an API. Observed in
-[this run](https://github.com/noahogbi/urtext/actions/runs/33291306506).
+an API. Verified on [a real fork pull
+request](https://github.com/noahogbi/urtext/actions/runs/33295925588) and, for
+the green half under the default `fail-on-error`, on [a run with a deliberately
+read-only token](https://github.com/noahogbi/urtext/actions/runs/33291306506).
 
 **It refuses `pull_request_target`** and fails its first step on that trigger.
 That trigger grants a write token and repository secrets to a workflow that
