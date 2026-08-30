@@ -39,6 +39,15 @@ you:
 Two of urtext's behaviors exist for security reasons rather than product ones,
 and they are the places to look first if you are auditing it:
 
+**A review it cannot post is disclosed, not swallowed.** When the token cannot
+create a comment — a fork pull request, or a workflow missing
+`pull-requests: write` — the action warns, sets `posted: none`, leaves the full
+review in the job summary and the uploaded artifact, and leaves the job green.
+Green is deliberate: a red check on a contributor's first pull request reads as
+a judgment about their change, when what happened is that a tool could not reach
+an API. Observed in
+[this run](https://github.com/noahogbi/urtext/actions/runs/33291306506).
+
 **It refuses `pull_request_target`** and fails its first step on that trigger.
 That trigger grants a write token and repository secrets to a workflow that
 then reads the head revision — and urtext parses head-authored TypeScript and
