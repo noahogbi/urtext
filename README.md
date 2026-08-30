@@ -240,12 +240,24 @@ from its own checkout.
 **With `--no-llm`, nothing leaves at all.** Every analyzer is local, every finding is
 `verified`, and the review makes no network call.
 
-**With a key, your code goes to Anthropic under _your_ key and your agreement with
-them** — never through anything the author operates. What is sent is the diff of the
-reviewed range, the contents of the files it touches, and the commit messages in it.
-Those commit messages carry author names and email addresses, which is worth knowing
-before pointing this at a private repository. Nothing is sent when the key is absent,
-and every review states which mode it ran in.
+**With a key, what goes to Anthropic goes under _your_ key and your agreement with
+them** — never through anything the author operates. Traced against the prompt builder
+rather than described from the architecture, it is exactly this:
+
+- the range label — `vs main`, or verbatim whatever range you typed;
+- each changed file's path, its status, and the names of the symbols in it that changed;
+- for each analyzer fact: its kind, its `file:line`, its symbol, and **one trimmed
+  source line** — the single line the finding points at;
+- the commit subjects and bodies in the range, used to compare the change against its
+  stated intent, with `Co-authored-by:` and `Signed-off-by:` trailers stripped first.
+
+**The diff itself is not sent, and neither are the contents of the files it touches.**
+Only the one line per fact above. Git author names and email addresses are not sent
+either: the intent stage asks git for hash, subject, and body, and never for identity
+fields.
+
+Nothing is sent when no key is present, and a run that did not ask the model always says
+so — `--no-llm was set` or `no ANTHROPIC_API_KEY set` appears in the review's own notes.
 
 The report is written to `.urtext/` in your own repository. In CI it is also attached to
 the workflow run as an artifact, which your repository's retention settings govern.

@@ -415,6 +415,48 @@ describe("review", () => {
     for (const note of parsed.kindNotes) expect(term.output).toContain(note);
   });
 
+  it("leaves a concealing character raw in --json and labeled in the terminal", async () => {
+    // SECURITY.md states this carve-out and this test is what makes it true
+    // rather than asserted. `--json` emits the analyzer findings as produced,
+    // BEFORE the report model conceals anything, because a machine consumer
+    // comparing an excerpt against its source file needs the real bytes. The
+    // terminal walks the model and therefore cannot show one.
+    //
+    // Both halves are asserted together on one run, so a change that started
+    // concealing the JSON — or stopped concealing the terminal — fails here
+    // whichever direction it moved.
+    const RLO = "\u202E";
+    const rloRepo = mkCanonicalTempDir("urtext-cli-rlo-");
+    const runRlo = (args: string[]) => gitIn(rloRepo, args);
+    runRlo(["init", "-b", "main"]);
+    runRlo(["config", "user.email", "test@example.com"]);
+    runRlo(["config", "user.name", "Test"]);
+    writeFileSync(
+      join(rloRepo, "lib.ts"),
+      `export function guard(token: string): string {\n  if (!token) throw new Error("no"); // checked${RLO}\n  return token;\n}\n`,
+    );
+    runRlo(["add", "-A"]);
+    runRlo(["commit", "-m", "first"]);
+    // The guard goes. Its line carried the override, and a removed-guard
+    // finding quotes the line it removed — so the evidence this review prints
+    // is a line with a concealing character in it, which is the shape a
+    // Trojan-source review has to handle.
+    writeFileSync(
+      join(rloRepo, "lib.ts"),
+      'export function guard(token: string): string {\n  return token;\n}\n',
+    );
+
+    const json = await review(rloRepo, { command: "review", json: true, noLlm: true, help: false });
+    const parsed = JSON.parse(json.output);
+    expect(parsed.findings.length).toBeGreaterThan(0);
+    // Raw, by design, and documented as such.
+    expect(JSON.stringify(parsed.findings)).toContain(RLO);
+
+    const term = await review(rloRepo, { command: "review", json: false, noLlm: true, help: false });
+    expect(term.output).not.toContain(RLO);
+    expect(term.output).toContain("[U+202E]");
+  });
+
   it("discloses a suppressed standalone reach row on both surfaces instead of vanishing it", async () => {
     // A body-only change to an export with exactly one caller: the only
     // fact is a one-reference blast_radius row, which reconcile's filter
