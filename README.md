@@ -138,11 +138,24 @@ be observed "from a branch" and was read — including by its author — as need
 It does not. `pull_request_target` fires for pull requests from branches in the same
 repository too; the only requirement is that the workflow live on the default branch.
 
-**One behavior remains unverified and is not claimed:** a pull request from a fork,
-where `GITHUB_TOKEN` is read-only and the post is expected to fail visibly. That one
-genuinely needs a second account, and it is being left for the first real fork pull
-request rather than manufactured — its failure mode is a visible, harmless warning on
-somebody's pull request, not a silent one.
+**The unpostable path has now been observed, and it is worth being exact about which
+half.** A fork pull request cannot be commented on because `GITHUB_TOKEN` is read-only
+there; the action is supposed to warn, set `posted: none`, keep the review in the job
+summary and the artifact, and stay green. A fork needs a second account — a 403 does
+not. Omitting `pull-requests: write` produces the same refusal from the same endpoint on
+the same code path, and
+[this run](https://github.com/noahogbi/urtext/actions/runs/33291306506) did exactly that.
+What it showed: `outcome: reviewed`, `posted: none`, an empty `comment-id`, the artifact
+uploaded and linked, the job **green**, and the warning verbatim — *"urtext could not
+post its review (the workflow's token may be read-only, which is the case on pull
+requests from forks). The full review is in this run's job summary."* Unlike the
+evidence above, that run is public and you can read it yourself.
+
+**What is still not claimed** is the other half: that GitHub really hands a fork-head
+pull request a read-only token. That is GitHub's documented behavior rather than this
+action's, and no run in this repository can demonstrate it. So the handling is verified;
+the trigger for it is taken from GitHub's documentation, and the first real fork pull
+request will be the thing that closes the gap.
 
 The `permissions:` block sits at the job level, not the workflow level, so adopting
 this does not widen the token for a repository's other jobs. `issues: write` is not
