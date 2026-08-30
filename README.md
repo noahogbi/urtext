@@ -305,3 +305,5 @@ and first committed to version control August 15, 2026. In August 2026 it was
 re-aimed at the problem that had become the real bottleneck: reviewing
 AI-written diffs rather than authoring code in an IR. The prototype lives in
 `archive/prototype/`.
+
+<!-- A one-line change so the fork pull request has something to review. -->
