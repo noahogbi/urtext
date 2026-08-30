@@ -1,6 +1,6 @@
 {
   "name": "urtext",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Diff review with evidence tiers: deterministic analysis, LLM interpretation, every claim labeled",
   "keywords": [
     "code-review",
@@ -32,7 +32,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/stamp-build.mjs",
     "prepare": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
