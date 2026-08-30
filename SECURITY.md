@@ -23,9 +23,14 @@ you:
   own runner.
 - **With `--no-llm`, the review makes no network call at all.** Every analyzer
   is local.
-- **With a key, the diff, the contents of the files it touches, and the commit
-  messages in the range go to Anthropic under _your_ key** and your agreement
-  with them. Those commit messages carry author names and email addresses.
+- **With a key, what goes to Anthropic goes under _your_ key** and your
+  agreement with them. Exactly: the range label, each changed file's path and
+  status and changed symbol names, one trimmed source line per analyzer fact,
+  and the commit subjects and bodies in the range with trailers stripped. The
+  diff itself is not sent, nor the contents of the files it touches, nor git
+  author names or email addresses — the intent stage asks git for hash,
+  subject, and body, never for identity fields. `README.md` carries the same
+  list, itemized.
 - **Reports are written to `.urtext/` in your own repository**, and in CI are
   attached to the workflow run as an artifact your retention settings govern.
 
@@ -41,13 +46,24 @@ resolves a head-authored `tsconfig`. The refusal happens before anything is
 fetched, built, or parsed. See `action.yml`, the `Refuse pull_request_target`
 step, and `test/action/action-yml.test.ts`.
 
-**Concealing characters are labeled, never rendered raw.** A review quotes
-source lines, and a source line can carry bidirectional-override or zero-width
-characters that make code read as something other than what it executes
-(Trojan Source). urtext replaces them with visible code-point labels while
-building the report model, structurally, so no surface can render a raw one and
-no label can be confused with source text that literally spells it. See
-`src/report/conceal.ts` and `src/report/model.ts`.
+**Concealing characters are labeled, never rendered raw — on the surfaces a
+person reads.** A review quotes source lines, and a source line can carry
+bidirectional-override or zero-width characters that make code read as
+something other than what it executes (Trojan Source). urtext replaces them
+with visible code-point labels while building the report model, structurally,
+so no label can be confused with source text that literally spells it. The
+terminal, HTML, Markdown, and PDF surfaces all walk that model and are covered.
+See `src/report/conceal.ts` and `src/report/model.ts`.
+
+**`--json` is deliberately not covered, and you must handle it yourself.** It
+emits the analyzer findings as they were produced, before the report model
+conceals anything, because a machine consumer comparing an excerpt against its
+source file needs the real bytes rather than a rendering of them. A raw
+bidirectional override therefore *can* appear in `findings[].title`,
+`findings[].body`, and `findings[].evidence[].excerpt`. `JSON.stringify`
+escapes only control characters below U+0020, so it does not help here. If you
+render `--json` output anywhere a person will read it, apply your own
+neutralization first.
 
 **Untrusted text reaching the model prompt is canonicalized.** Commit messages
 are attacker-controlled on a pull request, and line-terminator injection was
