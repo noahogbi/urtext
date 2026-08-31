@@ -8,6 +8,20 @@
 
 **Tech Stack:** TypeScript (strict, ESM, NodeNext), vitest, pdfkit, unpdf (PDF text extraction in tests).
 
+> **Revision 2, after a Fable review returned REVISE with four blocking
+> findings.** Revision 1's central mechanism was wrong: it partitioned the two
+> passes on `kindOf(f.id) !== undefined`, believing a standalone claim's id
+> returns `undefined`. It does not. `kindOf` (`src/report/model.ts:511-517`)
+> returns `undefined` only for an id with **no colon**; every other id falls
+> through to `return prefix`, so `kindOf("claim:0:c1")` is `"claim"`. The two
+> passes collapsed into one, standalone entries were labeled `"claim"` instead
+> of their summary, and the attribution gate could never fire. The discriminator
+> is now tier-based, which is the spec's own wording ("fact-backed entries
+> (`verified` and `inferred`)"). Three further blocking defects are fixed and
+> recorded under "What revision 1 got wrong", because two of them are error
+> classes rather than typos: a test that cannot fail, and a content field that
+> skipped the concealment charter.
+
 **Spec:** `docs/superpowers/specs/2026-08-30-urtext-intent-gap-index-design.md` — read it first. It records two rejected predecessors and three corrected drafts of this one; the corrections are load-bearing, not history.
 
 ## Global Constraints
@@ -17,7 +31,7 @@
 - **All model prose is segmented.** `label` is `ConcealSegment[]`, never a plain string — a standalone claim's summary is model prose from a network response.
 - **The model owns content decisions** (`src/report/model.ts:16-42`). A renderer applies format mechanics and never makes a decision of its own — no surface may omit, reorder, or conditionally drop entries.
 - **All five surfaces**: terminal, HTML, Markdown, PDF, `--json`. A model field rendered by four of them is a gap this project has already paid for twice (`kindNotes`, `untrackedCount`).
-- **New reader-facing copy goes through the copy guard.** `FORBIDDEN` = `unsanctioned`, `unauthorized`, `approved`, `permission`, `forbidden`, `allowed` (`test/report/copy-guard.test.ts:25-32`).
+- **New reader-facing copy goes through the copy guard.** `FORBIDDEN` = `unsanctioned`, `unauthorized`, `approved`, `permission`, `forbidden`, `allowed` (`test/report/copy-guard.test.ts:29-36`).
 - **Heading copy:** `Not described by this change's messages (N)`.
 - Every test must fail if the production change is reverted.
 
@@ -36,10 +50,11 @@ The core. Everything else renders what this produces.
 **Interfaces:**
 - Consumes: `Finding` (`src/types.ts:155`), `Tier`, `ConcealSegment`, existing private `kindOf` (`model.ts:511`), `GROUP_SUFFIX` (`model.ts:426`), `segmentConcealed` (`./conceal.js`).
 - Produces: `export interface IntentGapEntry { id: string; tier: Tier; label: ConcealSegment[]; file: string; line: number }` and `ReportModel.intentGap: IntentGapEntry[]` — **always present**, `[]` when nothing is marked.
+- `file` is `labelConcealed(f.file)`, never the raw path. `toFindingView` already does this (`model.ts:598`) because a concealing character in a path must not reach a surface unlabeled, and the index is a new place for it to leak.
 
 **Label rule** (three cases, in this order):
-1. Group finding — id prefix ends with `GROUP_SUFFIX` → `finding.title`. Calling a seven-export group `export_added` beside one member's `file:line` would misdescribe it.
-2. Standalone claim — `kindOf(id)` is `undefined` → `finding.title`, which `reconcile.ts:197` sets to `claim.summary`.
+1. Standalone claim — `tier === "model"` → `finding.title`, which `reconcile.ts:197` sets to `claim.summary`. Do **not** test this with `kindOf`: a claim id is `` `claim:${i}:${claim.id}` `` (`reconcile.ts:193`) and `kindOf` returns `"claim"` for it.
+2. Group finding — id prefix ends with `GROUP_SUFFIX` → `finding.title`. Calling a seven-export group `export_added` beside one member's `file:line` would misdescribe it.
 3. Fact-backed — otherwise → `kindOf(id)`.
 
 - [ ] **Step 1: Write the failing ordering test**
@@ -138,17 +153,24 @@ Add the derivation above the `const model: ReportModel = {` assembly:
  */
 function intentGapFor(findings: Finding[]): IntentGapEntry[] {
   const marked = findings.filter((f) => f.beyondIntent);
-  // A group id keeps its kind prefix, so `kindOf` returns a kind for it and
-  // it belongs in pass one — a group is fact-backed. Only its *label* is
-  // special. Splitting on `isGroup` here instead would push groups into the
-  // standalone pass and order the index wrongly whenever a marked claim was
-  // absorbed into one.
-  const factBacked = (f: Finding): boolean => kindOf(f.id) !== undefined;
+  // Tier, not the id. `kindOf` returns `undefined` only for an id with no
+  // colon at all; a standalone claim's id is `claim:0:c1` and `kindOf` hands
+  // back `"claim"`, so partitioning on it would put every entry in pass one
+  // and collapse the rule this function exists to implement. Tier is also the
+  // spec's own wording: fact-backed means `verified` or `inferred`.
+  //
+  // A group is fact-backed and belongs in pass one, which tier gives for free
+  // — a marked group is `inferred`, since the mark reaches a fact-backed
+  // finding only through the claim-attachment path. Only its *label* is
+  // special.
+  const factBacked = (f: Finding): boolean => f.tier !== "model";
   const entry = (f: Finding): IntentGapEntry => ({
     id: f.id,
     tier: f.tier,
     label: segmentConcealed(labelFor(f)),
-    file: f.file,
+    // Labeled, not raw: the charter at `model.ts:29-35` and the same call
+    // `toFindingView` makes at `:598`.
+    file: labelConcealed(f.file),
     line: f.line,
   });
   return [
@@ -167,9 +189,10 @@ function isGroup(id: string): boolean {
  * A fact-backed finding is named by its kind. A group and a standalone claim
  * are both named by their title: a group's stripped member kind would
  * misdescribe it, and a standalone claim's title is its summary
- * (`../score/reconcile.ts`, where `title: claim.summary`).
+ * (`../score/reconcile.ts:197`).
  */
 function labelFor(f: Finding): string {
+  if (f.tier === "model") return f.title;
   if (isGroup(f.id)) return f.title;
   return kindOf(f.id) ?? f.title;
 }
@@ -271,13 +294,15 @@ it("labels a group with the group finding's title, not its stripped member kind"
 });
 
 it("carries label as segments, so a bidirectional override cannot reach a surface raw", () => {
+  // `RLO` is already defined at the top of this file; do not paste a literal
+  // override character into test source.
   const m = buildReportModel(
     changeset(),
     [
       finding({
         id: "claim:0:c1",
         tier: "model",
-        title: "drops retries‮for admins",
+        title: `drops retries${RLO}for admins`,
         evidence: [],
         beyondIntent: true,
       }),
@@ -285,7 +310,28 @@ it("carries label as segments, so a bidirectional override cannot reach a surfac
     { warnings: [] },
   );
   expect(plainText(m.intentGap[0].label)).toContain("[U+202E]");
-  expect(plainText(m.intentGap[0].label)).not.toContain("‮");
+  expect(plainText(m.intentGap[0].label)).not.toContain(RLO);
+});
+
+it("labels a concealing character in the path, not just in the label", () => {
+  // The index carries `file` as its own field, so the headline's segmentation
+  // does not cover it. `toFindingView` labels the path for this reason
+  // (`model.ts:598`); an index that skipped it would be a new leak of exactly
+  // the kind the concealment charter exists to prevent.
+  const m = buildReportModel(
+    changeset(),
+    [
+      finding({
+        id: "guard_removed:src/auth.ts:session",
+        tier: "inferred",
+        file: `src/${RLO}auth.ts`,
+        beyondIntent: true,
+      }),
+    ],
+    { warnings: [] },
+  );
+  expect(m.intentGap[0].file).toContain("[U+202E]");
+  expect(m.intentGap[0].file).not.toContain(RLO);
 });
 
 it("points at every marked finding exactly once, and drops none from findings", () => {
@@ -307,10 +353,48 @@ it("points at every marked finding exactly once, and drops none from findings", 
 Run: `npx vitest run test/report/model.test.ts`
 Expected: PASS. `plainText` is already exported from `model.ts` and already imported by this test file — check the import list before adding it.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Emit `intentGap` under `--json`, in this task**
+
+`intentGap` is assigned unconditionally, so the model-keys guard in
+`test/cli.test.ts` ("accounts for every model field in the JSON object, or
+exempts it by name") trips the moment Task 1 lands. Emitting it here rather
+than in a later task is what keeps every commit green — five consecutive red
+commits is not an acceptable intermediate state, and a guard left red is a
+guard the next task learns to ignore.
+
+In the `--json` object in `src/cli.ts`, beside `kindNotes: jsonModel.kindNotes,` (~line 684):
+
+```typescript
+          // The findings the model marked as unaccounted for by this range's
+          // messages. Always present, empty included, by the same rule as
+          // `kindNotes` above it. A consumer joins each entry's `id` back to
+          // `findings`; nothing is removed from `findings` to build it.
+          intentGap: jsonModel.intentGap,
+```
+
+Do **not** add it to `EXEMPT`. The guard forcing this decision is the guard working.
+
+Add to `test/cli.test.ts`:
+
+```typescript
+it("emits the intent-gap index under --json, always present", async () => {
+  const r = await review(repo, { command: "review", json: true, noLlm: true, help: false });
+  const parsed = JSON.parse(r.output);
+  // A --no-llm run makes no claims, so nothing is marked — but the key is
+  // present so a consumer reads it without branching.
+  expect(parsed.intentGap).toEqual([]);
+});
+```
+
+- [ ] **Step 8: Run the full suite, not just this file**
+
+Run: `npx vitest run`
+Expected: PASS, including the model-keys guard. If the guard reports `intentGap` unaccounted, the emission above is missing or misnamed — fix the emission, never the guard.
+
+- [ ] **Step 9: Commit**
 
 ```bash
-git add src/report/model.ts test/report/model.test.ts
+git add src/report/model.ts src/cli.ts test/report/model.test.ts test/cli.test.ts
 git commit -m "feat: derive the intent-gap index in the report model"
 ```
 
@@ -392,7 +476,7 @@ Add to `ReportModel`, beside `beyondIntentLegend`:
 In the conditional tail of `buildReportModel`, beside the `beyondIntentLegend` assignment:
 
 ```typescript
-  if (model.intentGap.some((e) => kindOf(e.id) === undefined)) {
+  if (model.intentGap.some((e) => e.tier === "model")) {
     model.intentGapAttribution = `${modelName ?? UNNAMED_MODEL} — ${MODEL_CAUTION_STANDALONE}`;
   }
 ```
@@ -431,7 +515,7 @@ In `test/report/terminal.test.ts`:
 ```typescript
 it("prints the intent-gap index above the findings, with tier and location", () => {
   const m = buildReportModel(
-    changeset(),
+    changeset,
     [finding({ id: "guard_removed:src/auth.ts:session", tier: "inferred", file: "src/auth.ts", line: 142, beyondIntent: true })],
     { warnings: [] },
   );
@@ -439,13 +523,17 @@ it("prints the intent-gap index above the findings, with tier and location", () 
   expect(out).toContain("Not described by this change's messages (1)");
   expect(out).toContain("guard_removed");
   expect(out).toContain("src/auth.ts:142");
+  // Anchor on what the findings list actually prints. A findings row is
+  // `glyph + headline + "  [tier]"` where the headline is `file:line — title`
+  // — "guard_removed" never appears there, so an anchor built from the kind
+  // compares against -1 and fails against a correct implementation.
   expect(out.indexOf("Not described by this change's messages")).toBeLessThan(
-    out.indexOf("guard_removed  ["),
+    out.indexOf("[inferred]"),
   );
 });
 
 it("prints no index heading when nothing is marked", () => {
-  const m = buildReportModel(changeset(), [finding()], { warnings: [] });
+  const m = buildReportModel(changeset, [finding()], { warnings: [] });
   expect(renderTerminal(m)).not.toContain("Not described by this change's messages");
 });
 ```
@@ -519,23 +607,29 @@ The HTML report has a three-pane lens structure (`LENSES`, `model.ts:331`), so "
 ```typescript
 it("renders the index above the lens panes, spanning them", () => {
   const m = buildReportModel(
-    changeset(),
+    changeset,
     [finding({ id: "guard_removed:src/auth.ts:session", tier: "inferred", file: "src/auth.ts", line: 142, beyondIntent: true })],
     { warnings: [] },
   );
   const html = renderHtml(m);
   expect(html).toContain("Not described by this change&#39;s messages (1)");
-  // Above the panes, not inside one.
-  expect(html.indexOf("intent-gap")).toBeLessThan(html.indexOf('class="tabs"'));
+  // Target the section markup, never the bare class name: the `.intent-gap`
+  // CSS lives in the static STYLE string emitted in <head> on every page
+  // (`html.ts:490`, `:700`), so `indexOf("intent-gap")` finds the stylesheet
+  // and is vacuously less than anything in the body.
+  expect(html.indexOf('<section class="intent-gap"')).toBeLessThan(
+    html.indexOf('class="tabs"'),
+  );
 });
 
 it("renders no index block when nothing is marked", () => {
-  const m = buildReportModel(changeset(), [finding()], { warnings: [] });
-  expect(renderHtml(m)).not.toContain("intent-gap");
+  const m = buildReportModel(changeset, [finding()], { warnings: [] });
+  // Not `not.toContain("intent-gap")` — the stylesheet always contains it.
+  expect(renderHtml(m)).not.toContain('<section class="intent-gap"');
 });
 ```
 
-Confirm the tabs container's actual class by reading `html.ts` around line 680 before asserting on it; substitute the real selector.
+`class="tabs"` is the real selector (`html.ts:706`, its only occurrence). Both candidate insertion points precede the panes: `headerHtml`'s array (`html.ts:475-489`) and the outer array holding the tabs (`:690-713`).
 
 - [ ] **Step 2: Run and watch fail**
 
@@ -555,7 +649,12 @@ Beside the `coverage`/`unanalyzed` block construction:
           .map(
             (e) =>
               `<li><span class="badge badge-${e.tier}">${esc(e.tier)}</span> ` +
-              `${esc(plainText(e.label))} <span class="loc">${esc(`${e.file}:${e.line}`)}</span></li>`,
+              // `seg`, not `esc(plainText(...))`: segmented content goes
+              // through the walker that keeps a concealed code point in its
+              // `.ctrl` span (`html.ts:44-51`, `:64-80`). Flattening first
+              // would make the index the one surface rendering concealment
+              // differently from every other.
+              `${seg(e.label)} <span class="loc">${esc(`${e.file}:${e.line}`)}</span></li>`,
           )
           .join("")}</ul>${
           m.intentGapAttribution
@@ -573,7 +672,7 @@ Interpolate `intentGap` into the returned array immediately before the element t
 .intent-gap ul { list-style: none; margin: 0; padding: 0; }
 ```
 
-Use the variable names the existing stylesheet actually defines — read the `:root` block first rather than assuming `--rule` exists.
+`--rule` does exist (`html.ts:497`, `:512`). `html.ts` does **not** import `plainText`, and with `seg` above it does not need one — check the import list rather than adding it reflexively.
 
 - [ ] **Step 4: Run and watch pass**
 
@@ -606,7 +705,7 @@ Placed above the findings section and **below the notes**, so a partial-review d
 ```typescript
 it("places the index below the notes and above the findings", async () => {
   const m = buildReportModel(
-    changeset(),
+    changeset,
     [finding({ id: "guard_removed:src/auth.ts:session", tier: "inferred", file: "src/auth.ts", line: 142, beyondIntent: true })],
     { warnings: ["the surfaceAnalyzer analyzer failed"] },
   );
@@ -627,7 +726,9 @@ Expected: FAIL
 
 - [ ] **Step 3: Implement**
 
-After the `distributionNote` block in `src/report/pdf.ts`:
+After the `beyondIntentLegend` block (`pdf.ts:256-258`), **not** after `distributionNote`. Inserting after `distributionNote` (`:246-248`) would put the index above `kindNotes` (`:251`) and the badge legend (`:256`), inverting the terminal and Markdown rationale — the reader should meet the mark's meaning before the block that aggregates it. The spec's letter ("below the notes, above the findings") is satisfied either way; only this placement satisfies both.
+
+In `src/report/pdf.ts`:
 
 ```typescript
     if (model.intentGap.length > 0) {
@@ -658,61 +759,53 @@ git commit -m "feat: render the intent-gap index in the PDF export"
 
 ---
 
-### Task 6: `--json` emission and the model-keys guard
+### Task 6: The attribution key under `--json`
+
+`intentGap` itself was emitted in Task 1, because it is unconditionally assigned and would otherwise leave the model-keys guard red for five commits. This task adds only the conditional attribution key.
 
 **Files:**
-- Modify: `src/cli.ts` (the `--json` object, beside `kindNotes: jsonModel.kindNotes,` ~line 665)
+- Modify: `src/cli.ts` (beside the `intentGap` emission added in Task 1)
 - Test: `test/cli.test.ts`
 
 **Interfaces:**
-- Consumes: `jsonModel.intentGap`, `jsonModel.intentGapAttribution`.
-- Produces: top-level `intentGap` key (always present) and `intentGapAttribution` (present when the model carries it).
+- Consumes: `jsonModel.intentGapAttribution` from Task 2.
+- Produces: top-level `intentGapAttribution`, present exactly when the model carries it.
 
-Adding `intentGap` to `ReportModel` will trip the guard *"accounts for every model field in the JSON object, or exempts it by name"*. That is the guard working — the decision is forced rather than defaulted. Emit it; do **not** add it to `EXEMPT`. `intentGapAttribution` is conditionally assigned, so the guard cannot see it on an all-TypeScript fixture; emit it and add no exemption.
+`intentGapAttribution` is conditionally assigned, so the model-keys guard cannot see it on the all-TypeScript `--no-llm` fixture — the guard documents this blind spot itself (`test/cli.test.ts:806-810`). It will neither trip nor protect here, so the decision is made deliberately rather than forced: emit it, add no exemption.
 
 - [ ] **Step 1: Write the failing test**
 
 ```typescript
-it("emits the intent-gap index under --json, always present", async () => {
+it("omits the index attribution under --json when no claim was made", async () => {
   const r = await review(repo, { command: "review", json: true, noLlm: true, help: false });
   const parsed = JSON.parse(r.output);
-  // A --no-llm run makes no claims, so nothing is marked — but the key is
-  // present so a consumer reads it without branching.
   expect(parsed.intentGap).toEqual([]);
   expect(parsed.intentGapAttribution).toBeUndefined();
 });
 ```
 
-- [ ] **Step 2: Run and watch fail**
+This passes trivially before the change, so it is not the answerable test on its own — it pins the absent case. The present case is covered end-to-end in Task 7 Step 3, where a fixture carrying a standalone claim renders attribution on every surface. Write both; treat Task 7's as the one that must fail if this task is reverted.
 
-Run: `npx vitest run test/cli.test.ts -t "emits the intent-gap index"`
-Expected: FAIL — `parsed.intentGap` is undefined.
+- [ ] **Step 2: Implement**
 
-- [ ] **Step 3: Implement**
-
-In the `--json` object in `src/cli.ts`, beside `kindNotes`:
+Beside the `intentGap` emission in `src/cli.ts`:
 
 ```typescript
-          // The findings the model marked as unaccounted for by this range's
-          // messages. Always present, empty included, by the same rule as
-          // `kindNotes` above it. A consumer joins each entry's `id` back to
-          // `findings`; nothing is removed from `findings` to build it.
-          intentGap: jsonModel.intentGap,
           ...(jsonModel.intentGapAttribution
             ? { intentGapAttribution: jsonModel.intentGapAttribution }
             : {}),
 ```
 
-- [ ] **Step 4: Run the whole cli suite**
+- [ ] **Step 3: Run the full suite**
 
-Run: `npx vitest run test/cli.test.ts`
-Expected: PASS, including the model-keys guard. If the guard reports `intentGap` unaccounted, the emission above is missing or misnamed — fix the emission, not the guard.
+Run: `npx vitest run`
+Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add src/cli.ts test/cli.test.ts
-git commit -m "feat: emit the intent-gap index under --json"
+git commit -m "feat: emit the intent-gap attribution under --json"
 ```
 
 ---
@@ -755,6 +848,7 @@ it("produces no verified index entry, through the real reconcile path", () => {
       severity: 0.9,
       correspondsTo: "guard_removed:src/auth.ts:session",
       beyondIntent: true,
+      id: "c1",
     },
   ];
   const findings = reconcile(facts, claims, () => {});
@@ -764,7 +858,7 @@ it("produces no verified index entry, through the real reconcile path", () => {
 });
 ```
 
-Read `reconcile`'s real signature and `makeFact`'s real input shape before writing this — the shapes above are indicative, and a test built on a guessed signature proves nothing. Adjust to the actual API.
+Signatures verified: `reconcile(facts, claims, onDroppedClaims?)` (`src/score/reconcile.ts:88-104`) and `makeFact({ id, kind, detail, evidence })` (`src/analyze/fact.ts:45`). `Claim` requires an `id`, which is why it is present above. Re-read both before writing anyway — these anchors drift.
 
 - [ ] **Step 2: Run it and watch it fail or pass for the right reason**
 
@@ -777,7 +871,10 @@ The `surfaces(m)` helper is already parameterized. Its module-level `findings` f
 
 ```typescript
 describe("the intent-gap index", () => {
-  it("appears on all five surfaces", async () => {
+  // Four surfaces, not five: `surfaces()` renders terminal, HTML, Markdown
+  // and PDF (`copy-guard.test.ts:107-114`). `--json` is covered in Tasks 1
+  // and 6, where the model-keys guard also watches it.
+  it("appears on all four rendered surfaces", async () => {
     expect(model.intentGap.length).toBeGreaterThan(0);
     const heading = `Not described by this change's messages (${model.intentGap.length})`;
     for (const [name, rendered] of await surfaces()) {
@@ -831,13 +928,24 @@ git commit -m "test: pin the intent-gap index across every surface and the real 
 
 ## Self-Review
 
-**Spec coverage.** Every spec section maps to a task: the field and its derivation → Task 1; the ordering rule → Task 1 Step 1; groups → Task 1 Step 5; attribution → Task 2; the five surfaces → Tasks 3-6; `--no-llm` → Task 7 Step 4; the testing list → distributed across Tasks 1, 2 and 7. The one spec item deliberately **not** implemented is any new `--no-llm` copy, which the spec argues against.
+**Spec coverage.** Every spec section maps to a task: the field and its derivation → Task 1; the ordering rule → Task 1 Step 1; groups → Task 1 Step 5; attribution → Task 2; the five surfaces → Tasks 3-6; `--no-llm` → Task 7 Step 4; the testing list → distributed across Tasks 1, 2 and 7. Two deliberate exceptions: the spec forbids new `--no-llm` copy, so no task adds any; and the spec's "pre-registered check" section is not a task because `scripts/measure-intent-gap.mjs` already exists and is designed to run *before* this feature — it passed on 2026-08-31 with the mandatory working-tree slot filled, which is what cleared this plan to be written.
+
+**Fixture note for Tasks 3-5.** `changeset` is a module-level *const* in `terminal.test.ts:12`, `markdown.test.ts:20`, `html.test.ts:18` and `pdf.test.ts:23`; only `model.test.ts:22` defines a factory. Tasks 3-5 call it without parentheses for that reason. Check each file before pasting.
 
 **Known gaps the executor must close rather than trust:**
-- Task 4 asserts on the HTML tabs container's class and on a CSS variable (`--rule`); both must be read from `html.ts` first.
-- Task 7 Step 1 uses indicative shapes for `reconcile` and `makeFact`; both must be read before writing.
-- All `model.ts` line numbers postdate commit `3546acc` and will drift again as tasks land. Anchor on symbol names.
+- Task 7 Step 1's `reconcile`/`makeFact` call is written from verified signatures, but re-read them; every anchor in this document drifts as tasks land.
+- All `src/report/model.ts` line numbers postdate commit `3546acc` and shift again with each task. Anchor on symbol names, never numbers.
 
-**Type consistency.** `IntentGapEntry` is used with the same five fields in Tasks 1, 3, 4, 5 and 6. `intentGap` is `IntentGapEntry[]` everywhere; `intentGapAttribution` is `string | undefined` everywhere. `labelFor` and `isGroup` are private to `model.ts` and referenced only in Task 1.
+**Type consistency.** `IntentGapEntry` is used with the same five fields in Tasks 1, 3, 4, 5 and 6. `intentGap` is `IntentGapEntry[]` everywhere; `intentGapAttribution` is `string | undefined` everywhere.
 
-**One correction made while drafting:** an earlier version of Task 1 Step 3 split groups into the standalone pass by testing `isGroup` in the partition. A group id keeps its kind prefix, so `kindOf` returns a kind for it and it belongs in pass one; only its *label* is special. The plan now carries the correct partition, with the distinction stated as a comment in the code an executor will paste, because it is exactly the kind of thing that passes review unnoticed.
+## What revision 1 got wrong
+
+Recorded rather than quietly fixed, because two of these are error classes this project keeps meeting rather than typos.
+
+1. **The partition predicate was false.** Revision 1 split the two passes on `kindOf(f.id) !== undefined`, believing a standalone claim's id returns `undefined`. `kindOf` (`model.ts:511-517`) returns `undefined` only for an id with no colon; everything else falls through to `return prefix`, so `kindOf("claim:0:c1")` is `"claim"`. The passes collapsed into one, standalone entries would have been labeled `"claim"` rather than their summary, and the attribution gate could never fire. The likely source is the orphaned comment at `model.ts:456-460` — "`reconcile` prefixes those ids with `claim:`, which matches no kind" — which is true of `subjectOf`'s lookup and false of `kindOf`'s return value. **The error class: reading a comment about one function as a claim about another.** It is the same class as the stale "three surfaces" comment that misdirected the unanalyzed-files disclosure two commits ago.
+
+2. **A content field skipped the concealment charter.** `IntentGapEntry.file` was the raw path, while `toFindingView` labels it (`model.ts:598`) precisely so a concealing character in a path cannot reach a surface unlabeled. Three surfaces would have printed it verbatim. The spec names the index as "a new place for it to leak" and revision 1 leaked in the one field its own bidi test did not cover. **The error class: testing the field you were thinking about rather than every field you added.**
+
+3. **Two pasted assertions could not fail.** The HTML positional check compared `indexOf("intent-gap")`, which matches the stylesheet in `<head>` and is vacuously true; the empty-case check asserted the same string is absent, which the stylesheet makes impossible. The terminal check anchored on `"guard_removed  ["`, a string the findings list never prints, so it compared against -1 and would have failed against a *correct* implementation.
+
+4. **The plan would have left the suite red for five commits.** `intentGap` is unconditionally assigned, so the model-keys guard trips from Task 1, but the emission sat in Task 6 and the intervening tasks ran only per-file suites. The emission moved into Task 1.
