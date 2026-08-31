@@ -1408,6 +1408,21 @@ describe("stated intent", () => {
     expect(marked[0].tier).toBe("model");
   });
 
+  it("renders no index under --no-llm, and still says the model was not asked", async () => {
+    // The last clause guards a future change that removes the disclosure this
+    // design's argument for adding no new --no-llm copy depends on: the
+    // report already states the check did not run, on every keyless run.
+    const r = await review(intentRepo, {
+      command: "review",
+      json: false,
+      noLlm: true,
+      help: false,
+      range: "HEAD~1",
+    });
+    expect(r.output).not.toContain("Not described by this change");
+    expect(r.output).toContain("--no-llm was set, so the model was not asked");
+  });
+
   it("carries the index and its attribution into --json when the model marked a claim", async () => {
     // The answerable test for the attribution emission. copy-guard.test.ts
     // imports nothing from cli.ts and never reads --json, and the model-keys

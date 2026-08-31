@@ -269,3 +269,34 @@ describe("coverage disclosures reach every surface", () => {
     }
   });
 });
+
+describe("the intent-gap index", () => {
+  // Four surfaces, not five: `surfaces()` renders terminal, HTML, Markdown
+  // and PDF. `--json` is covered in test/cli.test.ts, where the model-keys
+  // guard also watches it.
+  it("appears on all four rendered surfaces", async () => {
+    expect(model.intentGap.length).toBeGreaterThan(0);
+    for (const [name, rendered] of await surfaces()) {
+      const text = scannable(rendered);
+      // Two apostrophe-free substrings rather than the whole heading: HTML
+      // escapes `'` to `&#39;`, so asserting the raw sentence would fail a
+      // correct implementation on that surface. Together these still pin
+      // both the wording and the count.
+      expect(text.includes("Not described by this change"), `${name} omits the index`).toBe(true);
+      expect(
+        text.includes(`messages (${model.intentGap.length})`),
+        `${name} omits the index count`,
+      ).toBe(true);
+    }
+  });
+
+  it("carries its attribution on every surface, since the fixture holds a model claim", async () => {
+    expect(model.intentGapAttribution).toBeDefined();
+    for (const [name, rendered] of await surfaces()) {
+      expect(
+        scannable(rendered).includes(scannable(model.intentGapAttribution ?? "")),
+        `${name} omits the index attribution`,
+      ).toBe(true);
+    }
+  });
+});

@@ -65,6 +65,11 @@ npm run review -- --help                # every flag
 The interpretation stage needs `ANTHROPIC_API_KEY`. Without it, urtext reports
 the analyzers' findings and says in the report that the model was never asked.
 
+That includes the index of findings the commit messages do not account for:
+it collects marks the model makes, so a keyless run has none and shows no
+index. The report already says the model was not asked, so the absence is
+disclosed rather than silent.
+
 ## Install
 
 ```bash

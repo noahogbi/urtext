@@ -12,7 +12,15 @@ import {
 import { renderHtml } from "../../src/report/html.js";
 import { renderMarkdown } from "../../src/report/markdown.js";
 import { renderTerminal } from "../../src/report/terminal.js";
-import { WORKTREE, type Changeset, type Finding, type Tier } from "../../src/types.js";
+import { makeFact } from "../../src/analyze/fact.js";
+import { reconcile } from "../../src/score/reconcile.js";
+import {
+  WORKTREE,
+  type Changeset,
+  type Claim,
+  type Finding,
+  type Tier,
+} from "../../src/types.js";
 
 // Escapes rather than literal characters, for the same reason
 // `src/report/conceal.ts` writes its table as code points: a literal
@@ -1003,6 +1011,59 @@ describe("buildReportModel intent-gap index", () => {
       { warnings: [] },
     );
     expect(m.intentGapAttribution).toContain(UNNAMED_MODEL);
+  });
+
+  it("produces no verified index entry, through the real reconcile path", () => {
+    // Not hand-built findings. This repository's banding bug shipped because
+    // a unit test over `rank` stayed green while the path a review actually
+    // takes was never exercised, so at least one test here must drive
+    // reconcile -> buildReportModel.
+    const facts = [
+      makeFact({
+        id: "guard_removed:src/auth.ts:session",
+        kind: "guard_removed",
+        detail: {},
+        evidence: [{ file: "src/auth.ts", line: 142, excerpt: "if (!session) return;" }],
+      }),
+      // A fact no claim explains, so reconcile produces a `verified` finding
+      // that is not marked. Without it the assertion below is vacuous: a
+      // fixture containing no verified finding cannot demonstrate that none
+      // reaches the index, and the test passes even if the index collects
+      // every finding regardless of its mark.
+      makeFact({
+        id: "effect_added:src/sync.ts:network",
+        kind: "effect_added",
+        detail: {},
+        evidence: [{ file: "src/sync.ts", line: 31, excerpt: "return fetch(url);" }],
+      }),
+    ];
+    // Annotated, not inferred. An untyped array literal widens `beyondIntent`
+    // to `boolean` against `Claim.beyondIntent?: true`, which vitest would
+    // transpile happily and `tsc --noEmit` in CI would reject.
+    const claims: Claim[] = [
+      {
+        id: "c1",
+        file: "src/auth.ts",
+        line: 142,
+        summary: "the session guard is gone",
+        reasoning: "Requests now reach the handler unauthenticated.",
+        severity: 0.9,
+        correspondsTo: "guard_removed:src/auth.ts:session",
+        beyondIntent: true,
+      },
+    ];
+    const m = buildReportModel(changeset(), reconcile(facts, claims), {
+      warnings: [],
+      model: "claude-opus-5",
+    });
+    // The premise: a verified finding exists in this review, and exactly one
+    // finding is marked.
+    expect(m.findings.some((f) => f.tier === "verified")).toBe(true);
+    expect(m.intentGap).toHaveLength(1);
+    // Pins the tier chain rather than the fixture builder: a marked finding
+    // reaches a fact only through the claim-attachment path, which forces
+    // `inferred`, so "marked and verified" is unreachable by construction.
+    for (const e of m.intentGap) expect(e.tier).not.toBe("verified");
   });
 
   it("points at every marked finding exactly once, and drops none from findings", () => {
