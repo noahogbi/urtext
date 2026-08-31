@@ -11,7 +11,7 @@ import {
 import { renderHtml } from "../../src/report/html.js";
 import { renderMarkdown } from "../../src/report/markdown.js";
 import { renderTerminal } from "../../src/report/terminal.js";
-import { WORKTREE, type Changeset, type Finding } from "../../src/types.js";
+import { WORKTREE, type Changeset, type Finding, type Tier } from "../../src/types.js";
 
 // Escapes rather than literal characters, for the same reason
 // `src/report/conceal.ts` writes its table as code points: a literal
@@ -832,5 +832,159 @@ describe("the distribution note reaches every surface", () => {
     expect(html).toContain("Citations:");
     // And it must not be inside the partial-review banner on any of them.
     expect(html).not.toMatch(/This review is partial[\s\S]{0,200}Citations:/);
+  });
+});
+
+describe("buildReportModel intent-gap index", () => {
+  it("puts fact-backed entries before standalone ones, against findings order", () => {
+    // `findings` sorts band before score, and a standalone claim lands in the
+    // defect band while `export_added` is a context kind — so in `findings`
+    // the claim comes first. The index must invert that. A fixture using a
+    // defect-band fact-backed finding would pass under this rule and under
+    // the retracted filter-in-place one, and so would prove nothing.
+    const m = buildReportModel(
+      changeset(),
+      [
+        finding({
+          id: "claim:0:c1",
+          tier: "model",
+          file: "src/sync.ts",
+          line: 64,
+          title: "retry loop may not terminate",
+          score: 3,
+          evidence: [],
+          beyondIntent: true,
+        }),
+        finding({
+          id: "export_added:src/admin.ts:handler",
+          tier: "inferred",
+          file: "src/admin.ts",
+          line: 88,
+          title: "handler is newly exported",
+          score: 40,
+          beyondIntent: true,
+        }),
+      ],
+      { warnings: [] },
+    );
+    expect(m.intentGap.map((e) => e.id)).toEqual([
+      "export_added:src/admin.ts:handler",
+      "claim:0:c1",
+    ]);
+  });
+
+  it("is an empty array, not absent, when nothing is marked", () => {
+    const m = buildReportModel(changeset(), [finding()], { warnings: [] });
+    expect(m.intentGap).toEqual([]);
+  });
+
+  it("preserves findings order within each pass", () => {
+    // `evidence: undefined` would override the fixture default rather than
+    // fall back to it, so the empty array is spread in only for model tier.
+    const mk = (id: string, tier: Tier, score: number) =>
+      finding({ id, tier, score, beyondIntent: true, ...(tier === "model" ? { evidence: [] } : {}) });
+    const m = buildReportModel(
+      changeset(),
+      [
+        mk("effect_added:a.ts:network", "inferred", 60),
+        mk("claim:0:c1", "model", 3),
+        mk("guard_removed:b.ts:auth", "inferred", 50),
+        mk("claim:0:c2", "model", 2),
+      ],
+      { warnings: [] },
+    );
+    expect(m.intentGap.map((e) => e.id)).toEqual([
+      "effect_added:a.ts:network",
+      "guard_removed:b.ts:auth",
+      "claim:0:c1",
+      "claim:0:c2",
+    ]);
+  });
+
+  it("labels a fact-backed entry with its kind and a standalone one with its summary", () => {
+    const m = buildReportModel(
+      changeset(),
+      [
+        finding({ id: "guard_removed:b.ts:auth", tier: "inferred", beyondIntent: true }),
+        finding({
+          id: "claim:0:c1",
+          tier: "model",
+          title: "retry loop may not terminate",
+          evidence: [],
+          beyondIntent: true,
+        }),
+      ],
+      { warnings: [] },
+    );
+    expect(plainText(m.intentGap[0].label)).toBe("guard_removed");
+    expect(plainText(m.intentGap[1].label)).toBe("retry loop may not terminate");
+  });
+
+  it("labels a group with the group finding's title, not its stripped member kind", () => {
+    const m = buildReportModel(
+      changeset(),
+      [
+        finding({
+          id: "export_added_group:src/api.ts",
+          tier: "inferred",
+          title: "7 exports added in src/api.ts",
+          beyondIntent: true,
+        }),
+      ],
+      { warnings: [] },
+    );
+    expect(plainText(m.intentGap[0].label)).toBe("7 exports added in src/api.ts");
+  });
+
+  it("carries label as segments, so a bidirectional override cannot reach a surface raw", () => {
+    const m = buildReportModel(
+      changeset(),
+      [
+        finding({
+          id: "claim:0:c1",
+          tier: "model",
+          title: `drops retries${RLO}for admins`,
+          evidence: [],
+          beyondIntent: true,
+        }),
+      ],
+      { warnings: [] },
+    );
+    expect(plainText(m.intentGap[0].label)).toContain("[U+202E]");
+    expect(plainText(m.intentGap[0].label)).not.toContain(RLO);
+  });
+
+  it("labels a concealing character in the path, not just in the label", () => {
+    // The index carries `file` as its own field, so the headline's
+    // segmentation does not cover it. `toFindingView` labels the path for
+    // this reason; an index that skipped it would be a new leak of exactly
+    // the kind the concealment charter exists to prevent.
+    const m = buildReportModel(
+      changeset(),
+      [
+        finding({
+          id: "guard_removed:src/auth.ts:session",
+          tier: "inferred",
+          file: `src/${RLO}auth.ts`,
+          beyondIntent: true,
+        }),
+      ],
+      { warnings: [] },
+    );
+    expect(m.intentGap[0].file).toContain("[U+202E]");
+    expect(m.intentGap[0].file).not.toContain(RLO);
+  });
+
+  it("points at every marked finding exactly once, and drops none from findings", () => {
+    const all = [
+      finding({ id: "effect_added:a.ts:network", tier: "inferred", beyondIntent: true }),
+      finding({ id: "guard_removed:b.ts:auth", tier: "verified" }),
+      finding({ id: "claim:0:c1", tier: "model", evidence: [], beyondIntent: true }),
+    ];
+    const m = buildReportModel(changeset(), all, { warnings: [] });
+    const ids = m.intentGap.map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(m.findings).toHaveLength(3);
+    for (const id of ids) expect(m.findings.some((f) => f.id === id)).toBe(true);
   });
 });

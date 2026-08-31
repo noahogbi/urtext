@@ -218,6 +218,30 @@ export interface SurfaceSymbolView {
   file: ConcealSegment[];
 }
 
+/**
+ * One entry in the intent-gap index: a finding the model marked as not
+ * accounted for by this range's messages.
+ *
+ * `file` and `line` stay structured rather than pre-joined into a display
+ * string, so `--json` consumers get the shape `findings` gives them and each
+ * surface formats the location in its own idiom.
+ */
+export interface IntentGapEntry {
+  /** The `findings` entry this points at, so a `--json` consumer can join. */
+  id: string;
+  tier: Tier;
+  /**
+   * What the entry is: a fact-backed finding's kind, or a standalone claim's
+   * summary. Segmented, never a plain string — for a standalone claim this is
+   * model prose from a network response, and every content field carries
+   * `ConcealSegment[]` so no raw concealing character reaches a surface.
+   */
+  label: ConcealSegment[];
+  /** Labeled, like `FindingView.file` and for the same reason. */
+  file: string;
+  line: number;
+}
+
 export interface ReportModel {
   /** "44 files, 2384 lines changed · vs master" — the terminal's wording. */
   scope: string;
@@ -287,6 +311,18 @@ export interface ReportModel {
    * `kindNotesFor`; see `KIND_NOTES` for why these left the bodies.
    */
   kindNotes: string[];
+  /**
+   * The findings the model marked as not accounted for by this range's
+   * messages, fact-backed entries first. Always present, `[]` included, so a
+   * consumer reads it without branching on the key.
+   *
+   * No entry can be `verified`: the mark reaches a fact-backed finding only
+   * through the claim-attachment path, which forces `inferred`. "Marked and
+   * verified" is a contradiction rather than a gap — a `verified` finding is
+   * one the model said nothing about, and the mark is something the model
+   * says.
+   */
+  intentGap: IntentGapEntry[];
   /**
    * BEYOND_INTENT_MEANING, present exactly when at least one finding carries
    * the mark. Deliberately NOT in `notes`: a badge doing its job is not a
@@ -508,6 +544,68 @@ export const KIND_NOTES: Record<string, string> = {
  * missing kind a compile error), so it is the one list here that cannot fall
  * behind the kinds that exist.
  */
+/**
+ * The index, assembled in two passes, each preserving `findings` order.
+ *
+ * Not a filter in place. The final sort keys band before score, and a
+ * standalone claim's id belongs to no fact, so it takes the defect band by
+ * default and sits above every context row regardless of score. Filtering
+ * `findings` where they stand would print an evidence-free `model` entry
+ * above an analyzer-corroborated `inferred` one, in the report's prime
+ * position — the inversion this index exists to avoid.
+ *
+ * The two orders differ deliberately: `findings` is ordered for triage, where
+ * a claim alleging a problem belongs in the defect band; the index is ordered
+ * by what a reader can check, where evidence leads.
+ */
+function intentGapFor(findings: Finding[]): IntentGapEntry[] {
+  const marked = findings.filter((f) => f.beyondIntent);
+  // Tier, not the id. `kindOf` returns `undefined` only for an id with no
+  // colon at all; a standalone claim's id carries a `claim:` prefix, so
+  // `kindOf` hands back `"claim"` rather than nothing, and partitioning on it
+  // would put every entry in the first pass — collapsing the rule this
+  // function exists to implement.
+  //
+  // Tier is exact here, not approximate: `beyondIntent` is set in exactly two
+  // places, and both are in `../score/reconcile.ts`. The attach path sets
+  // `tier: tierFor(fact, entry.claim)` where the claim corresponds to the
+  // fact by construction, so it can only be `inferred`; the standalone path
+  // hardcodes `"model"`. A group is fact-backed and lands in pass one, which
+  // tier gives for free — only its *label* is special.
+  const factBacked = (f: Finding): boolean => f.tier !== "model";
+  const entry = (f: Finding): IntentGapEntry => ({
+    id: f.id,
+    tier: f.tier,
+    label: segmentConcealed(labelFor(f)),
+    file: labelConcealed(f.file),
+    line: f.line,
+  });
+  return [
+    ...marked.filter(factBacked).map(entry),
+    ...marked.filter((f) => !factBacked(f)).map(entry),
+  ];
+}
+
+/** A group id's kind prefix carries `GROUP_SUFFIX`; `kindOf` strips it. */
+function isGroup(id: string): boolean {
+  const colon = id.indexOf(":");
+  return colon >= 0 && id.slice(0, colon).endsWith(GROUP_SUFFIX);
+}
+
+/**
+ * A fact-backed finding is named by its kind. A group and a standalone claim
+ * are both named by their title: a group's stripped member kind would
+ * misdescribe it — calling a seven-export group `export_added` beside one
+ * member's `file:line` — and a standalone claim's title is its summary
+ * (`../score/reconcile.ts`, where the standalone branch sets
+ * `title: claim.summary`).
+ */
+function labelFor(f: Finding): string {
+  if (f.tier === "model") return f.title;
+  if (isGroup(f.id)) return f.title;
+  return kindOf(f.id) ?? f.title;
+}
+
 function kindOf(id: string): string | undefined {
   const colon = id.indexOf(":");
   if (colon < 0) return undefined;
@@ -743,6 +841,7 @@ export function buildReportModel(
     notes,
     findings: findings.map((f) => toFindingView(f, modelName)),
     kindNotes: kindNotesFor(findings),
+    intentGap: intentGapFor(findings),
     surfaceSymbols,
     exportPaths,
   };

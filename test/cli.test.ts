@@ -727,6 +727,14 @@ describe("review", () => {
     expect(parsed.coverage.unanalyzedFiles).toContain("ci.yml");
   });
 
+  it("emits the intent-gap index under --json, always present", async () => {
+    const r = await review(repo, { command: "review", json: true, noLlm: true, help: false });
+    const parsed = JSON.parse(r.output);
+    // A --no-llm run makes no claims, so nothing is marked — but the key is
+    // present so a consumer reads it without branching.
+    expect(parsed.intentGap).toEqual([]);
+  });
+
   it("reports an empty unanalyzed list when every changed file is TypeScript", async () => {
     // Always present, zero included — the rule the neighbouring keys follow.
     const r = await review(repo, { command: "review", json: true, noLlm: true, help: false });

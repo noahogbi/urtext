@@ -682,6 +682,11 @@ export async function review(
           // the sentences live in the report model, not in any fact. Always
           // present, empty array included, by the same rule as `suppressed`.
           kindNotes: jsonModel.kindNotes,
+          // The findings the model marked as unaccounted for by this range's
+          // messages. Always present, empty included, by the same rule as
+          // `kindNotes` above it. A consumer joins each entry's `id` back to
+          // `findings`; nothing is removed from `findings` to build it.
+          intentGap: jsonModel.intentGap,
           // Present exactly when `--citations` swept, following the same rule
           // as `exports` below: a consumer that asked can read the object
           // without branching, one that did not never sees a field about a
