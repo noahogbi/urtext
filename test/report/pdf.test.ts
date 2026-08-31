@@ -381,3 +381,35 @@ describe("renderPdf citation findings", () => {
     expect(text).toContain("src/a.ts:1 export const limit = 99;");
   });
 });
+
+describe("the intent-gap index", () => {
+  it("places the index below the notes and legend, and above the findings", async () => {
+    const m = buildReportModel(
+      changeset,
+      [
+        finding({
+          id: "guard_removed:src/auth.ts:session",
+          tier: "inferred",
+          file: "src/auth.ts",
+          line: 142,
+          beyondIntent: true,
+        }),
+      ],
+      { warnings: ["the surfaceAnalyzer analyzer failed"] },
+    );
+    const pdf = await getDocumentProxy(new Uint8Array(await renderPdf(m)));
+    const { text } = await extractText(pdf, { mergePages: true });
+    const flat = text.replace(/\s+/g, " ");
+    expect(flat).toContain("Not described by this change's messages");
+    const heading = flat.indexOf("Not described by this change's messages");
+    // Below the notes: a partial-review disclosure is never pushed under a
+    // block that is not itself a disclosure.
+    expect(flat.indexOf("surfaceAnalyzer")).toBeLessThan(heading);
+    // Below the badge legend too. Without this the placement argument is
+    // unpinned and an after-distributionNote insertion would pass.
+    expect(flat.indexOf(BEYOND_INTENT_MEANING.slice(0, 24))).toBeLessThan(heading);
+    // And above the findings. Without this the test passes with the index
+    // rendered after the findings loop, which is half of what its name says.
+    expect(heading).toBeLessThan(flat.indexOf("introduces a network effect"));
+  });
+});

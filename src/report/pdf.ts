@@ -256,6 +256,23 @@ export async function renderPdf(model: ReportModel): Promise<Buffer> {
     if (model.beyondIntentLegend) {
       strongLine(doc, model.beyondIntentLegend);
     }
+    // Below the notes and the legend, above the findings. Below the notes so
+    // a partial-review disclosure is never pushed under a block that is not
+    // itself a disclosure; below the legend for the reason the terminal and
+    // Markdown use — the reader meets the badge's meaning before the block
+    // that aggregates it.
+    if (model.intentGap.length > 0) {
+      strongLine(doc, `Not described by this change's messages (${model.intentGap.length})`);
+      for (const e of model.intentGap) {
+        doc
+          .font(SANS)
+          .fontSize(META_SIZE)
+          .text(`[${e.tier}] ${plainText(e.label)}  ${e.file}:${e.line}`);
+      }
+      if (model.intentGapAttribution) {
+        doc.font(SANS).fontSize(META_SIZE).text(model.intentGapAttribution);
+      }
+    }
     doc.moveDown();
 
     rule(doc);
