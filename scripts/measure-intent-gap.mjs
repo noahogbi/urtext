@@ -42,13 +42,28 @@ import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const ROOT = resolve(import.meta.dirname, "..");
-const CLI = join(ROOT, "dist", "bin.js");
+/** Where urtext itself lives — the CLI under test always comes from here. */
+const URTEXT = resolve(import.meta.dirname, "..");
+const CLI = join(URTEXT, "dist", "bin.js");
 
 const argv = process.argv.slice(2);
 const dryRun = argv.includes("--dry-run");
 const wantControl = argv.includes("--positive-control");
-const ranges = argv.filter((a) => !a.startsWith("--"));
+
+/**
+ * The repository being reviewed, which need not be urtext.
+ *
+ * A tool measured only against the codebase it was written for is measured on
+ * its easiest case: its analyzers, its file layout, and its authors' commit
+ * habits all line up. `--repo` points the same check at a repository urtext
+ * knows nothing about. Pass ranges explicitly when you use it — the defaults
+ * below are urtext's own history and mean nothing anywhere else.
+ */
+const repoFlag = argv.indexOf("--repo");
+const ROOT = repoFlag > -1 ? resolve(argv[repoFlag + 1]) : URTEXT;
+const ranges = argv.filter(
+  (a, i) => !a.startsWith("--") && !(repoFlag > -1 && i === repoFlag + 1),
+);
 
 /**
  * Five real ranges, each chosen because it actually changes TypeScript under
@@ -177,6 +192,23 @@ function positiveControl() {
 
 // --- run -------------------------------------------------------------------
 
+if (ROOT !== URTEXT && ranges.length === 0) {
+  console.error(
+    `--repo ${ROOT} was given with no ranges. The default ranges are urtext's\n` +
+      `own history and describe nothing in another repository; running them there\n` +
+      `would measure whatever those revisions happen to be. Pass ranges explicitly.`,
+  );
+  process.exit(1);
+}
+
+if (ROOT !== URTEXT && wantControl) {
+  console.error(
+    "--positive-control patches src/report/model.ts, which exists only in\n" +
+      "urtext. Run the control against urtext; run --repo without it.",
+  );
+  process.exit(1);
+}
+
 const plan = ranges.length
   ? ranges.map((range) => ({ range, note: "given on the command line" }))
   : DEFAULT_RANGES;
@@ -250,6 +282,7 @@ if (wantControl) {
 
 console.log("\n" + "=".repeat(72));
 console.log("Pre-registered check: the intent-gap index");
+console.log(`repository under review: ${ROOT}`);
 console.log("=".repeat(72) + "\n");
 
 console.log(
