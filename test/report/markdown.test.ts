@@ -438,3 +438,40 @@ describe("renderMarkdown citation findings", () => {
     expect(md).toContain("```ts\nexport const limit = 99;\n```");
   });
 });
+
+describe("the intent-gap index", () => {
+  const marked = () =>
+    buildReportModel(
+      changeset,
+      [
+        finding({
+          id: "guard_removed:src/auth.ts:session",
+          tier: "inferred",
+          file: "src/auth.ts",
+          line: 142,
+          beyondIntent: true,
+        }),
+      ],
+      { warnings: [] },
+    );
+
+  it("states the index above the findings, with tier and location", () => {
+    const out = renderMarkdown(marked());
+    expect(out).toContain("Not described by this change's messages (1)");
+    expect(out).toContain("guard_removed");
+    expect(out).toContain("src/auth.ts:142");
+    // Anchor on a string ONLY the findings list prints. Two traps met while
+    // planning this: the kind never appears in a findings row (its headline
+    // is `file:line — title`), so an anchor built from it never matches at
+    // all; and `[inferred]` appears in the index's own row, so anchoring on
+    // that is trivially true and would not catch the index rendering last.
+    expect(out.indexOf("Not described by this change's messages")).toBeLessThan(
+      out.indexOf("introduces a network effect"),
+    );
+  });
+
+  it("states no index heading when nothing is marked", () => {
+    const m = buildReportModel(changeset, [finding()], { warnings: [] });
+    expect(renderMarkdown(m)).not.toContain("Not described by this change");
+  });
+});

@@ -160,6 +160,16 @@ export function renderTerminal(m: ReportModel): string {
     // to close every body of their kind, which made a run of them scan as one
     // block — and a reader skims past the row that differs.
     for (const note of m.kindNotes) out.push(`  ${note}`);
+    // Above the findings and below the legend that explains the badge: the
+    // reader meets the mark's meaning before the block that aggregates it.
+    if (m.intentGap.length > 0) {
+      out.push("");
+      out.push(`  Not described by this change's messages (${m.intentGap.length})`);
+      for (const e of m.intentGap) {
+        out.push(`    · [${e.tier}] ${plainText(e.label)}  ${e.file}:${e.line}`);
+      }
+      if (m.intentGapAttribution) out.push(`    ${m.intentGapAttribution}`);
+    }
     out.push("");
 
     for (const f of m.findings) {

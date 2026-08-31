@@ -184,6 +184,16 @@ export function renderMarkdown(model: ReportModel): string {
   if (model.beyondIntentLegend) {
     blocks.push(quote([model.beyondIntentLegend]));
   }
+  // Above the lens sections and below the legend, matching the terminal.
+  if (model.intentGap.length > 0) {
+    blocks.push(`## Not described by this change's messages (${model.intentGap.length})`);
+    blocks.push(
+      model.intentGap
+        .map((e) => `- \`[${e.tier}]\` ${plainText(e.label)} — \`${e.file}:${e.line}\``)
+        .join("\n"),
+    );
+    if (model.intentGapAttribution) blocks.push(quote([model.intentGapAttribution]));
+  }
 
   for (const { key, label } of LENSES) {
     blocks.push(`## ${label}`);
