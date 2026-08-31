@@ -687,6 +687,15 @@ export async function review(
           // `kindNotes` above it. A consumer joins each entry's `id` back to
           // `findings`; nothing is removed from `findings` to build it.
           intentGap: jsonModel.intentGap,
+          // Present exactly when the index holds a standalone entry, which is
+          // when its rows carry model prose rather than analyzer kinds.
+          // Conditionally assigned, so the model-keys guard cannot see it on
+          // a --no-llm fixture — the decision is deliberate rather than
+          // forced, and the test that would fail if this line went is in the
+          // stated-intent block, which drives the real pipeline.
+          ...(jsonModel.intentGapAttribution
+            ? { intentGapAttribution: jsonModel.intentGapAttribution }
+            : {}),
           // Present exactly when `--citations` swept, following the same rule
           // as `exports` below: a consumer that asked can read the object
           // without branching, one that did not never sees a field about a

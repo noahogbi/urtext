@@ -1408,6 +1408,41 @@ describe("stated intent", () => {
     expect(marked[0].tier).toBe("model");
   });
 
+  it("carries the index and its attribution into --json when the model marked a claim", async () => {
+    // The answerable test for the attribution emission. copy-guard.test.ts
+    // imports nothing from cli.ts and never reads --json, and the model-keys
+    // guard cannot see a conditionally assigned field on a --no-llm fixture —
+    // so without this, that emission is asserted by nothing.
+    requestClaims.mockResolvedValue({
+      claims: [
+        {
+          id: "m1",
+          file: "svc.ts",
+          line: 2,
+          summary: "reaches the network",
+          reasoning: "The call runs wherever load is called.",
+          severity: 0.9,
+          beyondIntent: true,
+        },
+      ],
+      model: "claude-opus-5",
+    });
+    const json = await review(intentRepo, {
+      command: "review",
+      json: true,
+      noLlm: false,
+      help: false,
+      range: "HEAD~1",
+    });
+    const parsed = JSON.parse(json.output);
+    expect(parsed.intentGap).toHaveLength(1);
+    expect(parsed.intentGap[0].tier).toBe("model");
+    expect(parsed.intentGap[0].id).toBe(
+      parsed.findings.find((f: { beyondIntent?: true }) => f.beyondIntent).id,
+    );
+    expect(parsed.intentGapAttribution).toContain("claude-opus-5");
+  });
+
   it("collects no intent, prints no note, and shows no mark under --no-llm", async () => {
     const r = await review(intentRepo, {
       command: "review",
