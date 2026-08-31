@@ -70,7 +70,10 @@ const DEFAULT_RANGES = [
   { range: "HEAD~14...HEAD~6", note: "8 commits, 1 source file" },
   { range: "HEAD~26...HEAD~14", note: "14 commits, 7 source files" },
   { range: "HEAD~30...HEAD~27", note: "a dense run of source change" },
-  { range: "HEAD~39...HEAD~26", note: "37 commits — past MAX_INTENT_COMMITS, truncation fires" },
+  {
+    range: "HEAD~39...HEAD~26",
+    note: "37 commits — past MAX_INTENT_COMMITS, truncation fires",
+  },
 ];
 
 /**
@@ -113,7 +116,12 @@ function tally(json) {
   const marked = findings.filter((f) => f.beyondIntent === true);
   const byTier = {};
   for (const f of marked) byTier[f.tier] = (byTier[f.tier] ?? 0) + 1;
-  return { total: findings.length, marked: marked.length, byTier, marks: marked };
+  return {
+    total: findings.length,
+    marked: marked.length,
+    byTier,
+    marks: marked,
+  };
 }
 
 /** The spec's noise threshold: reject when marked exceeds max(2, N/3). */
@@ -142,11 +150,17 @@ function positiveControl() {
       before.replace(
         "export const UNNAMED_MODEL",
         'export const CONTROL_NOTE = "a note added by the positive control";\nexport const UNNAMED_MODEL',
-      ) + "\n\nexport function controlSideEffect(): void {\n  process.env.CONTROL = \"1\";\n}\n";
+      ) +
+      '\n\nexport function controlSideEffect(): void {\n  process.env.CONTROL = "1";\n}\n';
     writeFileSync(target, after, "utf-8");
     git(["add", "src/report/model.ts"], wt);
     git(
-      ["commit", "-m", "docs: add a note constant to the report model", "--no-verify"],
+      [
+        "commit",
+        "-m",
+        "docs: add a note constant to the report model",
+        "--no-verify",
+      ],
       wt,
     );
     const json = review("HEAD~1...HEAD", wt);
@@ -173,9 +187,12 @@ const usesDefaultRange = plan.some((p) => !p.range);
 if (dryRun) {
   console.log("Would run these keyed reviews (no API calls made):\n");
   for (const { range, note } of plan) {
-    console.log(`  urtext review --json ${range || "(default range)"}   — ${note}`);
+    console.log(
+      `  urtext review --json ${range || "(default range)"}   — ${note}`,
+    );
   }
-  if (wantControl) console.log("  plus the positive control, in a temporary worktree");
+  if (wantControl)
+    console.log("  plus the positive control, in a temporary worktree");
   console.log(
     `\nThresholds: reject as noise if marked > max(2, N/3) on any range;` +
       `\n            reject as inert if zero marked across all of them.`,
@@ -242,7 +259,9 @@ console.log(
 for (const r of results) {
   const label = (r.range || "(default)").padEnd(24);
   if (r.failed) {
-    console.log(`${label}${"—".padStart(9)}${"—".padStart(8)}${"—".padStart(8)}   run failed: ${r.failed}`);
+    console.log(
+      `${label}${"—".padStart(9)}${"—".padStart(8)}${"—".padStart(8)}   run failed: ${r.failed}`,
+    );
     continue;
   }
   const limit = noiseLimit(r.total);
@@ -273,7 +292,8 @@ if (control) {
 }
 
 const tiers = {};
-for (const r of ran) for (const [t, n] of Object.entries(r.byTier)) tiers[t] = (tiers[t] ?? 0) + n;
+for (const r of ran)
+  for (const [t, n] of Object.entries(r.byTier)) tiers[t] = (tiers[t] ?? 0) + n;
 if (totalMarked > 0) {
   console.log(`Marked findings by tier: ${JSON.stringify(tiers)}`);
   console.log(
@@ -293,12 +313,18 @@ if (usesDefaultRange && dirtyTs.length === 0) {
 }
 
 if (failedRuns > 0) {
-  console.log(`${failedRuns} run(s) failed — the check is incomplete and decides nothing.`);
+  console.log(
+    `${failedRuns} run(s) failed — the check is incomplete and decides nothing.`,
+  );
   process.exit(2);
 }
 if (anyOver) {
-  console.log("REJECT (noise): at least one range marked more than max(2, N/3).");
-  console.log("Per the spec, the design is rejected rather than capped after the fact.");
+  console.log(
+    "REJECT (noise): at least one range marked more than max(2, N/3).",
+  );
+  console.log(
+    "Per the spec, the design is rejected rather than capped after the fact.",
+  );
   process.exit(1);
 }
 if (totalMarked === 0) {
@@ -311,9 +337,12 @@ if (totalMarked === 0) {
   process.exit(1);
 }
 console.log("PASS: the mark fires, and no range exceeded the noise limit.");
-console.log("Remaining gate is judgement, not arithmetic — read the marked findings and");
+console.log(
+  "Remaining gate is judgement, not arithmetic — read the marked findings and",
+);
 console.log("decide whether they are ones you would want surfaced first.");
 for (const r of ran.filter((x) => x.marked > 0)) {
   console.log(`\n  ${r.range || "(default)"}:`);
-  for (const m of r.marks) console.log(`    [${m.tier}] ${m.file}:${m.line}  ${m.title}`);
+  for (const m of r.marks)
+    console.log(`    [${m.tier}] ${m.file}:${m.line}  ${m.title}`);
 }
