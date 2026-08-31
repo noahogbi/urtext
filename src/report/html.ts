@@ -455,6 +455,9 @@ function headerHtml(m: ReportModel): string {
   // banner a reader learns to skip, and the things it exists for — a dead
   // analyzer, a model never asked — are the ones that would go unread.
   const coverage = m.coverageNote ? `<p class="coverage">${esc(m.coverageNote)}</p>` : "";
+  // Same line treatment and the same reasoning as `coverage` above: what the
+  // analyzers could not reach is coverage, not a partial review.
+  const unanalyzed = m.unanalyzedNote ? `<p class="coverage">${esc(m.unanalyzedNote)}</p>` : "";
 
   const legend = TIER_ORDER.map(
     (tier) =>
@@ -474,6 +477,7 @@ function headerHtml(m: ReportModel): string {
     `<div class="chips">${chips}</div>`,
     provenance,
     coverage,
+    unanalyzed,
     banner,
     filterNote,
     distributionNote,

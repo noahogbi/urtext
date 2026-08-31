@@ -644,6 +644,97 @@ describe("review", () => {
     expect(parsed.coverage.note).toBeUndefined();
   });
 
+  it("names the files no analyzer reported on, on the terminal and under --json", async () => {
+    // The measured gap: a diff whose surprises sit in files urtext has no
+    // analyzer for. The review read the TypeScript and said nothing about
+    // having read none of the workflow.
+    const mixedRepo = mkCanonicalTempDir("urtext-cli-mixed-");
+    const run = (args: string[]) => gitIn(mixedRepo, args);
+    run(["init", "-b", "main"]);
+    run(["config", "user.email", "test@example.com"]);
+    run(["config", "user.name", "Test"]);
+    writeFileSync(join(mixedRepo, "svc.ts"), "export const load = (id: string) => id;\n");
+    writeFileSync(join(mixedRepo, "ci.yml"), "on: push\n");
+    run(["add", "-A"]);
+    run(["commit", "-m", "first"]);
+    writeFileSync(join(mixedRepo, "svc.ts"), "export const load = (id: string) => fetch(id);\n");
+    writeFileSync(join(mixedRepo, "ci.yml"), "on: push\npermissions: write-all\n");
+
+    const r = await review(mixedRepo, {
+      command: "review",
+      json: false,
+      noLlm: true,
+      help: false,
+    });
+    expect(r.output).toContain("No analyzer reported on 1 of 2 changed files");
+    expect(r.output).toContain("ci.yml");
+
+    const json = await review(mixedRepo, {
+      command: "review",
+      json: true,
+      noLlm: true,
+      help: false,
+    });
+    const parsed = JSON.parse(json.output);
+    expect(parsed.coverage.unanalyzedFiles).toEqual(["ci.yml"]);
+    expect(parsed.coverage.unanalyzedNote).toContain("No analyzer reported on");
+    // The TypeScript file was analyzed, so it is never in the list.
+    expect(parsed.coverage.unanalyzedFiles).not.toContain("svc.ts");
+  });
+
+  it("omits a changed Markdown file that an analyzer did report on", async () => {
+    // The bug this rule was rewritten to avoid, against the real pipeline
+    // rather than a hand-made finding. `citationsAnalyzer` runs on every
+    // review — `--citations` only sets `sweep` — and in default mode
+    // `touchedCandidates` greps prose for touched basenames. So a changed
+    // Markdown file citing a touched file is read, scanned, and anchors a
+    // fact-backed citation-rot finding on itself. Listing it as unanalyzed
+    // would print a disclaimer directly above that finding.
+    const rotMd = mkCanonicalTempDir("urtext-cli-rot-md-");
+    const run = (args: string[]) => gitIn(rotMd, args);
+    run(["init", "-b", "main"]);
+    run(["config", "user.email", "test@example.com"]);
+    run(["config", "user.name", "Test"]);
+    mkdirSync(join(rotMd, "src"), { recursive: true });
+    writeFileSync(join(rotMd, "src", "limits.ts"), "export const limit = 1;\n");
+    writeFileSync(join(rotMd, "NOTES.md"), "The limit is set at src/limits.ts:1.\n");
+    writeFileSync(join(rotMd, "ci.yml"), "on: push\n");
+    run(["add", "-A"]);
+    run(["commit", "-m", "first"]);
+    // The cited line stops saying what it said, so the citation has drifted.
+    writeFileSync(
+      join(rotMd, "src", "limits.ts"),
+      "// raised for the new tier\nexport const limit = 99;\n",
+    );
+    // And the Markdown itself changes, so it is in the diff and eligible for
+    // the list it must not appear on.
+    writeFileSync(
+      join(rotMd, "NOTES.md"),
+      "The limit is set at src/limits.ts:1.\nRaised for the new tier.\n",
+    );
+    writeFileSync(join(rotMd, "ci.yml"), "on: push\npermissions: write-all\n");
+
+    const r = await review(rotMd, { command: "review", json: true, noLlm: true, help: false });
+    const parsed = JSON.parse(r.output);
+    const rot = parsed.findings.filter(
+      (f: Finding) => f.id.startsWith("citation_rot") && f.tier !== "model",
+    );
+    // The premise: without a real finding on NOTES.md this proves nothing.
+    expect(rot.some((f: Finding) => f.file === "NOTES.md")).toBe(true);
+    expect(parsed.coverage.unanalyzedFiles).not.toContain("NOTES.md");
+    // And the file nothing reported on is still disclosed, so the
+    // subtraction is not simply emptying the list.
+    expect(parsed.coverage.unanalyzedFiles).toContain("ci.yml");
+  });
+
+  it("reports an empty unanalyzed list when every changed file is TypeScript", async () => {
+    // Always present, zero included — the rule the neighbouring keys follow.
+    const r = await review(repo, { command: "review", json: true, noLlm: true, help: false });
+    const parsed = JSON.parse(r.output);
+    expect(parsed.coverage.unanalyzedFiles).toEqual([]);
+    expect(parsed.coverage.unanalyzedNote).toBeUndefined();
+  });
+
   it("counts an untracked file on both surfaces, the machine one included", async () => {
     // `git diff` never shows an untracked file, so a brand-new module — the
     // case this tool exists for — produces no finding at all. The human
@@ -726,6 +817,7 @@ describe("review", () => {
       modelName: "present as `model`",
       notes: "labeled prose over `warnings` and `untrackedCount`, both present",
       coverageNote: "present as `coverage.note`",
+      unanalyzedNote: "present as `coverage.unanalyzedNote`",
       filterNote: "prose about `suppressed`, which is present",
       distributionNote: "present as `citations.distributionNote`, under the flag that composes it",
       beyondIntentLegend: "legend for a mark carried on each finding",

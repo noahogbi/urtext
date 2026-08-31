@@ -487,10 +487,41 @@ describe("buildReportModel disclosures", () => {
     );
   });
 
+  it("discloses files no analyzer reported on, as coverage rather than a shortfall", () => {
+    // urtext ran its whole pipeline; a diff it has no analyzer for is scope,
+    // not a partial review. Same channel as the deleted-file note, and kept
+    // out of `notes` for the same reason.
+    const m = buildReportModel(
+      changeset({
+        files: [
+          { path: "src/a.ts", status: "modified", hunks: [], symbols: [] },
+          { path: "package.json", status: "modified", hunks: [], symbols: [] },
+        ],
+      }),
+      [finding()],
+      { warnings: [] },
+    );
+    expect(m.unanalyzedNote).toContain("package.json");
+    expect(m.unanalyzedNote).toContain("1 of 2 changed files");
+    expect(m.notes.some((n) => n.includes("package.json"))).toBe(false);
+  });
+
+  it("composes no such note when every changed file is TypeScript", () => {
+    const m = buildReportModel(
+      changeset({
+        files: [{ path: "src/a.ts", status: "modified", hunks: [], symbols: [] }],
+      }),
+      [finding()],
+      { warnings: [] },
+    );
+    expect(m.unanalyzedNote).toBeUndefined();
+  });
+
   it("omits every optional disclosure when there is nothing to disclose", () => {
     const m = buildReportModel(changeset(), [finding()], { warnings: [] });
     expect(m.notes).toEqual([]);
     expect(m.coverageNote).toBeUndefined();
+    expect(m.unanalyzedNote).toBeUndefined();
     expect(m.filterNote).toBeUndefined();
     const zero = buildReportModel(changeset(), [], { warnings: [], suppressed: 0 });
     expect(zero.filterNote).toBeUndefined();

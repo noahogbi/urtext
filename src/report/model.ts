@@ -4,6 +4,8 @@ import {
   deletedFilesNote,
   deletedTypeScriptFiles,
   suppressionNote,
+  unanalyzedFiles,
+  unanalyzedFilesNote,
 } from "./coverage.js";
 import type { Changeset, Finding, FactKind, Tier } from "../types.js";
 
@@ -256,6 +258,15 @@ export interface ReportModel {
    * the field renderers must read it from".
    */
   coverageNote?: string;
+  /**
+   * The unanalyzed-files note from `unanalyzedFilesNote`; absent when every
+   * changed file either is TypeScript or carries analyzer evidence. Kept out
+   * of `notes` for the reason `coverageNote` above is: urtext ran its whole
+   * pipeline, so a diff it has no analyzer for is scope rather than
+   * shortfall, and a banner firing on every diff that touches a YAML file is
+   * one a reader learns to skip.
+   */
+  unanalyzedNote?: string;
   /**
    * Composed by `suppressionNote`; absent when nothing was suppressed.
    * Deliberately NOT in `notes`: the filter running as designed is not a
@@ -684,6 +695,13 @@ export function buildReportModel(
 
   const deleted = deletedTypeScriptFiles(changeset);
   const coverageNote = deleted.length > 0 ? labelConcealed(deletedFilesNote(deleted)) : undefined;
+  // Asks what was reported rather than predicting what was read; the reasons
+  // that distinction is load-bearing are on `unanalyzedFiles` itself.
+  const unanalyzed = unanalyzedFiles(changeset, findings);
+  const unanalyzedNote =
+    unanalyzed.length > 0
+      ? labelConcealed(unanalyzedFilesNote(unanalyzed, changeset.files.length))
+      : undefined;
 
   const suppressed = meta.suppressed ?? 0;
   const filterNote = suppressed > 0 ? suppressionNote(suppressed) : undefined;
@@ -732,6 +750,7 @@ export function buildReportModel(
   if (provenance) model.provenance = provenance;
   if (modelName) model.modelName = modelName;
   if (coverageNote) model.coverageNote = coverageNote;
+  if (unanalyzedNote) model.unanalyzedNote = unanalyzedNote;
   if (filterNote) model.filterNote = filterNote;
   if (distributionNote) model.distributionNote = distributionNote;
   if (model.findings.some((f) => f.beyondIntent)) {

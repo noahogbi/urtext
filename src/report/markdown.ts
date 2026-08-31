@@ -167,6 +167,9 @@ export function renderMarkdown(model: ReportModel): string {
   if (model.coverageNote) {
     blocks.push(quote([model.coverageNote]));
   }
+  if (model.unanalyzedNote) {
+    blocks.push(quote([model.unanalyzedNote]));
+  }
   if (model.filterNote) {
     blocks.push(quote([model.filterNote]));
   }

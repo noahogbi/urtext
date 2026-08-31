@@ -237,6 +237,9 @@ export async function renderPdf(model: ReportModel): Promise<Buffer> {
     if (model.coverageNote) {
       doc.font(SANS).fontSize(META_SIZE).text(model.coverageNote);
     }
+    if (model.unanalyzedNote) {
+      doc.font(SANS).fontSize(META_SIZE).text(model.unanalyzedNote);
+    }
     if (model.filterNote) {
       strongLine(doc, model.filterNote);
     }

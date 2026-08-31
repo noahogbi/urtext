@@ -10,7 +10,11 @@ import {
 import { INTENT_ABSENT_NOTE, intentTruncatedNote } from "../../src/interpret/index.js";
 import { renderHtml } from "../../src/report/html.js";
 import { renderMarkdown } from "../../src/report/markdown.js";
-import { BEYOND_INTENT_MEANING, buildReportModel } from "../../src/report/model.js";
+import {
+  BEYOND_INTENT_MEANING,
+  buildReportModel,
+  type ReportModel,
+} from "../../src/report/model.js";
 import { renderPdf } from "../../src/report/pdf.js";
 import { renderTerminal } from "../../src/report/terminal.js";
 import { toFinding } from "../../src/score/index.js";
@@ -93,19 +97,19 @@ function scannable(rendered: string): string {
   return rendered.replace(/\s+/g, " ");
 }
 
-async function pdfText(): Promise<string> {
-  const pdf = await getDocumentProxy(new Uint8Array(await renderPdf(model)));
+async function pdfText(m: ReportModel = model): Promise<string> {
+  const pdf = await getDocumentProxy(new Uint8Array(await renderPdf(m)));
   const { text } = await extractText(pdf, { mergePages: true });
   return text;
 }
 
 /** Every surface, rendered from the one marked fixture, named for the failure message. */
-async function surfaces(): Promise<Array<[string, string]>> {
+async function surfaces(m: ReportModel = model): Promise<Array<[string, string]>> {
   return [
-    ["terminal", renderTerminal(model)],
-    ["html", renderHtml(model)],
-    ["markdown", renderMarkdown(model)],
-    ["pdf", await pdfText()],
+    ["terminal", renderTerminal(m)],
+    ["html", renderHtml(m)],
+    ["markdown", renderMarkdown(m)],
+    ["pdf", await pdfText(m)],
   ];
 }
 
@@ -233,6 +237,35 @@ describe("citation copy guard", () => {
       expect(scannable(rendered).includes("no longer reads the same"), `${name} omits the copy`).toBe(
         true,
       );
+    }
+  });
+});
+
+
+describe("coverage disclosures reach every surface", () => {
+  // `coverageNote` is printed by four renderers, not the two its own module
+  // doc once claimed. A disclosure wired to some of them is the cross-surface
+  // drift `coverage.ts` exists to prevent — one report telling a reader what
+  // went unanalyzed and another staying silent about the same diff.
+  const mixed = buildReportModel(
+    {
+      range: { from: "abc123", to: WORKTREE, label: "vs origin/main" },
+      files: [
+        { path: "a.ts", status: "modified", hunks: [], symbols: [] },
+        { path: "package.json", status: "modified", hunks: [], symbols: [] },
+      ],
+    },
+    findings,
+    meta,
+  );
+
+  it("states what no analyzer reported on, identically on all four", async () => {
+    expect(mixed.unanalyzedNote).toBeDefined();
+    for (const [name, rendered] of await surfaces(mixed)) {
+      expect(
+        scannable(rendered).includes(scannable(mixed.unanalyzedNote ?? "")),
+        `${name} omits the unanalyzed-files disclosure`,
+      ).toBe(true);
     }
   });
 });

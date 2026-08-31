@@ -3,8 +3,33 @@ import {
   citationDistributionNote,
   deletedFilesNote,
   deletedTypeScriptFiles,
+  unanalyzedFiles,
+  unanalyzedFilesNote,
 } from "../../src/report/coverage.js";
-import { WORKTREE, type Changeset } from "../../src/types.js";
+import {
+  WORKTREE,
+  type Changeset,
+  type EvidenceRef,
+  type Finding,
+  type Tier,
+} from "../../src/types.js";
+
+/**
+ * A finding anchored on `file`, carrying evidence on every path in `refs`.
+ * `refs` defaults to the anchor alone; the multi-ref case exists because a
+ * citation drift quotes the cited file as a second ref while anchoring on the
+ * citing one, and the rule under test has to see both.
+ */
+const findingOn = (file: string, tier: Tier, refs: string[] = [file]): Finding => ({
+  id: `${tier}:${file}`,
+  tier,
+  file,
+  line: 1,
+  title: "title",
+  body: "body",
+  score: 1,
+  evidence: refs.map((f): EvidenceRef => ({ file: f, line: 1, excerpt: "x" })),
+});
 
 const changesetWith = (files: Changeset["files"]): Changeset => ({
   range: { from: "abc123", to: WORKTREE, label: "vs origin/main" },
@@ -89,5 +114,113 @@ describe("citationDistributionNote", () => {
 
   it("returns undefined for no findings, so a clean sweep composes no note", () => {
     expect(citationDistributionNote([])).toBeUndefined();
+  });
+});
+
+describe("unanalyzedFiles", () => {
+  it("lists changed files no TypeScript analyzer can reach, and no TypeScript file", () => {
+    const cs = changesetWith([
+      { path: "src/a.ts", status: "modified", hunks: [], symbols: [] },
+      { path: "src/b.tsx", status: "added", hunks: [], symbols: [] },
+      { path: "package.json", status: "modified", hunks: [], symbols: [] },
+      { path: ".github/workflows/publish.yml", status: "added", hunks: [], symbols: [] },
+    ]);
+    // Diff order, the order `deletedTypeScriptFiles` above documents. Two
+    // coverage sentences in one report listing paths by different rules would
+    // read as one of them being sorted for a reason.
+    expect(unanalyzedFiles(cs, [])).toEqual([
+      "package.json",
+      ".github/workflows/publish.yml",
+    ]);
+  });
+
+  it("lists a declaration file, which no analyzer scans in any mode", () => {
+    // `isTypeScriptFile` excludes `.d.ts`, and `citationsIn` dispatches on
+    // `isProseFile` then `isTypeScriptFile` — so a `.d.ts` is swept into
+    // candidates by the `*.ts` pathspec and then scanned by nothing.
+    const cs = changesetWith([
+      { path: "types.d.ts", status: "modified", hunks: [], symbols: [] },
+    ]);
+    expect(unanalyzedFiles(cs, [])).toEqual(["types.d.ts"]);
+  });
+
+  it("drops a file an analyzer reported on, so the note cannot contradict a finding", () => {
+    // The citations analyzer runs on every review, not only under
+    // `--citations`: `ANALYZERS` includes it and `--citations` only sets
+    // `sweep`. In default mode `touchedCandidates` greps prose for touched
+    // basenames, so a changed Markdown file that mentions one is read and
+    // scanned, and a rot finding anchors on it (`evidence[0].file` is the
+    // citing file). Listing it as unanalyzed would print a disclaimer above a
+    // `verified` finding about that same file — the mistake `deletedFilesNote`
+    // was rewritten to stop making.
+    const cs = changesetWith([
+      { path: "docs/plan.md", status: "modified", hunks: [], symbols: [] },
+      { path: "package.json", status: "modified", hunks: [], symbols: [] },
+    ]);
+    const findings = [findingOn("docs/plan.md", "verified")];
+    expect(unanalyzedFiles(cs, findings)).toEqual(["package.json"]);
+  });
+
+  it("drops a file quoted as secondary evidence, not just the anchor", () => {
+    // A citation drift anchors on the citing file and quotes the cited file
+    // as a second ref. The cited file's lines are excerpted in the report, so
+    // a sentence disclaiming it would sit above its own quoted text.
+    const cs = changesetWith([
+      { path: "migrations/001_init.sql", status: "modified", hunks: [], symbols: [] },
+    ]);
+    const findings = [
+      findingOn("docs/plan.md", "verified", ["docs/plan.md", "migrations/001_init.sql"]),
+    ];
+    expect(unanalyzedFiles(cs, findings)).toEqual([]);
+  });
+
+  it("keeps a file whose only finding is the model's, which is when the note matters most", () => {
+    // Measured: a review of a four-file diff ranked a model-only claim about
+    // an unread SQL migration first. A model claim is not an analyzer
+    // reporting on the file, so the file stays listed and the note says whose
+    // judgement the reader is holding.
+    const cs = changesetWith([
+      { path: "migrations/102_scoping.sql", status: "added", hunks: [], symbols: [] },
+    ]);
+    const findings = [findingOn("migrations/102_scoping.sql", "model")];
+    expect(unanalyzedFiles(cs, findings)).toEqual(["migrations/102_scoping.sql"]);
+  });
+
+  it("leaves deleted TypeScript files to deletedFilesNote", () => {
+    const cs = changesetWith([
+      { path: "gone.ts", status: "deleted", hunks: [], symbols: [] },
+      { path: "gone.yml", status: "deleted", hunks: [], symbols: [] },
+    ]);
+    expect(unanalyzedFiles(cs, [])).toEqual(["gone.yml"]);
+  });
+});
+
+describe("unanalyzedFilesNote", () => {
+  it("carries its own ratio and names every file", () => {
+    const note = unanalyzedFilesNote(["package.json", "ci.yml"], 5);
+    expect(note).toContain("2 of 5 changed files");
+    expect(note).toContain("package.json");
+    expect(note).toContain("ci.yml");
+  });
+
+  it("agrees with itself in the singular", () => {
+    expect(unanalyzedFilesNote(["package.json"], 3)).toContain("1 of 3 changed files");
+  });
+
+  it("claims no analyzer reported, never that the file went unread", () => {
+    // The citations analyzer demonstrably reads non-TypeScript files, so
+    // "not read" is false. What is true, and what the reader needs, is that
+    // nothing mechanical reported on them.
+    const note = unanalyzedFilesNote(["package.json"], 2);
+    expect(note).not.toMatch(/unread|not read|never read/i);
+    expect(note).toContain("No analyzer reported on");
+  });
+
+  it("attributes anything said about them to the model rather than claiming silence", () => {
+    // The model can and does place findings on these files; a note claiming
+    // nothing below describes them would be false exactly when it matters.
+    const note = unanalyzedFilesNote(["package.json"], 2);
+    expect(note).not.toContain("nothing");
+    expect(note).toContain("comes from the model alone");
   });
 });

@@ -9,7 +9,12 @@ import {
 import { createContext, extract, repoRoot } from "./extract/index.js";
 import { collectIntent } from "./extract/intent.js";
 import { DEFAULT_MODEL, interpret } from "./interpret/index.js";
-import { deletedFilesNote, deletedTypeScriptFiles } from "./report/coverage.js";
+import {
+  deletedFilesNote,
+  deletedTypeScriptFiles,
+  unanalyzedFiles,
+  unanalyzedFilesNote,
+} from "./report/coverage.js";
 import { renderHtml } from "./report/html.js";
 import { renderMarkdown } from "./report/markdown.js";
 import { buildReportModel, type ReportMeta, type ReportModel } from "./report/model.js";
@@ -630,6 +635,12 @@ export async function review(
     // the gap. The array is always present so a consumer can test it without
     // branching on the key; the sentence is there only when there is one.
     const deleted = deletedTypeScriptFiles(changeset);
+    // The other half of the same disclosure, and the half the human surfaces
+    // gained first: which changed files no analyzer reported on at all. A
+    // script reading this could otherwise not tell a clean file from one
+    // urtext has no analyzer for, which is the distinction that decides
+    // whether a model-only finding about it is worth anything.
+    const unanalyzed = unanalyzedFiles(changeset, findings);
     return {
       output: JSON.stringify(
         {
@@ -657,6 +668,12 @@ export async function review(
           coverage: {
             deletedTypeScriptFiles: deleted,
             ...(deleted.length > 0 ? { note: deletedFilesNote(deleted) } : {}),
+            // Always present, empty included, by the same rule as the array
+            // above it; the sentence only when there is one.
+            unanalyzedFiles: unanalyzed,
+            ...(unanalyzed.length > 0
+              ? { unanalyzedNote: unanalyzedFilesNote(unanalyzed, changeset.files.length) }
+              : {}),
           },
           // What each kind of finding means, once per kind. This text used to
           // close every body of its kind, and `findings` above carries bodies

@@ -1,16 +1,22 @@
 import { isTypeScriptFile } from "../extract/symbols.js";
-import type { Changeset } from "../types.js";
+import type { Changeset, Finding } from "../types.js";
 
 /**
- * What the analyzers did not look at, stated the same way on all three
- * surfaces: the terminal's note, the HTML report's header, and `--json`'s
- * `coverage` field, which `review` in `../cli.ts` fills from here. `--json`
- * carried nothing at all until it did, so the one consumer that cannot read
- * prose was the one left blind to the gap.
+ * What the analyzers did not look at, stated the same way on every surface:
+ * the terminal's note, the HTML report's header, the Markdown and PDF
+ * exports, and `--json`'s `coverage` field, which `review` in `../cli.ts`
+ * fills from here. `--json` carried nothing at all until it did, so the one
+ * consumer that cannot read prose was the one left blind to the gap.
  *
- * Lives in its own module because both renderers need it and neither may import
- * the other, and because a sentence making a claim about analyzer coverage has
- * to be checked in one place — the copy that lived in both renderers was wrong
+ * Five surfaces, not the three this comment used to claim: `coverageNote` is
+ * printed by `./terminal.ts`, `./html.ts`, `./markdown.ts` and `./pdf.ts`,
+ * and a review that trusted the old count wired a new disclosure to two of
+ * them. The number is spelled out here because getting it wrong is silent —
+ * the exports simply say less than the terminal did, and nothing fails.
+ *
+ * Lives in its own module because every renderer needs it and none may import
+ * another, and because a sentence making a claim about analyzer coverage has
+ * to be checked in one place — the copy that lived in two renderers was wrong
  * in both.
  */
 
@@ -107,6 +113,74 @@ export function citationDistributionNote(findingFiles: string[]): string | undef
   }
   const parts = places.map(([place, n]) => `${n} in \`${place}\``);
   return `Citations: ${plural(total, "finding")} — ${parts.join(", ")}.`;
+}
+
+/**
+ * Changed files that no analyzer reported on, in the order the diff listed
+ * them — the order `deletedTypeScriptFiles` above uses, so two coverage
+ * sentences in one report do not list paths by different rules.
+ *
+ * Two clauses, and the second is the one that took a review to get right.
+ *
+ * The first is the extension gate every TypeScript analyzer applies, so a
+ * `.d.ts` lists: `isTypeScriptFile` excludes declaration files, and
+ * `citationsIn` dispatches on `isProseFile` then `isTypeScriptFile`, so a
+ * `.d.ts` is swept into candidates by the `*.ts` pathspec and then scanned by
+ * nothing at all.
+ *
+ * The second drops any file carrying evidence for a fact-backed finding.
+ * An earlier design of this function took `citationSweep` instead and
+ * subtracted `CITATION_PATHSPECS`, on the belief that non-TypeScript files go
+ * unread unless `--citations` was passed. Both halves were false.
+ * `citationsAnalyzer` is in `ANALYZERS` and runs on every review — `sweep` is
+ * only a constructor argument (`../cli.ts`, `makeCitationsAnalyzer`) — and in
+ * default mode `touchedCandidates` greps prose for touched basenames, so a
+ * changed Markdown file mentioning one is read, scanned, and can anchor a
+ * `verified` citation-rot finding on itself. Subtracting pathspecs was wrong
+ * in the other direction too: the sweep's real read set is those pathspecs
+ * minus `--citations-exclude`, minus `REPORT_DIR`, minus everything past
+ * `MAX_CITING_FILES`, minus whatever `citationsIn` declines to dispatch.
+ *
+ * So this asks what was reported rather than predicting what was read. Every
+ * evidence ref counts, not only the anchor: a citation drift anchors on the
+ * citing file and quotes the cited file as a second ref, and a sentence
+ * disclaiming a file whose lines the report excerpts is the same error.
+ *
+ * `model`-tier findings deliberately do not count. A model claim is not an
+ * analyzer reporting on a file, and the case this exists for is exactly the
+ * measured one: a review that ranked a model-only claim about an unread SQL
+ * migration first while saying nothing about having read none of it.
+ */
+export function unanalyzedFiles(changeset: Changeset, findings: Finding[]): string[] {
+  const reported = new Set<string>();
+  for (const finding of findings) {
+    if (finding.tier === "model") continue;
+    for (const ref of finding.evidence) reported.add(ref.file);
+  }
+  return changeset.files
+    .filter((f) => !isTypeScriptFile(f.path) && !reported.has(f.path))
+    .map((f) => f.path);
+}
+
+/**
+ * What a reader is owed about those files, and no more than is true.
+ *
+ * It claims non-reporting, not non-reading: the citations analyzer
+ * demonstrably reads non-TypeScript files, so "unread" would be false. And it
+ * does not claim the report is silent about them — the model places findings
+ * on exactly these files, which is why the sentence names whose judgement any
+ * such finding is rather than telling the reader to disregard it.
+ *
+ * `total` counts every changed file, deleted TypeScript included. Those belong
+ * to `deletedFilesNote`, which says something narrower and truer about them;
+ * the denominator here is the size of the diff, not the size of what this
+ * sentence owns.
+ */
+export function unanalyzedFilesNote(paths: string[], total: number): string {
+  return (
+    `No analyzer reported on ${paths.length} of ${total} changed files: ${paths.join(", ")} — ` +
+    `anything below about them comes from the model alone.`
+  );
 }
 
 function plural(n: number, noun: string): string {
