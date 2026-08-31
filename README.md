@@ -28,6 +28,12 @@ so they fire on `.ts`, `.tsx`, `.mts` and `.cts`. Point urtext at a Python, Go o
 repository and the code analyzers find nothing; the citations analyzer still checks prose
 in `.md` and `.txt`, which is a fifth of the tool. That is a limit, not a roadmap item.
 
+**And every review says where that limit fell.** A report names the changed files no
+analyzer reported on — a `package.json`, a workflow YAML, a SQL migration — so silence
+about a file is never mistaken for a clean bill of health. It claims non-reporting, not
+non-reading, and it says plainly that anything the report does say about those files came
+from the model alone.
+
 Five analyzers run over the change:
 
 - **guards** — conditionals, early returns, and throws removed from code that survived
@@ -41,6 +47,19 @@ Findings are ranked. A `verified` or `inferred` finding carries the evidence
 behind it — file, line, and the quoted source. A `model` finding carries none
 by construction, and the report says so where it prints one: it is a lead to
 check, not a result.
+
+**Above the ranked list sits an index of what the change does not describe.** When the
+model marks a finding as unaccounted for by the range's own commit messages, that mark is
+collected into one short block: *"Not described by this change's messages (3)"*. It
+predicts nothing and reorders nothing below it — the ranked list stays untouched and
+complete. Fact-backed entries come first and model-only ones last, which is deliberately
+not the ranked list's order: that one is ordered for triage, where a claim alleging a
+problem sorts high; the index is ordered by what a reader can check, where evidence leads.
+
+No entry in it can be `verified`, and that is structural rather than a policy. The mark is
+something the model says, and a `verified` finding is one the model said nothing about, so
+"marked and verified" is a contradiction. `inferred` is the index's strongest tier, and
+when it carries a model-only entry it names the model that produced it.
 
 A run that completes writes an HTML report into `.urtext/` at the repository
 root and prints its path; a run broken enough to exit non-zero deliberately

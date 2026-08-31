@@ -1,7 +1,19 @@
 # The intent-gap index — design
 
 **Date:** 2026-08-30
-**Status:** proposed (revised after review)
+**Status:** implemented in 0.3.0 (2026-08-31), after two Fable reviews of the plan
+
+The pre-registered check below passed on 2026-08-31 with its mandatory working-tree slot
+filled for the first time: 1 of 24 findings marked against a noise limit of 8, tier
+`inferred`. That result is not reproducible from this repository — the run's report lives
+under the gitignored `.urtext/` — so re-run `scripts/measure-intent-gap.mjs` rather than
+trusting this sentence.
+
+Implemented across `docs/superpowers/plans/2026-08-31-intent-gap-index.md`. Two of that
+plan's revisions record errors worth keeping: the first partitioned the index on
+`kindOf(id) !== undefined`, which never returns `undefined` for a real claim id, and the
+second shipped assertions that could not fail. Both are the error classes this document's
+own "Review history" section was written about.
 **Supersedes** `2026-08-30-urtext-least-expected-first-design.md`, which is rejected. That
 document holds the measurements that killed two earlier attempts at this goal and should be
 read first by anyone tempted to revisit them.
@@ -154,7 +166,7 @@ discloses that a change described only in a dropped message may be marked, and f
 `warnings` at `cli.ts:427`. The predecessor had to invent a suppression rule for this.
 
 **The model owns content decisions**, which is this design's actual authorization
-(`src/report/model.ts:16-42`). An earlier draft cited the `findings` grouping clause at
+(`src/report/model.ts:18-43`). An earlier draft cited the `findings` grouping clause at
 `model.ts:288-294` instead; that clause permits grouping by `lens` or `subject` — two
 enumerated keys — and `beyondIntent` is neither. The index is a new model field, not a
 walker regrouping the list, so the grouping permission was never the right authority.
@@ -186,11 +198,11 @@ export interface IntentGapEntry {
 location in its own idiom.
 
 **Deriving `label` needs plumbing this design must budget for.** `FindingView` carries no
-`kind` (`src/report/model.ts:138-192`), and `kindOf`/`subjectOf` are private to `model.ts`.
+`kind` (`src/report/model.ts:140-194`), and `kindOf`/`subjectOf` are private to `model.ts`.
 A fact-backed entry's label must therefore be derived inside `model.ts` where the id prefix
 is already parsed — not by a surface, and not by re-deriving the kind a second time
 elsewhere. An earlier draft's example used `effect_network`, which is not a kind at all: the
-kinds are `effect_added` and `effect_removed` (`SUBJECT_OF_KIND`, `model.ts:428-437`), and
+kinds are `effect_added` and `effect_removed` (`SUBJECT_OF_KIND`, `model.ts:488-497`), and
 the effect's name lives in `fact.detail`, which the model layer never sees.
 
 **Attribution.** All model prose lives in `modelNote` so no surface can render it without
@@ -201,7 +213,7 @@ same sentence in a less-attributed place, and a bare `[model]` tag is weaker tha
 **The model composes one attribution string for the index**, carried in its own field and
 present exactly when `intentGap` contains a standalone entry — the same
 absent-or-present gating `beyondIntentLegend` already uses (`model.ts:737-739`). It is built
-from the recorded model name, falling back to `UNNAMED_MODEL` (`model.ts:390-396`) so a run
+from the recorded model name, falling back to `UNNAMED_MODEL` (`model.ts:456`) so a run
 that recorded no name shows attribution that is visibly incomplete rather than absent, and
 it carries `MODEL_CAUTION_STANDALONE`. Every surface renders it unconditionally when
 present. It is new reader-facing copy, so it goes through the copy guard.
@@ -261,7 +273,7 @@ once already:
   `test/cli.test.ts`, "accounts for every model field in the JSON object, or exempts it by
   name" — which is the guard working: the decision is forced rather than defaulted. That
   test has caught this exact gap before, for `kindNotes` and again for `untrackedCount`
-  (`src/cli.ts:644-655`).
+  (`src/cli.ts:655-666`).
 
 ## Testing
 
@@ -301,7 +313,7 @@ Every test must be answerable — it must fail if the production change is rever
   with the group finding's **title**.
 - All five surfaces carry the index.
 - The heading clears the copy guard. `FORBIDDEN` is `unsanctioned`, `unauthorized`,
-  `approved`, `permission`, `forbidden`, `allowed` (`test/report/copy-guard.test.ts:25-32`),
+  `approved`, `permission`, `forbidden`, `allowed` (`test/report/copy-guard.test.ts:29-36`),
   and "Not described by this change's messages" contains none. The guard's fixture already
   carries marked findings (`copy-guard.test.ts:62`, `:73`), so the new copy comes under
   scrutiny without changing it.
