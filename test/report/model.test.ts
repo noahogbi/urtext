@@ -4,6 +4,7 @@ import {
   BEYOND_INTENT_MEANING,
   buildReportModel,
   KIND_NOTES,
+  MODEL_CAUTION_STANDALONE,
   plainText,
   TIER_GLYPH,
   UNNAMED_MODEL,
@@ -973,6 +974,35 @@ describe("buildReportModel intent-gap index", () => {
     );
     expect(m.intentGap[0].file).toContain("[U+202E]");
     expect(m.intentGap[0].file).not.toContain(RLO);
+  });
+
+  it("attributes the index exactly when it carries a standalone claim", () => {
+    const withClaim = buildReportModel(
+      changeset(),
+      [finding({ id: "claim:0:c1", tier: "model", evidence: [], beyondIntent: true })],
+      { warnings: [], model: "claude-opus-5" },
+    );
+    expect(withClaim.intentGapAttribution).toContain("claude-opus-5");
+    expect(withClaim.intentGapAttribution).toContain(MODEL_CAUTION_STANDALONE);
+
+    // A fact-backed entry's label is a kind, not model prose, so it needs no
+    // such caution and must not summon one.
+    const withoutClaim = buildReportModel(
+      changeset(),
+      [finding({ id: "guard_removed:b.ts:auth", tier: "inferred", beyondIntent: true })],
+      { warnings: [], model: "claude-opus-5" },
+    );
+    expect(withoutClaim.intentGapAttribution).toBeUndefined();
+  });
+
+  it("names an unrecorded model rather than dropping attribution", () => {
+    // Visibly incomplete attribution beats absent attribution.
+    const m = buildReportModel(
+      changeset(),
+      [finding({ id: "claim:0:c1", tier: "model", evidence: [], beyondIntent: true })],
+      { warnings: [] },
+    );
+    expect(m.intentGapAttribution).toContain(UNNAMED_MODEL);
   });
 
   it("points at every marked finding exactly once, and drops none from findings", () => {

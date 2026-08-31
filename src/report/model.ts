@@ -324,6 +324,19 @@ export interface ReportModel {
    */
   intentGap: IntentGapEntry[];
   /**
+   * Whose judgement the index is, present exactly when `intentGap` holds a
+   * standalone entry. A standalone claim's summary appearing in the index is
+   * the same sentence `modelNote` carries with attribution elsewhere, in a
+   * less-attributed place, and a bare tier tag is weaker than
+   * `MODEL_CAUTION_STANDALONE` requires. Every surface renders this
+   * unconditionally when present.
+   *
+   * Gated on standalone entries only: a fact-backed entry's label is a kind,
+   * not model prose, so the caution would be describing something that is not
+   * there.
+   */
+  intentGapAttribution?: string;
+  /**
    * BEYOND_INTENT_MEANING, present exactly when at least one finding carries
    * the mark. Deliberately NOT in `notes`: a badge doing its job is not a
    * shortfall, and it must not trip partial-review copy — the same rule
@@ -854,6 +867,13 @@ export function buildReportModel(
   if (distributionNote) model.distributionNote = distributionNote;
   if (model.findings.some((f) => f.beyondIntent)) {
     model.beyondIntentLegend = BEYOND_INTENT_MEANING;
+  }
+  // The same absent-or-present gating the legend above uses, on the same
+  // reasoning: copy that describes something the report does not contain is
+  // copy a reader learns to skip.
+  if (model.intentGap.some((e) => e.tier === "model")) {
+    model.intentGapAttribution =
+      `Marked by ${modelName ?? UNNAMED_MODEL}. For model-only entries: ${MODEL_CAUTION_STANDALONE}`;
   }
   return model;
 }
