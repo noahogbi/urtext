@@ -1006,3 +1006,46 @@ describe("renderHtml beyond stated intent", () => {
     expect(html).not.toContain("beyond stated intent");
   });
 });
+
+describe("the intent-gap index", () => {
+  const marked = (meta: Partial<ReportMeta> = {}) =>
+    buildReportModel(
+      changeset,
+      [
+        finding({
+          id: "guard_removed:src/auth.ts:session",
+          tier: "inferred",
+          file: "src/auth.ts",
+          line: 142,
+          beyondIntent: true,
+        }),
+      ],
+      { warnings: [], ...meta },
+    );
+
+  it("renders the index inside the header, above the lens panes", () => {
+    const html = renderHtml(marked());
+    expect(html).toContain("Not described by this change&#39;s messages (1)");
+    // Target the section markup, never the bare class name: the `.intent-gap`
+    // CSS lives in the static STYLE string emitted in <head> on every page,
+    // so `indexOf("intent-gap")` finds the stylesheet and is vacuously less
+    // than anything in the body.
+    expect(html.indexOf('<section class="intent-gap"')).toBeLessThan(
+      html.indexOf('class="tabs"'),
+    );
+  });
+
+  it("keeps the index below the partial-review banner", () => {
+    // A disclosure must never be pushed below a block that is not itself one.
+    const html = renderHtml(marked({ warnings: ["the surfaceAnalyzer analyzer failed"] }));
+    expect(html.indexOf('class="banner"')).toBeLessThan(
+      html.indexOf('<section class="intent-gap"'),
+    );
+  });
+
+  it("renders no index section when nothing is marked", () => {
+    // Not `not.toContain("intent-gap")` — the stylesheet always contains it.
+    const html = renderHtml(buildReportModel(changeset, [finding()], { warnings: [] }));
+    expect(html).not.toContain('<section class="intent-gap"');
+  });
+});

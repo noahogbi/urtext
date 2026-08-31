@@ -459,6 +459,31 @@ function headerHtml(m: ReportModel): string {
   // analyzers could not reach is coverage, not a partial review.
   const unanalyzed = m.unanalyzedNote ? `<p class="coverage">${esc(m.unanalyzedNote)}</p>` : "";
 
+  // Inside the header, so it spans the three lens panes rather than sitting in
+  // one of them — it indexes findings across all three. Below the legend for
+  // the reason the terminal and Markdown put it there: the reader meets the
+  // badge's meaning before the block that aggregates it.
+  const intentGap =
+    m.intentGap.length > 0
+      ? `<section class="intent-gap"><h2>${esc(
+          `Not described by this change's messages (${m.intentGap.length})`,
+        )}</h2><ul>${m.intentGap
+          .map(
+            (e) =>
+              `<li><span class="badge badge-${e.tier}">${esc(TIER_WORD[e.tier])}</span> ` +
+              // `seg`, not a flattened string: segmented content goes through
+              // the walker that keeps a concealed code point in its `.ctrl`
+              // span. Flattening would make the index the one surface
+              // rendering concealment differently from every other.
+              `${seg(e.label)} <span class="loc">${esc(`${e.file}:${e.line}`)}</span></li>`,
+          )
+          .join("")}</ul>${
+          m.intentGapAttribution
+            ? `<p class="attribution">${esc(m.intentGapAttribution)}</p>`
+            : ""
+        }</section>`
+      : "";
+
   const legend = TIER_ORDER.map(
     (tier) =>
       `<li><span class="badge badge-${tier}">${TIER_GLYPH[tier]} ${esc(TIER_WORD[tier])}</span> ${esc(TIER_MEANING[tier])}</li>`,
@@ -483,6 +508,7 @@ function headerHtml(m: ReportModel): string {
     distributionNote,
     kindNotes,
     `<details class="legend"><summary>What the three tiers mean</summary><ul>${legend}${intentLegend}</ul></details>`,
+    intentGap,
     `</header>`,
   ].join("");
 }
@@ -542,6 +568,11 @@ header { border-bottom: 1px solid var(--rule); padding-bottom: 1.25rem; }
 .chip-inferred { color: var(--inferred); background: var(--inferred-bg); border-color: transparent; }
 .chip-model { color: var(--model); background: var(--model-bg); border-color: transparent; }
 .chip-before { font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; color: var(--model); background: var(--model-bg); border-color: transparent; }
+.intent-gap { margin: 1.2rem 0 0; padding: .8rem 1rem; border: 1px solid var(--rule); border-radius: 4px; }
+.intent-gap h2 { font-size: .95rem; margin: 0 0 .5rem; }
+.intent-gap ul { list-style: none; margin: 0; padding: 0; }
+.intent-gap .loc { color: var(--muted); }
+.intent-gap .attribution { font-size: .85rem; color: var(--muted); margin: .6rem 0 0; }
 .provenance, .coverage { font-size: .85rem; color: var(--muted); margin: .8rem 0 0; }
 .banner {
   margin: 1rem 0 0; padding: .7rem .9rem; border-radius: .4rem;
