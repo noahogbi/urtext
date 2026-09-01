@@ -300,7 +300,7 @@ function effectsLens(findings: FindingView[]): string {
     section("Guards", "Checks that ran before and do not run now.", guards, "guards"),
     section("Contracts", "Promises other code was compiled against.", contracts, "contracts"),
   ].filter((p) => p !== "");
-  // Names all three kinds of finding this lens does not show. It used to name
+  // Names all four kinds of finding this lens does not show. It used to name
   // only the first, while the model classifies a standalone reach finding
   // under a subject no section filters on — so a reader was told the
   // narrative held nothing extra except model claims, and it held that too.
@@ -310,7 +310,7 @@ function effectsLens(findings: FindingView[]): string {
   // from prose, and the baseline-less path deliberately claims nothing about
   // what the pointer used to do — so the clause names both sources and states
   // only that the pointer does not hold now.
-  const note = `<p class="blurb">Built from what the analyzers proved, and not the whole list. A model-only claim has no analyzer behind it to classify. A standalone reach finding — a changed export with callers, and nothing else known about it — reports cost rather than a problem, and belongs to none of these three. A citation finding — a line of prose or a comment in this repository whose pointer into the code does not hold at this revision — belongs to none of them either. All three appear in the narrative.</p>`;
+  const note = `<p class="blurb">Built from what the analyzers proved, and not the whole list. A model-only claim has no analyzer behind it to classify. A standalone reach finding — a changed export with callers, and nothing else known about it — reports cost rather than a problem, and belongs to none of these three. A citation finding — a line of prose or a comment in this repository whose pointer into the code does not hold at this revision — belongs to none of them either. A dependency finding — a change to what package.json declares — belongs to none of them either. All four appear in the narrative.</p>`;
   if (parts.length === 0) {
     // Describes the filter, not the change. A lens is a view over findings
     // the model classified by id prefix, and if that classification ever

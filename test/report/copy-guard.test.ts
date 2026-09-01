@@ -66,6 +66,20 @@ const findings: Finding[] = [
     beyondIntent: true,
   },
   {
+    // A dependency finding with the longest body (runtime map), so the new
+    // titles, bodies, and the shared kind note render on every surface the
+    // guard scans — the guard is total over copy only if the fixture
+    // produces it.
+    id: "dependency_added:package.json:dependencies:left-pad",
+    tier: "verified",
+    file: "package.json",
+    line: 12,
+    title: "adds left-pad to dependencies",
+    body: "package.json now declares `left-pad` (`^1.3.0`) in `dependencies`. A runtime dependency installs for every consumer; its install scripts run whether or not anything imports it.",
+    score: 55,
+    evidence: [{ file: "package.json", line: 12, excerpt: '"left-pad": "^1.3.0"' }],
+  },
+  {
     id: "claim:0:c1",
     tier: "model",
     file: "a.ts",
@@ -252,7 +266,12 @@ describe("coverage disclosures reach every surface", () => {
       range: { from: "abc123", to: WORKTREE, label: "vs origin/main" },
       files: [
         { path: "a.ts", status: "modified", hunks: [], symbols: [] },
-        { path: "package.json", status: "modified", hunks: [], symbols: [] },
+        // Not package.json: the fixture now carries a verified dependency
+        // finding anchored there, and the unanalyzed-files rule correctly
+        // drops a file an analyzer reported on — which would empty the very
+        // note this test pins across surfaces. A workflow file is what no
+        // analyzer reports on.
+        { path: "ci.yml", status: "modified", hunks: [], symbols: [] },
       ],
     },
     findings,

@@ -1097,3 +1097,28 @@ describe("dependency routing", () => {
     expect(m.findings[0].subject).toBe("dependency");
   });
 });
+
+describe("dependency kind notes", () => {
+  it("states the manifest-versus-lockfile note once for any mix of dependency kinds", () => {
+    // The note is shared by three kinds; a kind-keyed dedup would print it
+    // once per kind present.
+    const m = buildReportModel(
+      changeset(),
+      [
+        finding({
+          id: "dependency_added:package.json:dependencies:a",
+          tier: "verified",
+          file: "package.json",
+        }),
+        finding({
+          id: "dependency_removed:package.json:dependencies:b",
+          tier: "verified",
+          file: "package.json",
+        }),
+      ],
+      { warnings: [] },
+    );
+    const depNotes = m.kindNotes.filter((n) => n.includes("lockfile decides"));
+    expect(depNotes).toHaveLength(1);
+  });
+});

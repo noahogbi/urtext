@@ -224,3 +224,22 @@ describe("unanalyzedFilesNote", () => {
     expect(note).toContain("comes from the model alone");
   });
 });
+
+describe("unanalyzedFiles and renames", () => {
+  it("does not list a renamed file whose evidence names its old path", () => {
+    // A renamed manifest whose only facts are removals carries before-side
+    // evidence under its old name; a disclaimer above its own findings is
+    // the bug this function exists to avoid.
+    const cs = changesetWith([
+      {
+        path: "pkgs/b/package.json",
+        previousPath: "pkgs/a/package.json",
+        status: "renamed",
+        hunks: [],
+        symbols: [],
+      },
+    ]);
+    const f = findingOn("pkgs/a/package.json", "verified");
+    expect(unanalyzedFiles(cs, [f])).toEqual([]);
+  });
+});

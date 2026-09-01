@@ -538,12 +538,23 @@ const SUBJECT_OF_KIND = {
  * subject because `signature_changed` and `export_added` share the `surface`
  * subject and mean different things.
  */
+/**
+ * Shared by the three dependency kinds: the calibration a reader needs once
+ * per review is the same for all of them, and `kindNotesFor` dedupes by note
+ * text so it prints once however many are present.
+ */
+const DEPENDENCY_NOTE =
+  "Dependency findings report the manifest's declared constraints; within a range, the lockfile decides what actually resolves.";
+
 export const KIND_NOTES: Record<string, string> = {
   blast_radius: "Reach findings report how widely a changed export is used. Wide reach is not a defect; it is the cost of getting one wrong.",
   signature_changed:
     "A changed contract can break callers without breaking the build at the file that changed, so check the call sites.",
   export_added:
     "Newly exported surface is worth a look, but it cannot break an existing caller.",
+  dependency_added: DEPENDENCY_NOTE,
+  dependency_removed: DEPENDENCY_NOTE,
+  dependency_changed: DEPENDENCY_NOTE,
 };
 
 /**
@@ -636,14 +647,18 @@ function kindOf(id: string): string | undefined {
  * in the order the kinds first appear.
  */
 function kindNotesFor(findings: Finding[]): string[] {
+  // Deduped by note text, not by kind: the three dependency kinds share one
+  // sentence, and a review holding two of them owes the reader that sentence
+  // once. Identical behaviour for every other kind, whose notes are all
+  // distinct.
   const seen = new Set<string>();
   const notes: string[] = [];
   for (const f of findings) {
     const kind = kindOf(f.id);
     if (kind === undefined) continue;
     const note = KIND_NOTES[kind];
-    if (note && !seen.has(kind)) {
-      seen.add(kind);
+    if (note && !seen.has(note)) {
+      seen.add(note);
       notes.push(note);
     }
   }
