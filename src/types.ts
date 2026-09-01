@@ -105,7 +105,10 @@ export type FactKind =
   | "export_removed"
   | "signature_changed"
   | "blast_radius"
-  | "citation_rot";
+  | "citation_rot"
+  | "dependency_added"
+  | "dependency_removed"
+  | "dependency_changed";
 
 export interface EvidenceRef {
   file: string;

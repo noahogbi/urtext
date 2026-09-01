@@ -47,6 +47,15 @@ export const WEIGHTS = {
     // kinds that report new public surface or a regression. See
     // `test/score/index.test.ts`.
     citation_rot: 18,
+    // A dependency change alters what installs and executes — install
+    // scripts run whether or not any source file imports the package — so
+    // these sit between the effect kinds and the new-surface kinds. An
+    // addition outranks a removal outranks a range change; the map
+    // multiplier below separates runtime from dev within each. Proposed, not
+    // yet calibrated against real diffs, like everything in this table.
+    dependency_added: 55,
+    dependency_removed: 45,
+    dependency_changed: 30,
   } satisfies Record<Fact["kind"], number>,
   effect: {
     network: 1.0,
@@ -56,6 +65,18 @@ export const WEIGHTS = {
     env: 0.6,
     timing: 0.4,
   } satisfies Record<EffectKind, number>,
+  /**
+   * Scales a dependency fact by which map declared it. Runtime maps ship to
+   * every consumer; dev and optional maps do not, and dev churn is constant
+   * in an active repository — unscaled, a run of devDependency bumps buries
+   * the one runtime addition that matters.
+   */
+  dependencyMap: {
+    dependencies: 1,
+    peerDependencies: 1,
+    devDependencies: 0.5,
+    optionalDependencies: 0.5,
+  } as Record<string, number>,
 };
 
 function effectOf(fact: Fact): EffectKind {
@@ -89,6 +110,15 @@ export function scoreFact(fact: Fact): number {
     // deciding blast radius should outrank a removed guard, which it should
     // not.
     return Math.min(logScaled, WEIGHTS.factKind.effect_added);
+  }
+
+  if (
+    fact.kind === "dependency_added" ||
+    fact.kind === "dependency_removed" ||
+    fact.kind === "dependency_changed"
+  ) {
+    const map = typeof fact.detail.map === "string" ? fact.detail.map : "dependencies";
+    return base * (WEIGHTS.dependencyMap[map] ?? 1);
   }
 
   return base;
@@ -132,6 +162,19 @@ export function minPossibleAnalyzerScore(): number {
       // src/analyze/blast-radius.ts, `if (refs.length === 0) continue;`),
       // so nothing weaker exists.
       return [scoreFact(syntheticFact(kind, { references: 1 }))];
+    }
+    if (
+      kind === "dependency_added" ||
+      kind === "dependency_removed" ||
+      kind === "dependency_changed"
+    ) {
+      // A dependency fact always carries a map — a `{}` synthetic is an
+      // input the analyzer cannot produce, and a floor computed from an
+      // impossible shape is one nobody notices going wrong when the
+      // multipliers move under calibration.
+      return Object.keys(WEIGHTS.dependencyMap).map((map) =>
+        scoreFact(syntheticFact(kind, { map })),
+      );
     }
     return [scoreFact(syntheticFact(kind, {}))];
   });
@@ -416,6 +459,36 @@ export function toFinding(fact: Fact): Finding {
       title = `${symbol} changed and is referenced in ${places}`;
       const leadingSymbol = hasSymbol ? symbol : capitalize(symbol);
       body = `${leadingSymbol} was modified, and ${places} in this repository ${verb} it.`;
+      break;
+    }
+    case "dependency_added": {
+      const map = str(fact.detail.map, "dependencies");
+      const name = str(fact.detail.name, "a package");
+      const to = str(fact.detail.to, "unknown");
+      const runtime = map === "dependencies" || map === "peerDependencies";
+      title = `adds ${name} to ${map}`;
+      body =
+        `package.json now declares \`${name}\` (\`${to}\`) in \`${map}\`.` +
+        (runtime
+          ? " A runtime dependency installs for every consumer; its install scripts run whether or not anything imports it."
+          : "");
+      break;
+    }
+    case "dependency_removed": {
+      const map = str(fact.detail.map, "dependencies");
+      const name = str(fact.detail.name, "a package");
+      const from = str(fact.detail.from, "unknown");
+      title = `removes ${name} from ${map}`;
+      body = `package.json no longer declares \`${name}\` (was \`${from}\`) in \`${map}\`. Anything still importing it now resolves only if something else provides it.`;
+      break;
+    }
+    case "dependency_changed": {
+      const map = str(fact.detail.map, "dependencies");
+      const name = str(fact.detail.name, "a package");
+      const from = str(fact.detail.from, "unknown");
+      const to = str(fact.detail.to, "unknown");
+      title = `changes ${name} in ${map}: ${from} → ${to}`;
+      body = `The declared range moved. This is the manifest's constraint, not what installs: within a range, the lockfile decides what actually resolves.`;
       break;
     }
     case "citation_rot": {

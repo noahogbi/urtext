@@ -1079,3 +1079,21 @@ describe("buildReportModel intent-gap index", () => {
     for (const id of ids) expect(m.findings.some((f) => f.id === id)).toBe(true);
   });
 });
+
+describe("dependency routing", () => {
+  it("routes dependency findings to the narrative lens under the dependency subject", () => {
+    const m = buildReportModel(
+      changeset(),
+      [
+        finding({
+          id: "dependency_added:package.json:dependencies:left-pad",
+          tier: "verified",
+          file: "package.json",
+        }),
+      ],
+      { warnings: [] },
+    );
+    expect(m.findings[0].lens).toBe("narrative");
+    expect(m.findings[0].subject).toBe("dependency");
+  });
+});

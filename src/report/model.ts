@@ -91,11 +91,12 @@ export type Lens = "narrative" | "effects" | "surface";
  * "surface" findings a second time under Contracts. See
  * `test/report/model.test.ts`, "keeps the finer subject beside the lens, so
  * a walker can split effects from guards and show contracts in both panes".
- * "reach" and "citation" have no filtered lens of their own — a standalone
- * reach finding and a citation finding each appear in the narrative only,
- * which the effects pane's note says out loud.
+ * "reach", "citation" and "dependency" have no filtered lens of their own —
+ * a standalone reach finding, a citation finding, and a dependency finding
+ * each appear in the narrative only, which the effects pane's note says out
+ * loud.
  */
-export type Subject = "effect" | "guard" | "surface" | "reach" | "citation";
+export type Subject = "effect" | "guard" | "surface" | "reach" | "citation" | "dependency";
 
 export interface EvidenceView {
   file: string;
@@ -494,6 +495,9 @@ const SUBJECT_OF_KIND = {
   signature_changed: "surface",
   blast_radius: "reach",
   citation_rot: "citation",
+  dependency_added: "dependency",
+  dependency_removed: "dependency",
+  dependency_changed: "dependency",
 } satisfies Record<FactKind, Subject>;
 
 /**
@@ -664,11 +668,12 @@ function subjectOf(id: string): Subject | undefined {
 /**
  * The lens a subject's findings are gathered under. Effects and guards share
  * a pane (as two sections); surface findings have their own; a standalone
- * reach finding and a citation finding each belong to no filtered pane and
- * live in the narrative, which shows every finding regardless of lens. A
- * rotted citation is not an effect, not a guard, and not a change to the
- * public surface: it belongs to the account of what this change did, which
- * is what the narrative is.
+ * reach finding, a citation finding, and a dependency finding each belong to
+ * no filtered pane and live in the narrative, which shows every finding
+ * regardless of lens. A rotted citation is not an effect, not a guard, and
+ * not a change to the public surface — and neither is a change to what
+ * package.json declares: each belongs to the account of what this change
+ * did, which is what the narrative is.
  */
 const LENS_OF_SUBJECT: Record<Subject, Lens> = {
   effect: "effects",
@@ -676,6 +681,7 @@ const LENS_OF_SUBJECT: Record<Subject, Lens> = {
   surface: "surface",
   reach: "narrative",
   citation: "narrative",
+  dependency: "narrative",
 };
 
 function plural(n: number, word: string): string {
