@@ -6,7 +6,17 @@
 
 **Architecture:** A pure diffing core (`dependencyFactsFor`) testable without git, wrapped by a factory analyzer (`makeDependencyAnalyzer({ onNote })`) that handles statuses, renames, and unparseable manifests, registered beside the existing five. Three new `FactKind`s ripple through the enumerated mappings first, so every commit stays green.
 
-**Tech Stack:** TypeScript (strict, ESM, NodeNext), vitest. No new dependencies — the parser is `JSON.parse`.
+**Tech Stack:** TypeScript (strict, ESM, `moduleResolution: "bundler"`), vitest. No new dependencies — the parser is `JSON.parse`.
+
+> **Revision 2, after a Fable review returned REVISE with five blocking findings.** A pasted
+> assertion read `detail` off `rank`'s return type, which is `Finding[]` and has none — it
+> could not compile. Adding the weight 55 retroactively poisons the phrase "the 55th point" in
+> `test/report/terminal.test.ts:377`, because the comment contract derives its forbidden
+> numerals from `WEIGHTS.factKind`. A count-change instruction conflated two "three"s with
+> different referents and would have directed false copy in urtext's own voice. The
+> peerDependenciesMeta test could not fail — its fixture held no real map, so anchoring was
+> never exercised. And a thirteenth silent obligation: `README.md:26-29` calls citations
+> "a fifth of the tool" and enumerates what fires without TypeScript, omitting this feature.
 
 **Spec:** `docs/superpowers/specs/2026-09-01-urtext-dependency-facts-design.md` (revision 3, after two Fable reviews). Read it first — its "What earlier revisions got wrong" section names nine errors already made and corrected while designing this; the plan exists to not remake them.
 
@@ -84,11 +94,12 @@ describe("dependency findings", () => {
 
   it("ranks a runtime addition above the same addition in devDependencies", () => {
     // Through rank, not by reading weights — the multiplier only matters if
-    // the sort feels it.
+    // the sort feels it. `rank` returns Finding[], which carries no `detail`;
+    // the map is recovered from the id, which Task 2's format embeds.
     const runtime = dep("dependency_added", { map: "dependencies", name: "a", to: "1" });
     const dev = dep("dependency_added", { map: "devDependencies", name: "b", to: "1" });
     const ranked = rank([dev, runtime]);
-    expect(ranked[0].detail.map).toBe("dependencies");
+    expect(ranked[0].id).toContain(":dependencies:");
   });
 
   it("routes dependency findings to the narrative lens", () => {
@@ -174,6 +185,11 @@ Add a sibling map to `WEIGHTS` (beside `effect`):
   } as Record<string, number>,
 ```
 
+(`test/comment-contract.test.ts:38-43` derives forbidden numerals from `WEIGHTS.factKind` and
+`WEIGHTS.effect` by name; `dependencyMap`'s 1 and 0.5 do not join the set. Deliberate: 1 is
+too common a numeral to forbid in comments, and extending the derivation is not this
+feature's call. Noted so the omission reads as decided rather than missed.)
+
 In `scoreFact`, after the `blast_radius` branch:
 
 ```typescript
@@ -242,10 +258,22 @@ In the switch (`src/score/index.ts:359-527`), using the file's existing `str` he
     }
 ```
 
-- [ ] **Step 6: Full gate and commit**
+- [ ] **Step 6: Reword the comment the new weight poisons**
+
+`test/comment-contract.test.ts:38-43` derives its forbidden numerals from
+`Object.entries(WEIGHTS.factKind)`, so the weight 55 retroactively forbids existing comments
+that restate it. One does: `test/report/terminal.test.ts:375-377` says "the 55th point — the
+first emoji — survives whole ahead of the ellipsis", and the ordinal matches `NUMBER_RE` with
+no excluded-range pattern covering it. Reword to "the point just past the truncation cap — the
+first emoji — survives whole ahead of the ellipsis". 45 and 30 are clean (checked: the only
+45s are `fact.ts:45` file:line citations, which are excluded).
+
+- [ ] **Step 7: Full gate and commit**
 
 Run: `npx tsc --noEmit && npx vitest run`
-Expected: PASS — including `test/score/reconcile.test.ts` (floor unmoved: 30 × 0.5 = 15 > 6) and the copy guard (new copy has none of the six words).
+Expected: PASS — including `test/score/reconcile.test.ts` (floor unmoved: 30 × 0.5 = 15 > 6)
+and `test/comment-contract.test.ts` after Step 6's reword. The copy guard passes vacuously
+here — its fixture holds no dependency finding until Task 4 extends it.
 
 ```bash
 git add -A
@@ -336,7 +364,7 @@ describe("dependencyFactsFor", () => {
     expect(runtime.line).toBeLessThan(dev.line);
   });
 
-  it("is not fooled by peerDependenciesMeta or overrides", () => {
+  it("produces no facts from peerDependenciesMeta or overrides alone", () => {
     const before = manifest({});
     const afterObj = {
       name: "fixture",
@@ -348,13 +376,37 @@ describe("dependencyFactsFor", () => {
     expect(facts).toEqual([]);
   });
 
+  it("anchors inside the real peerDependencies block, past the Meta superstring", () => {
+    // The anchoring adversary, not just the parsing one: an earlier draft's
+    // fixture held no real map at all, so the scan was never exercised and
+    // the test could not fail. Here `peerDependenciesMeta` comes FIRST,
+    // holding the same package name as a key — a substring match on the map
+    // key, or a first-occurrence match on the name, anchors in the wrong
+    // block.
+    const before = manifest({});
+    const afterObj = {
+      name: "fixture",
+      version: "1.0.0",
+      peerDependenciesMeta: { "left-pad": { optional: true } },
+      peerDependencies: { "left-pad": "^1.3.0" },
+    };
+    const afterText = JSON.stringify(afterObj, null, 2);
+    const [fact] = dependencyFactsFor("package.json", before, afterText);
+    expect(fact.detail.map).toBe("peerDependencies");
+    const lines = afterText.split("
+");
+    expect(lines[fact.line - 1]).toContain('"left-pad": "^1.3.0"');
+  });
+
   it("throws ManifestParseError naming the unparseable side", () => {
-    expect(() => dependencyFactsFor("package.json", "{ not json", manifest({}))).toThrow(ManifestParseError);
-    try {
-      dependencyFactsFor("package.json", manifest({}), "{ nope");
-    } catch (e) {
-      expect((e as ManifestParseError).side).toBe("after");
-    }
+    // Not try/catch with an assertion in the catch body — if nothing throws,
+    // a catch-body assertion never runs and the test passes vacuously.
+    expect(() => dependencyFactsFor("package.json", "{ not json", manifest({}))).toThrowError(
+      expect.objectContaining({ side: "before" }),
+    );
+    expect(() => dependencyFactsFor("package.json", manifest({}), "{ nope")).toThrowError(
+      expect.objectContaining({ side: "after" }),
+    );
   });
 
   it("returns no facts when nothing changed", () => {
@@ -596,7 +648,15 @@ it("does not list a renamed file whose evidence names its old path", () => {
 
 - [ ] **Step 3: Implement**
 
-`html.ts:313` — extend the sentence before its final clause: `… belongs to none of them either. A dependency finding — a change to what package.json declares — belongs to none of them either. All four appear in the narrative.` (Reword to read well; keep every existing clause; the count word changes from three to four in both places it appears.)
+`html.ts:313` — the sentence contains "three" twice **with different referents**, and only one
+changes. "belongs to none of these three" counts the three lens sections built above it
+(Effects, Guards, Contracts — still three after this feature, since dependency findings route
+to the narrative); "All three appear in the narrative" counts the narrative-only kinds, which
+becomes four. Insert the dependency clause before the final sentence and change only that
+count: `… belongs to none of them either. A dependency finding — a change to what package.json
+declares — belongs to none of them either. All four appear in the narrative.` Also bump the
+count in the comment above (`html.ts:303`, "Names all three kinds of finding this lens does
+not show" → four) — this repository's citation analyzer reads its own comments.
 
 `model.ts` — `KIND_NOTES` gains one shared sentence under all three kinds:
 
@@ -621,7 +681,15 @@ with `const DEPENDENCY_NOTE = "Dependency findings report the manifest's declare
 
 (Update the function's doc comment: a renamed manifest whose only facts are removals carries before-side evidence under its old name, and a disclaimer above its own findings is the bug this function exists to avoid.)
 
-- [ ] **Step 4: Full gate and commit**
+- [ ] **Step 4: Make the copy guard total over the new copy**
+
+`test/report/copy-guard.test.ts:55-78`'s fixture findings carry no dependency finding, so the
+guard passes over the new titles, bodies, and `DEPENDENCY_NOTE` without scanning them. Add one
+dependency finding to that fixture (any kind, runtime map, so the longest body renders) — the
+guard and the all-surfaces tests then scan the new copy on every run rather than trusting a
+one-time manual check.
+
+- [ ] **Step 5: Full gate and commit**
 
 Run: `npx tsc --noEmit && npx vitest run`
 
@@ -637,9 +705,22 @@ git commit -m "feat: extend the sites no compiler protects for dependency findin
 **Files:**
 - Modify: `README.md` (~line 33: "Five analyzers run over the change:"), `CHANGELOG.md`, `docs/superpowers/specs/2026-09-01-urtext-dependency-facts-design.md` (status)
 
-The spec's postmortem records grep finding seven of ten obligations; planning found a twelfth neither revision names: **the README enumerates the five analyzers by name.** A sixth analyzer makes that sentence false in the project's front door.
+The spec's postmortem records grep finding seven of ten obligations; planning found a
+twelfth (the analyzer count), and the plan's review found a **thirteenth**: `README.md:26-29`
+calls the citations analyzer "a fifth of the tool" — arithmetically false with six analyzers —
+and enumerates what still fires on a non-TypeScript repository while omitting this feature's
+headline capability. The twelfth's original sweep (`grep "[Ff]ive"`) matched neither "fifth"
+nor "four code analyzers": a search pattern composed rather than checked against the text it
+must find, which is the spec postmortem's item 3 recurring inside the step written to fix it.
 
-- [ ] **Step 1: README** — "Five" becomes "Six"; add the bullet in the analyzer list: `- **dependencies** — package.json entries added, removed, or version-changed, in any of the four dependency maps`. Check for any other count of analyzers: `grep -n "[Ff]ive" README.md SECURITY.md action.yml`.
+- [ ] **Step 1: README** — three edits, then a real sweep:
+  - "Five analyzers run over the change:" → "Six analyzers run over the change:", plus the
+    bullet: `- **dependencies** — package.json entries added, removed, or version-changed, in any of the four dependency maps`
+  - `README.md:26-29`: "a fifth of the tool" → recount (citations and dependencies are two of
+    six), and extend the non-TypeScript sentence: the dependencies analyzer still reads
+    `package.json`. Reword the whole aside so it stays true rather than patching numbers into
+    the old sentence.
+  - Sweep with patterns checked against the text: `grep -niE "five|fifth|sixth|four code|analyzers" README.md SECURITY.md action.yml docs/superpowers/specs/2026-09-01-urtext-dependency-facts-design.md` and read every hit.
 
 - [ ] **Step 2: CHANGELOG** — add an Unreleased/0.4.0 section describing the feature in the 0.3.0 entry's voice: what it reports, that it is verified-tier and works under `--no-llm`, the manifest-versus-lockfile caveat, and the untracked-workspace limit.
 
@@ -658,7 +739,7 @@ git commit -m "docs: document the dependency analyzer"
 
 The spec: "Calibrating against real ranges is part of the implementation, not a follow-up." Free — every run is `--no-llm`.
 
-- [ ] **Step 1:** Build (`npm run build`), then run `node dist/bin.js review --no-llm --json <range>` over at least: `HEAD~14...HEAD~6` on this repository at master (the range whose package.json change motivated the feature — adjust the range to wherever that commit now sits: `git log --oneline --follow package.json`), a range in `C:/users/noaho/omnisscientia` with a manifest change, and this branch's own diff if it touches package.json.
+- [ ] **Step 1:** Build (`npm run build`), then run `node dist/bin.js review --no-llm --json <range>` over at least: a master range containing `d2d40bc` ("docs: prepare the 0.3.0 release", the nearest manifest change — at review time it sat at `master~2`; re-locate with `git log --oneline master -- package.json`), a range in `C:/users/noaho/omnisscientia` with a manifest change, and this branch's own diff if it touches package.json. An earlier draft named `HEAD~14...HEAD~6`, which no longer touches any manifest at current master and would have "calibrated" on zero findings.
 
 - [ ] **Step 2:** For each, record in the PR description: where dependency findings ranked, whether a runtime change outranked dev changes in the same review, and whether any finding's anchor line was wrong (open the manifest and look).
 
