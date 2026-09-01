@@ -56,8 +56,12 @@ beforeAll(() => {
 });
 
 describe("all analyzers together", () => {
-  it("registers five analyzers", () => {
-    expect(ANALYZERS).toHaveLength(5);
+  it("registers six analyzers", () => {
+    expect(ANALYZERS).toHaveLength(6);
+  });
+
+  it("registers the dependency analyzer under its own name", () => {
+    expect(ANALYZERS.map((a) => a.name)).toContain("dependencyAnalyzer");
   });
 
   it("registers the citations analyzer under its own name", () => {

@@ -1,5 +1,5 @@
 import { makeFact } from "./fact.js";
-import type { EvidenceRef, Fact } from "../types.js";
+import type { Analyzer, EvidenceRef, Fact } from "../types.js";
 
 /**
  * Deterministic facts from a package.json diff: entries added to, removed
@@ -174,3 +174,52 @@ export function dependencyFactsFor(
   }
   return facts;
 }
+
+/**
+ * The analyzer, as a factory for the same reason `makeCitationsAnalyzer` is
+ * one: `Analyzer` returns facts and has no channel for anything else, and a
+ * manifest that does not parse must become one warnings line, not a throw.
+ * A throw brands the whole review partial and — because `runAnalyzers` keeps
+ * facts per analyzer, not per file — discards what every other manifest in
+ * the changeset already produced.
+ */
+export function makeDependencyAnalyzer(
+  options: { onNote?: (note: string) => void } = {},
+): Analyzer {
+  const dependencyAnalyzer: Analyzer = async (changeset, ctx): Promise<Fact[]> => {
+    const facts: Fact[] = [];
+    for (const file of changeset.files) {
+      if (file.path !== "package.json" && !file.path.endsWith("/package.json")) continue;
+      // The before side resolves through the rename field, like every peer
+      // analyzer: reading the new path at the old revision returns null, and
+      // a null before side would emit every entry as dependency_added — a
+      // screen of false verified findings from one directory move.
+      const beforePath = file.previousPath ?? file.path;
+      const beforeText =
+        file.status === "added" ? null : await ctx.readAt(ctx.range.from, beforePath);
+      const afterText =
+        file.status === "deleted" ? null : await ctx.readAt(ctx.range.to, file.path);
+      try {
+        facts.push(...dependencyFactsFor(file.path, beforeText, afterText));
+      } catch (e) {
+        if (e instanceof ManifestParseError) {
+          options.onNote?.(
+            `${file.path} did not parse on the ${e.side} side, so its dependency changes were not analyzed.`,
+          );
+          continue;
+        }
+        throw e;
+      }
+    }
+    return facts;
+  };
+  // Written down rather than derived: this binding shadows the module-level
+  // singleton below, and esbuild renames shadowed bindings, taking the
+  // inferred name with it. See makeCitationsAnalyzer, which learned this
+  // first.
+  Object.defineProperty(dependencyAnalyzer, "name", { value: "dependencyAnalyzer" });
+  return dependencyAnalyzer;
+}
+
+/** The default instance `ANALYZERS` registers; `review` swaps in a configured one. */
+export const dependencyAnalyzer: Analyzer = makeDependencyAnalyzer();

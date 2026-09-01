@@ -1,6 +1,7 @@
 import type { AnalysisContext, Analyzer, Changeset, Fact } from "../types.js";
 import { blastRadiusAnalyzer } from "./blast-radius.js";
 import { citationsAnalyzer } from "./citations.js";
+import { dependencyAnalyzer } from "./dependencies.js";
 import { effectsAnalyzer } from "./effects.js";
 import { guardsAnalyzer } from "./guards.js";
 import { surfaceAnalyzer } from "./surface.js";
@@ -10,6 +11,7 @@ export { collectGuards, guardsAnalyzer } from "./guards.js";
 export { exportedSignatures, surfaceAnalyzer } from "./surface.js";
 export { countReferences, blastRadiusAnalyzer } from "./blast-radius.js";
 export { citationsAnalyzer, makeCitationsAnalyzer } from "./citations.js";
+export { dependencyAnalyzer, makeDependencyAnalyzer } from "./dependencies.js";
 export { createProgramAt, listTypeScriptFilesAt } from "./program.js";
 
 export { makeFact } from "./fact.js";
@@ -20,6 +22,7 @@ export const ANALYZERS: Analyzer[] = [
   surfaceAnalyzer,
   blastRadiusAnalyzer,
   citationsAnalyzer,
+  dependencyAnalyzer,
 ];
 
 /** One analyzer that threw, named so the user knows what is missing. */
