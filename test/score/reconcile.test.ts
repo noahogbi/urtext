@@ -61,6 +61,18 @@ describe("MODEL_CEILING", () => {
         }
       } else if (kind === "blast_radius") {
         scores.push(scoreFact(fact("x", { kind, detail: { references: 1 } })));
+      } else if (
+        kind === "dependency_added" ||
+        kind === "dependency_removed" ||
+        kind === "dependency_changed"
+      ) {
+        // Enumerated like the effects above, and for the same reason: these
+        // kinds scale by detail, and a `{}` here would recompute the floor
+        // from an input the analyzer cannot produce — sharing the exact
+        // blind spot this independent recomputation exists to catch.
+        for (const map of Object.keys(WEIGHTS.dependencyMap)) {
+          scores.push(scoreFact(fact("x", { kind, detail: { map } })));
+        }
       } else {
         scores.push(scoreFact(fact("x", { kind, detail: {} })));
       }

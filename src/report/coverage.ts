@@ -157,8 +157,17 @@ export function unanalyzedFiles(changeset: Changeset, findings: Finding[]): stri
     if (finding.tier === "model") continue;
     for (const ref of finding.evidence) reported.add(ref.file);
   }
+  // Either of a file's names counts: a renamed manifest whose only facts are
+  // removals carries before-side evidence under its old path, and a
+  // disclaimer printed above its own findings is the mistake this function
+  // exists to avoid.
   return changeset.files
-    .filter((f) => !isTypeScriptFile(f.path) && !reported.has(f.path))
+    .filter(
+      (f) =>
+        !isTypeScriptFile(f.path) &&
+        !reported.has(f.path) &&
+        !(f.previousPath !== undefined && reported.has(f.previousPath)),
+    )
     .map((f) => f.path);
 }
 

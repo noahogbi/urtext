@@ -3,6 +3,8 @@ import { fileURLToPath } from "node:url";
 import {
   ANALYZERS,
   citationsAnalyzer,
+  dependencyAnalyzer,
+  makeDependencyAnalyzer,
   makeCitationsAnalyzer,
   runAnalyzers,
 } from "./analyze/index.js";
@@ -401,7 +403,11 @@ export async function review(
           exclude: opts.citationsExclude ?? [],
           onNote: (note) => warnings.push(note),
         })
-      : a,
+      : // The same swap for the same reason: a manifest that does not parse
+        // becomes one warnings line instead of a failed analyzer.
+        a === dependencyAnalyzer
+        ? makeDependencyAnalyzer({ onNote: (note) => warnings.push(note) })
+        : a,
   );
   let failureCount = 0;
   const facts = await runAnalyzers(changeset, ctx, runnable, (f) => {

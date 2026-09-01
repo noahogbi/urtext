@@ -735,6 +735,49 @@ describe("review", () => {
     expect(parsed.intentGap).toEqual([]);
   });
 
+  it("says a manifest could not be read, and keeps the other manifest's facts", async () => {
+    // One unparseable manifest must not discard the facts the other one
+    // produced, and must not brand the review partial: the analyzer notes
+    // it and continues.
+    const twoPkg = mkCanonicalTempDir("urtext-cli-manifests-");
+    const run = (args: string[]) => gitIn(twoPkg, args);
+    run(["init", "-b", "main"]);
+    run(["config", "user.email", "test@example.com"]);
+    run(["config", "user.name", "Test"]);
+    mkdirSync(join(twoPkg, "pkgs", "a"), { recursive: true });
+    mkdirSync(join(twoPkg, "pkgs", "b"), { recursive: true });
+    writeFileSync(
+      join(twoPkg, "pkgs", "a", "package.json"),
+      JSON.stringify({ name: "a", version: "1.0.0" }, null, 2),
+    );
+    writeFileSync(
+      join(twoPkg, "pkgs", "b", "package.json"),
+      JSON.stringify({ name: "b", version: "1.0.0" }, null, 2),
+    );
+    run(["add", "-A"]);
+    run(["commit", "-m", "first"]);
+    writeFileSync(join(twoPkg, "pkgs", "a", "package.json"), "{ mid-merge nonsense");
+    writeFileSync(
+      join(twoPkg, "pkgs", "b", "package.json"),
+      JSON.stringify(
+        { name: "b", version: "1.0.0", dependencies: { "left-pad": "^1.3.0" } },
+        null,
+        2,
+      ),
+    );
+
+    const r = await review(twoPkg, { command: "review", json: true, noLlm: true, help: false });
+    const parsed = JSON.parse(r.output);
+    expect(
+      parsed.warnings.some((w: string) => w.includes("did not parse")),
+    ).toBe(true);
+    expect(
+      parsed.findings.some((f: Finding) =>
+        f.id.startsWith("dependency_added:pkgs/b/package.json:"),
+      ),
+    ).toBe(true);
+  });
+
   it("reports an empty unanalyzed list when every changed file is TypeScript", async () => {
     // Always present, zero included — the rule the neighbouring keys follow.
     const r = await review(repo, { command: "review", json: true, noLlm: true, help: false });

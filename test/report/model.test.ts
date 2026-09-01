@@ -1079,3 +1079,46 @@ describe("buildReportModel intent-gap index", () => {
     for (const id of ids) expect(m.findings.some((f) => f.id === id)).toBe(true);
   });
 });
+
+describe("dependency routing", () => {
+  it("routes dependency findings to the narrative lens under the dependency subject", () => {
+    const m = buildReportModel(
+      changeset(),
+      [
+        finding({
+          id: "dependency_added:package.json:dependencies:left-pad",
+          tier: "verified",
+          file: "package.json",
+        }),
+      ],
+      { warnings: [] },
+    );
+    expect(m.findings[0].lens).toBe("narrative");
+    expect(m.findings[0].subject).toBe("dependency");
+  });
+});
+
+describe("dependency kind notes", () => {
+  it("states the manifest-versus-lockfile note once for any mix of dependency kinds", () => {
+    // The note is shared by three kinds; a kind-keyed dedup would print it
+    // once per kind present.
+    const m = buildReportModel(
+      changeset(),
+      [
+        finding({
+          id: "dependency_added:package.json:dependencies:a",
+          tier: "verified",
+          file: "package.json",
+        }),
+        finding({
+          id: "dependency_removed:package.json:dependencies:b",
+          tier: "verified",
+          file: "package.json",
+        }),
+      ],
+      { warnings: [] },
+    );
+    const depNotes = m.kindNotes.filter((n) => n.includes("lockfile decides"));
+    expect(depNotes).toHaveLength(1);
+  });
+});

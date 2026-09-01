@@ -374,7 +374,8 @@ describe("renderTerminal concealing characters", () => {
   it("never splits a surrogate pair at the excerpt truncation boundary", () => {
     // An astral character straddling the code-unit cut left a lone surrogate
     // that renders as U+FFFD. Truncation counts code points now, so the
-    // 55th point — the first emoji — survives whole ahead of the ellipsis.
+    // point just past the truncation cap — the first emoji — survives whole
+    // ahead of the ellipsis.
     const excerpt = "x".repeat(54) + "\u{1F600}\u{1F600}\u{1F600}";
     const out = renderTerminal(
       model(changeset, [finding({ evidence: [{ file: "a.ts", line: 3, excerpt }] })]),

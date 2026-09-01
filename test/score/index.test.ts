@@ -891,3 +891,57 @@ describe("reach never buries a defect", () => {
     expect(findings.map((f) => f.id)).toEqual(["many", "few"]);
   });
 });
+
+describe("dependency findings", () => {
+  const dep = (kind: Fact["kind"], detail: Record<string, unknown>): Fact =>
+    fact({
+      id: `${kind}:package.json:${String(detail.map)}:${String(detail.name)}`,
+      kind,
+      file: "package.json",
+      line: 12,
+      detail,
+      evidence: [{ file: "package.json", line: 12, excerpt: '"left-pad": "^1.3.0"' }],
+    });
+
+  it("says what each dependency finding means, in the spec's copy", () => {
+    const added = toFinding(
+      dep("dependency_added", { map: "dependencies", name: "left-pad", to: "^1.3.0" }),
+    );
+    expect(added.title).toBe("adds left-pad to dependencies");
+    expect(added.body).toContain("now declares `left-pad` (`^1.3.0`) in `dependencies`");
+    // The runtime clause appears for runtime maps only.
+    expect(added.body).toContain("install scripts run whether or not anything imports it");
+
+    const devAdded = toFinding(
+      dep("dependency_added", { map: "devDependencies", name: "eslint", to: "^9.0.0" }),
+    );
+    expect(devAdded.body).not.toContain("install scripts run");
+
+    const removed = toFinding(
+      dep("dependency_removed", { map: "dependencies", name: "left-pad", from: "^1.3.0" }),
+    );
+    expect(removed.title).toBe("removes left-pad from dependencies");
+    expect(removed.body).toContain("no longer declares");
+
+    const changed = toFinding(
+      dep("dependency_changed", {
+        map: "dependencies",
+        name: "typescript",
+        from: "^5.0.0",
+        to: "^6.0.0",
+      }),
+    );
+    expect(changed.title).toBe("changes typescript in dependencies: ^5.0.0 → ^6.0.0");
+    expect(changed.body).toContain("the lockfile decides what actually resolves");
+  });
+
+  it("ranks a runtime addition above the same addition in devDependencies", () => {
+    // Through rank, not by reading weights — the multiplier only matters if
+    // the sort feels it. `rank` returns Finding[], which carries no `detail`;
+    // the map is recovered from the id, where it is a segment.
+    const runtime = dep("dependency_added", { map: "dependencies", name: "a", to: "^1.0.0" });
+    const dev = dep("dependency_added", { map: "devDependencies", name: "b", to: "^1.0.0" });
+    const ranked = rank([dev, runtime]);
+    expect(ranked[0].id).toContain(":dependencies:");
+  });
+});

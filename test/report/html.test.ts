@@ -760,7 +760,8 @@ describe("renderHtml lenses", () => {
     expect(lens(html, "narrative")).toContain("a hunch");
     expect(lens(html, "effects")).not.toContain("a hunch");
     expect(lens(html, "effects")).toContain("no analyzer behind it to classify");
-    expect(lens(html, "effects")).toContain("All three appear in the narrative.");
+    expect(lens(html, "effects")).toContain("A dependency finding");
+    expect(lens(html, "effects")).toContain("All four appear in the narrative.");
   });
 
   it("tells the reader a standalone reach finding is in the narrative and not in this lens", () => {
@@ -790,7 +791,7 @@ describe("renderHtml lenses", () => {
     // state already says "narrative", so a test satisfied by that would pass
     // with the clause deleted.
     expect(effects).toContain("A citation finding");
-    expect(effects).toContain("All three appear in the narrative.");
+    expect(effects).toContain("All four appear in the narrative.");
   });
 
   it("renders a citation finding's headline, body, and both evidence refs in the narrative", () => {
