@@ -1,7 +1,7 @@
 # package.json dependency facts — design
 
 **Date:** 2026-09-01
-**Status:** proposed (revised after review)
+**Status:** implemented (2026-09-01), on the branch this document rode in on
 
 > **Revision 3, after a second review of revision 2 returned REVISE with five more.** The
 > streak held: the revision that added a postmortem about false citation claims contained two
@@ -393,8 +393,11 @@ rule names, and the rule did not prevent them.
    The conclusion — use the factory shape — was right, and was resting on a false premise. The
    real reasons are per-analyzer failure granularity and the partial-review brand.
 
-3. **The enumeration of what a new `FactKind` obliges was built by grep, and grep found seven of
-   ten.** It missed the hardcoded HTML narrative note, `minPossibleAnalyzerScore`'s detail
+3. **The enumeration of what a new `FactKind` obliges was built by grep, and grep found seven —
+   ultimately — of thirteen.** Planning found the twelfth (the README counts five analyzers by
+   name) and the plan's own review found the thirteenth (`README.md` calls citations "a fifth
+   of the tool" and enumerates what fires without TypeScript). Both were closed by the plan's
+   docs task. The original text of this item follows. It missed the hardcoded HTML narrative note, `minPossibleAnalyzerScore`'s detail
    enumeration, and the `ANALYZERS` length assertion. The first two are silent: no mapping is
    total over the HTML sentence, and a floor computed from an impossible synthetic fact simply
    returns a number. **The error class: an exhaustiveness question answered by search rather than

@@ -3,6 +3,27 @@
 Notable changes to urtext. Versions follow [semantic versioning](https://semver.org/);
 dates are the release date.
 
+## Unreleased
+
+### Added
+
+- **A sixth analyzer: dependencies.** Deterministic, `verified`-tier facts from
+  `package.json` — an entry added, removed, or version-changed, in any of the four dependency
+  maps. Runs on every review, `--no-llm` included, so unlike the intent-gap index it lands in
+  the GitHub Action's default keyless path.
+
+  Runtime maps outrank dev: a change to `dependencies` or `peerDependencies` scores above the
+  same change to `devDependencies`, because dev churn is constant and the runtime entry is
+  what ships to every consumer. A renamed workspace resolves its manifest's old path, so a
+  directory move produces no findings rather than a screen of false additions; an unparseable
+  manifest becomes one warning naming the file and side, and the other manifests' facts
+  survive. Findings report the manifest's declared constraints only — within a range, the
+  lockfile decides what actually resolves, and every report says so once when dependency
+  findings are present.
+
+  A brand-new workspace whose `package.json` is untracked is invisible, as all untracked
+  files are to `git diff`; the report's untracked-files count covers it.
+
 ## 0.3.0 — 2026-08-31
 
 Two disclosures. Both answer the same question from opposite sides: what did this review

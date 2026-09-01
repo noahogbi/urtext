@@ -23,10 +23,11 @@ matters — ranked, with every claim labeled by the kind of evidence behind it:
 - `inferred` — a model claim that analysis corroborates but does not prove
 - `model` — a model claim nothing mechanical confirms
 
-**It analyses TypeScript.** The four code analyzers below read the TypeScript compiler,
-so they fire on `.ts`, `.tsx`, `.mts` and `.cts`. Point urtext at a Python, Go or Rust
-repository and the code analyzers find nothing; the citations analyzer still checks prose
-in `.md` and `.txt`, which is a fifth of the tool. That is a limit, not a roadmap item.
+**It analyses TypeScript projects.** The four code analyzers below read the TypeScript
+compiler, so they fire on `.ts`, `.tsx`, `.mts` and `.cts`. Point urtext at a Python, Go or
+Rust repository and the code analyzers find nothing; the citations analyzer still checks
+prose in `.md` and `.txt`, and the dependencies analyzer still reads `package.json` — two of
+the six. That is a limit, not a roadmap item.
 
 **And every review says where that limit fell.** A report names the changed files no
 analyzer reported on — a `package.json`, a workflow YAML, a SQL migration — so silence
@@ -34,7 +35,7 @@ about a file is never mistaken for a clean bill of health. It claims non-reporti
 non-reading, and it says plainly that anything the report does say about those files came
 from the model alone.
 
-Five analyzers run over the change:
+Six analyzers run over the change:
 
 - **guards** — conditionals, early returns, and throws removed from code that survived
 - **surface** — exports added, removed, or changed shape
@@ -42,6 +43,9 @@ Five analyzers run over the change:
 - **effects** — network, filesystem, process, env, database, and timing effects appearing or disappearing
 - **citations** — prose that cites code by `path:line` or by a quoted phrase, where the citation resolved
   when its line was last written and no longer resolves now
+- **dependencies** — `package.json` entries added, removed, or version-changed, in any of the
+  four dependency maps; declared constraints only, since within a range the lockfile decides
+  what actually resolves
 
 Findings are ranked. A `verified` or `inferred` finding carries the evidence
 behind it — file, line, and the quoted source. A `model` finding carries none
