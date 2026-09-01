@@ -38,10 +38,13 @@ findings, meta)` build their own internally. The consequences, all present in
    returned. That is surface copy — the same class as the "Full report:" line
    the walker itself prints, decided in the wrong file.
 
-4. **A test cannot hand a surface the model it just asserted on.** From
-   `test/report/model.test.ts`: "The terminal takes findings, not a model, so
-   it gets the same two." The fixture is built twice and the two copies are
-   trusted to match.
+4. **A test cannot hand a surface the model it just asserted on.** Before this
+   design shipped, a comment in the model tests recorded that the terminal took
+   findings rather than a model, so it received the same fixture twice and the
+   two copies were trusted to match. The sentence is described here rather than
+   quoted with a path: the condition it named is the one this design removed, so
+   it is gone from the tests and any citation to it could only ever rot. It was
+   last present at `edb997c`.
 
 Point 1 is the one with a record — but the three incidents usually cited
 together are not one shape, and this design closes only one of them. Stating
@@ -172,7 +175,7 @@ Two alternatives were weighed and both lose. Passing `renderHtml(model,
 changeset)` makes a mismatched pair expressible — a report whose symbol table
 and findings describe different ranges — which is the silent disagreement this
 project exists to prevent. Carrying `source: Changeset` on the model prevents
-that, but breaks something load-bearing: `test/report/model.test.ts:249`
+that, but breaks something load-bearing: `test/report/model.test.ts:258`
 enforces "no raw concealing character survives into the model" by
 `JSON.stringify`-ing the *whole* model and searching it, and its fixture plants
 a raw RLO in the range label and a file path. A raw changeset inside the model
@@ -272,7 +275,7 @@ assert the written PDF does **not** carry the md-failure warning while the
 terminal and `--json` do. That discriminates moment 2 from moment 3 with real
 output on both sides. A second case pins moment 1 against moment 2: with
 `--stdout md` and a failing report write (`.urtext` made a plain file, as
-`test/cli.test.ts:803` already does), the Markdown on stdout carries the
+`test/cli.test.ts:1079` already does), the Markdown on stdout carries the
 write failure that no HTML exists to carry.
 
 Together these stop a future "simplification" from collapsing the builds into
@@ -326,7 +329,7 @@ above:
 
 1. **The central design was wrong and is replaced.** The first draft carried
    `source: Changeset` on the model. That breaks
-   `test/report/model.test.ts:249`, which enforces model cleanliness by
+   `test/report/model.test.ts:258`, which enforces model cleanliness by
    stringifying the whole model — its fixture plants a raw RLO in the changeset.
    Shipping it would have meant weakening that test to make the change pass.
    The replacement (a concealed `surfaceSymbols` view, ruling 3 superseded
