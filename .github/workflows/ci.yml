@@ -5,6 +5,12 @@ on:
     branches: [master]
   pull_request:
 
+# Read-only at the workflow level, so a job added to this file later cannot
+# inherit a wider default by leaving its own block off. The job below still
+# states what it needs: this is a floor, not a substitute for saying so.
+permissions:
+  contents: read
+
 jobs:
   test:
     # Stated rather than inherited. The repository default is read-only today,
