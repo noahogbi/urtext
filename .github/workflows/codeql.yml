@@ -1,0 +1,62 @@
+name: CodeQL
+
+# Static analysis on a static-analysis tool, which is less circular than it
+# sounds: urtext reasons about a diff with the TypeScript compiler API and
+# says nothing about the classes of defect CodeQL looks for. Nothing here
+# checks urtext's own findings — this is an independent second opinion on
+# the source that produces them.
+#
+# It also answers the one OpenSSF Scorecard check that was failing for a
+# reason worth fixing rather than arguing with. The others it fails are
+# about the project's age and the size of its contributor list, which no
+# workflow can change.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    # Weekly, and deliberately not the hour scorecard.yml runs on: two
+    # scheduled analyses of one small repository have no reason to contend
+    # for the same runner minute.
+    - cron: "23 4 * * 2"
+
+# Read-only at the top, so a job added to this file later cannot inherit a
+# wider default by omission. The analysis job widens it below, to exactly
+# what uploading results needs and no more.
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze TypeScript
+    runs-on: ubuntu-latest
+    permissions:
+      # Writing the SARIF into this repository's code scanning is the whole
+      # point of the job; `actions: read` is what the uploader needs to
+      # attach results to the run that produced them.
+      security-events: write
+      contents: read
+      actions: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # `javascript-typescript` is one language to CodeQL, not two: the
+      # extractor reads .ts directly and does not need the project built
+      # first, so there is no autobuild step here. Splitting it into a
+      # matrix would analyze the same files twice.
+      - name: Initialize
+        uses: github/codeql-action/init@486fec2a3ea2626afcd8c7e9208b4f515078dd7e # codeql-bundle-v2.26.4
+        with:
+          languages: javascript-typescript
+
+      # The default query suite, not `security-extended`. The extended set
+      # trades precision for recall, and a security report nobody trusts
+      # enough to read is the failure mode this repository is built against.
+      - name: Analyze
+        uses: github/codeql-action/analyze@486fec2a3ea2626afcd8c7e9208b4f515078dd7e # codeql-bundle-v2.26.4
+        with:
+          category: "/language:javascript-typescript"

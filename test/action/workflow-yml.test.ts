@@ -139,13 +139,22 @@ describe("the dogfood workflow", () => {
     expect(job.permissions?.["pull-requests"]).toBe("write");
   });
 
-  it("declares those permissions on the job rather than on the workflow", () => {
-    // At the workflow level the same block would widen the token for every
+  it("keeps every write scope on the job rather than on the workflow", () => {
+    // At the workflow level a *write* block would widen the token for every
     // job this file ever gains, which is why the action's documentation
     // shows it indented under a job. A file that hoisted it would go on
     // posting comments perfectly, and that is exactly why nothing else
     // would notice.
-    expect(workflow.permissions).toBeUndefined();
+    //
+    // This asserted the block was absent, until a read-only floor was added
+    // at the top of the file. Absence was only a proxy for the invariant,
+    // and it forbade the opposite of the harm: a top-level `contents: read`
+    // narrows what an added job inherits rather than widening it, and is
+    // what OpenSSF Scorecard's Token-Permissions check asks for. The floor
+    // is asserted whole, for the reason the test above gives — a widened
+    // token arrives as a line added, not as a line changed, so this still
+    // fails if this job's `pull-requests: write` is ever hoisted into it.
+    expect(workflow.permissions).toEqual({ contents: "read" });
     expect(job.permissions).toBeDefined();
   });
 

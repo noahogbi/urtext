@@ -16,6 +16,12 @@ name: urtext review
 # step; this line is the property, and the refusal is only the backstop.
 on: pull_request
 
+# Read-only at the workflow level. This does not conflict with the job-level
+# block below: the floor stays read-only for anything added to this file, and
+# the one job that needs to write a comment widens it for itself alone.
+permissions:
+  contents: read
+
 jobs:
   review:
     runs-on: ubuntu-latest
