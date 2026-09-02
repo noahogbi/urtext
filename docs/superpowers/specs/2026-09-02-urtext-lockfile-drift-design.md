@@ -3,13 +3,45 @@
 **Date:** 2026-09-02
 **Status:** proposed
 
+> **Revision 1, after a Fable review returned REVISE with four blocking findings.** Each
+> was checked against the code before being accepted; all four held.
+>
+> One was a self-contradiction: `dependency_resolved_changed` was scored on a map
+> multiplier that `scoreFact` reads from `detail.map`, while the kind's declared detail
+> had no `map` field — so the dev-halving the weight was argued on would have silently
+> defaulted to 1.
+>
+> One was a missed site, and the same class of miss this document's own enumeration
+> exists to prevent: `CONTEXT_KINDS` is a `Set` rather than a `Record<FactKind, …>`, so
+> it is invisible to the compiler, and `lockfile_tree_changed` would have sorted into the
+> defect band — directly contradicting this document's description of it as reporting
+> cost rather than a defect. The enumeration said four silent sites; there are five.
+>
+> One was an evidence rule that cannot be satisfied in its commonest case: a dependency
+> added to the manifest without installing has no key in `packages[""]` to anchor on, and
+> `makeFact` throws on empty evidence, so the crash would land on the most ordinary
+> out-of-sync commit there is.
+>
+> One was a false claim about a cited file — that the HTML tests pin the narrative
+> sentence "as written". They pin two fragments; the clause interior is unpinned in both
+> directions. Exactly the failure clause 1 of the citation rule names, in a draft that
+> quotes that rule.
+>
+> Five local defects were also fixed: a missing kind in the weights listing, tree scaling
+> keyed on arrivals rather than total movement, arithmetic in the risk table, commits
+> double-counted as pull requests, and an unpinned measurement commit.
+
 ## Why this exists
 
 Since 0.3.0 every review names the changed files no analyzer reported on
-(`unanalyzedFiles`, `src/report/coverage.ts:154`). Re-measured on this repository at
-0.4.0 — `review HEAD~40...HEAD --no-llm --json` — that list held 13 files: 6 `.yml`,
-4 `.md`, 2 `.mjs`, and `package-lock.json`. Re-run it rather than trusting that number;
-it is a live measurement and that is the point of it.
+(`unanalyzedFiles`, `src/report/coverage.ts:154`). Measured at 0.4.0, on `ec88bfc` —
+`review ec88bfc~40...ec88bfc --no-llm --json` — that list held 13 files: 6 `.yml`, 4
+`.md`, 2 `.mjs`, and `package-lock.json`.
+
+The commit is pinned because the number moves. At `57f2faa`, one commit later, the same
+command returns **14**: `.github/workflows/codeql.yml` was added in the meantime and is a
+seventh file no analyzer reports on. Re-run it rather than trusting either number — it is
+a live measurement, and that is the point of it.
 
 There is a second reason, and it is sharper. 0.4.0 already prints one sentence to every
 reader of a dependency finding (`DEPENDENCY_NOTE`, `src/report/model.ts:546-547`):
@@ -25,9 +57,11 @@ it. This design closes that specific gap.
 The obvious definition — `package-lock.json` moving without `package.json`, or the
 reverse — was measured against this repository's history and **rejected**. Of the 16
 commits touching either file, **7 move only one of them**, and all 7 are benign: 3 are
-release version bumps, 4 are Dependabot bumps within an unchanged range. As specified it
-is a false-positive generator, and shipping it would put a screen of verified findings on
-top of correct commits.
+release version bumps, and 4 are Dependabot commits within an unchanged range — those 4
+being two distinct bumps, each counted as its own commit and again as its merge, since
+the count is over commits and not over pull requests. As specified it is a false-positive
+generator, and shipping it would put a screen of verified findings on top of correct
+commits.
 
 Traced on `087674a` (`chore(deps): bump @types/node from 26.3.0 to 26.4.0`, which touches
 only the lockfile):
@@ -116,8 +150,16 @@ so the branch cannot clean-install and every CI run on it fails.
 
 **`dependency_resolved_changed`** — a package named in `package.json` has a different
 resolved version in the lockfile than it had before. Detail:
-`{ name, from, to, range, rangeChanged }`. `rangeChanged` is false in the Dependabot case
-above, which is the case the manifest analyzer cannot see.
+`{ map, name, from, to, range, rangeChanged }`. `rangeChanged` is false in the Dependabot
+case above, which is the case the manifest analyzer cannot see.
+
+`map` is in the detail although it is deliberately **not** in the id, and the two are
+independent decisions. The id omits it because a package resolves once in the tree
+however many maps declare it; the detail carries it because `scoreFact`'s halving branch
+reads `fact.detail.map` and nothing else (`src/score/index.ts:119-120`). Without the
+field every resolved change would silently take the `dependencies` multiplier of 1, and
+the dev-churn argument this kind is scored on would be defeated by its own detail shape —
+acceptance criterion 1 below is a devDependency and must score 17.5, not 35.
 
 **`lockfile_version_stale`** — the lockfile's root `version` (and `packages[""].version`)
 disagrees with the manifest's. Detail: `{ manifest, lock }`.
@@ -134,8 +176,10 @@ above.
 Never enumerated, and the reason is measured. Direct-dependency changes in this
 repository's entire history **never exceed one per commit**. Transitive churn reaches
 115. On `3ac5880` (`chore(deps): vitest 2 to 4`) the lockfile moved 116 entries — 39
-entered, 61 left, 16 changed version. Enumerating that is 116 findings from one commit;
-counting it is one sentence carrying the number a reviewer actually wants.
+entered, 61 left, 16 changed version. Enumerating that is 116 findings from one commit.
+Under the exclusion rule above, vitest itself is enumerated as a
+`dependency_resolved_changed` and the remaining 115 are counted, so the review carries two
+findings and one of them holds the number a reviewer actually wants.
 
 ### Evidence
 
@@ -145,6 +189,18 @@ evidence (`src/analyze/fact.ts`), so every kind must produce a real reference.
 - `lockfile_out_of_sync` and `lockfile_version_stale` evidence the **lockfile**, at the
   line of the disagreeing key inside `packages[""]`. Pointing at the manifest would invert
   the claim: the manifest is what the author edited, the lockfile is what is stale.
+
+**The disagreeing key does not always exist, and that is the commonest case.** A
+dependency added to `package.json` without running `npm install` — npm's
+`Missing: <pkg> from lock file` form of the same EUSAGE failure — has no entry in
+`packages[""]` to point at, and the reverse (removed from the manifest, still in the
+lockfile) has no manifest entry. `makeFact` throws on empty evidence
+(`src/analyze/fact.ts:46-51`), so a kind whose evidence rule cannot be satisfied is not a
+missing finding but a crashed analyzer. The anchor therefore degrades in three steps: the
+key's own line inside `packages[""]`; failing that, the line of the enclosing map inside
+`packages[""]`; failing that, the `"packages":` line, and finally line 1 as the manifest
+scanner does. `detail.manifest` and `detail.lock` are each nullable — never both — and
+the copy names the absent side rather than printing "undefined".
 - `dependency_resolved_changed` evidences the `"version":` line of the package's own
   `node_modules/<name>` entry.
 - `lockfile_tree_changed` evidences the lockfile's `"packages":` line.
@@ -162,7 +218,8 @@ transitive package is only ever counted, never evidenced individually.
 New entries in `WEIGHTS.factKind` (`src/score/index.ts:23`), placed against the existing
 scale — `guard_removed: 90`, `signature_changed: 75`, `export_removed: 70`,
 `effect_added: 60`, `dependency_added: 55`, `dependency_removed: 45`,
-`dependency_changed: 30`, `export_added: 25`, `citation_rot: 18`, `blast_radius: 15`:
+`dependency_changed: 30`, `export_added: 25`, `citation_rot: 18`, `blast_radius: 15`,
+`effect_removed: 15`:
 
 | kind | weight | reasoning |
 |---|---|---|
@@ -172,13 +229,35 @@ scale — `guard_removed: 90`, `signature_changed: 75`, `export_removed: 70`,
 | `lockfile_tree_changed` | 15, log-scaled | Base as `blast_radius`, and scaled by the same curve. |
 
 `scoreFact` (`src/score/index.ts:89`) gains two branches. `lockfile_tree_changed` joins
-the log-scaled path (`:96`), keyed on `detail.entered` rather than `detail.references`,
-and clamped to the same `WEIGHTS.factKind.effect_added` ceiling for the same stated
-reason: tree churn reports cost, not a defect, so no package count may push it above a
-kind that reports a problem. `dependency_resolved_changed` joins the
-`WEIGHTS.dependencyMap` branch (`:115-118`), so a devDependency's movement is halved
-exactly as a devDependency's range change is — Dependabot churn is overwhelmingly dev, and
-unscaled it would bury the runtime bump that matters.
+the log-scaled path (`:96`), keyed on `entered + left + moved` rather than
+`detail.references`, and clamped to the same `WEIGHTS.factKind.effect_added` ceiling for
+the same stated reason: tree churn reports cost, not a defect, so no package count may
+push it above a kind that reports a problem. Total movement rather than `entered` alone,
+because the fact reports cost and a removal costs the same review attention as an
+arrival — the measured worst case has more leaving (61) than entering (39), and keying on
+arrivals would score a purely subtractive commit at bare base.
+`dependency_resolved_changed` joins the `WEIGHTS.dependencyMap` branch (`:115-118`), so a
+devDependency's movement is halved exactly as a devDependency's range change is —
+Dependabot churn is overwhelmingly dev, and unscaled it would bury the runtime bump that
+matters.
+
+**Banding, which is a separate decision from weight and is not compile-checked.**
+`CONTEXT_KINDS` (`src/score/index.ts:635-638`) is a `ReadonlySet<Fact["kind"]>` holding
+`blast_radius` and `export_added`; `bandOf` (`:653-655`) sorts everything *not* in it into
+the defect band, which sorts first regardless of score. Because it is a `Set` and not a
+`Record<FactKind, …>`, a new kind joins the defect band silently — no compile error, no
+test. So the choice is made here explicitly:
+
+- `lockfile_tree_changed` **joins `CONTEXT_KINDS`.** Its own entry above says it reports
+  cost rather than a defect, and the set's doc comment defines the context band as kinds
+  that report "reach or arrival rather than a defect … neither is something to go and
+  fix". Leaving it out would sort transitive churn above every reach finding in the
+  report, which contradicts this document's own description of it.
+- The other three stay in the defect band. `lockfile_out_of_sync` breaks the build.
+  `dependency_resolved_changed` sits beside `dependency_changed`, which is already in the
+  defect band, and reporting it differently from the range change it mirrors would be
+  incoherent. `lockfile_version_stale` is cosmetic but *is* something to go and fix — one
+  `npm install` — which is exactly the line the context band's comment draws.
 
 The table's own comment says these weights are "proposed, not yet calibrated against real
 diffs". These are too, and are written down so a real range can argue with them.
@@ -223,9 +302,12 @@ change to what `package.json` declares, which stops being the whole truth:
 
 - `src/report/html.ts:313` — the effects pane's note, ending "All four appear in the
   narrative", whose fourth clause reads "A dependency finding — a change to what
-  package.json declares". Tests pin this sentence as written (`test/report/html.test.ts`),
-  so they will fail on the copy change but would **not** have failed on its becoming
-  untrue.
+  package.json declares". The tests pin **fragments, not the sentence**:
+  `toContain("A dependency finding")` and `toContain("All four appear in the narrative.")`
+  (`test/report/html.test.ts:763-764`, `:794`). No test anywhere contains the clause's
+  interior. So the clause is unpinned in both directions — a rewrite that keeps the
+  opening words and the closing sentence passes untouched, and so does leaving it false.
+  Nothing mechanical defends this; it is on the author.
 - `src/report/model.ts:689-691` — the `LENS_OF_SUBJECT` doc comment, carrying the same
   claim in the same words.
 
@@ -272,14 +354,23 @@ initializer and the switch has no `default:`, so definite-assignment analysis ma
 unhandled kind a compile error. The prose site earlier drafts forgot is protected by
 construction — but only for as long as nobody adds a `default:` case or an initializer.
 
-**Four sites are silent** and must be handled by hand:
+**Five sites are silent** and must be handled by hand:
 
 - `KIND_NOTES` is `Record<string, string>` (`src/report/model.ts:549`), deliberately not
   keyed on `FactKind`. A kind with no note simply prints none.
+- `CONTEXT_KINDS` (`src/score/index.ts:635-638`) is a `Set`, not a `Record`, so a new kind
+  lands in the defect band with nothing objecting. This is the one that changes how the
+  report *sorts* rather than what it says, and it is the site this enumeration originally
+  missed — see the banding decision under Scoring.
 - `src/report/html.ts:313` and `src/report/model.ts:689-691`, above.
 - `test/analyze/index.test.ts:59-61` asserts `ANALYZERS` has **six** entries and fails at
   test time, not compile time. It becomes seven, with a sibling asserting
   `lockfileAnalyzer` by name, matching the existing per-analyzer assertions.
+
+The pattern worth naming: the compiler catches every site keyed on `FactKind` through a
+`Record` or an index, and catches none of the sites that use a `Set`, a
+`Record<string, …>`, or prose. Adding a kind is safe exactly where someone previously
+chose a total type.
 
 ## Behaviour under `--no-llm`
 
@@ -313,7 +404,10 @@ parsing pure buys:
 Two integration checks against this repository, which are also the acceptance criteria:
 
 1. Reviewing `087674a` produces one `dependency_resolved_changed` for `@types/node`
-   (`26.3.0 → 26.4.0`, range unchanged) and no sync finding.
+   (`26.3.0 → 26.4.0`, range unchanged) and no sync finding. It carries
+   `map: "devDependencies"` and therefore scores **17.5**, not 35 — the halved value is
+   the assertion, since a passing test on the unhalved number is what a missing `map`
+   field would silently produce.
 2. Reviewing a range containing `5206587` produces `lockfile_version_stale`. This is live:
    `package-lock.json` records `0.1.2` while `package.json` declares `0.4.0`. It tracked
    correctly through 0.1.0, 0.1.1 and 0.1.2 and then froze, so the release process changed
@@ -325,7 +419,7 @@ Two integration checks against this repository, which are also the acceptance cr
 | risk | handling |
 |---|---|
 | The rejected definition creeps back in as "simpler" | Named here with the measurement that killed it: 7 of 16 commits, all benign |
-| Tree churn floods a review | Counted, never enumerated; measured worst case is 116 entries → 1 finding |
+| Tree churn floods a review | Counted, never enumerated. Measured worst case, `3ac5880`: 116 moved entries become **2 findings** — one `dependency_resolved_changed` for vitest itself, and one tree fact counting the remaining 115 |
 | Positioning argument overstated | Stated as adjacency, not structure, with the `program.ts:205` filter quoted showing the lockfile is outside it |
 | The two prose sites go stale silently | Enumerated above; neither is compile-protected; third known occurrence of this trap |
 | Weights wrong | Same status as every other weight in the table: proposed, and written down to be argued with |
