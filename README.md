@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/noahogbi/urtext/actions/workflows/ci.yml/badge.svg)](https://github.com/noahogbi/urtext/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/urtext)](https://www.npmjs.com/package/urtext)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/noahogbi/urtext/badge)](https://scorecard.dev/viewer/?uri=github.com/noahogbi/urtext)
+[![OpenSSF Scorecard](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.scorecard.dev%2Fprojects%2Fgithub.com%2Fnoahogbi%2Furtext&query=%24.score&label=openssf%20scorecard)](https://scorecard.dev/viewer/?uri=github.com/noahogbi/urtext)
 
 **A diff reviewer that shows its evidence.** Point `urtext` at a git range and it reports what
 changed and why it matters — ranked, and with every claim labeled by the kind of evidence behind
