@@ -10,6 +10,33 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-03-urtext-javascript-support-design.md` (revision 1, after a Fable review). Read it first — its revision header names four errors already made and corrected, two of which were invisible without running the design.
 
+> **Revision 1, after a Fable review returned REVISE with five blocking findings.** Each was
+> checked against the code before being accepted; all five held. Three were failures of the
+> plan's own green gate — pasted code that does not compile or a test that cannot pass — which
+> is the class this project has shipped twice before.
+>
+> Two of them were internal TypeScript APIs used as if public. `parseDiagnostics` is absent
+> from `typescript.d.ts` exactly as `getAllowJSCompilerOption` was, and I reached for it one
+> document after being corrected on the first. The test now casts, locally and deliberately.
+>
+> The effects fixture could never pass: `action/compose-comment.mjs` imports nothing, and
+> `detectEffects` fires only on import bindings and known calls. `compose-comment-bin.mjs` is
+> the file that has an effect site.
+>
+> `mkCanonicalTempDir` is file-local in two test files and exported from neither.
+>
+> The two that changed Task 5's shape: root selection **cannot** see `ChangedFile.generated`,
+> because `createProgramAt` never receives a changeset — so detection is once per layer, not
+> once overall, and the plan now says so instead of claiming otherwise. And the disclosure was
+> inert: every existing coverage note is imported and called in both `src/cli.ts` and
+> `src/report/model.ts`, so an exported function with a passing unit test would have reached
+> no reader at all — the same shape as the citations-pathspec defect the spec's own revision
+> header leads with.
+>
+> Eight local defects fixed alongside, including a miscount (twelve calls, not thirteen), a
+> table row contradicting Task 6, a filter snippet that would have silently dropped
+> blast-radius's exported-symbol clause, and a fabricated `Hunk` shape.
+
 ## Global Constraints
 
 - Work continues on one branch; one PR at the end. Never push `master`.
@@ -18,7 +45,7 @@
 - **Comments must not contain a bare numeral matching a `WEIGHTS` value** (`test/comment-contract.test.ts` scans `src/` and `test/`). Bare `1` is forbidden (`WEIGHTS.effect.network`) and so is `0.4` (`WEIGHTS.effect.timing`). Write no digits in comments in the files you touch, including in list markers like `// 1.`.
 - Reader-facing copy contains none of: `unsanctioned`, `unauthorized`, `approved`, `permission`, `forbidden`, `allowed` (`test/report/copy-guard.test.ts:29-36`), and never issues a verdict.
 - Do not use `git add -A`. Stage only the files each task names.
-- `test/extract/symbols.test.ts` holds thirteen `isTypeScriptFile` calls that pin the predicate **narrow**. They must survive this work unaltered. If one needs editing, the predicate was widened when it should not have been — stop and say so.
+- `test/extract/symbols.test.ts` holds twelve `isTypeScriptFile` calls that pin the predicate **narrow**. They must survive this work unaltered. If one needs editing, the predicate was widened when it should not have been — stop and say so.
 
 > **Line numbers** were verified on 2026-09-03 at commit `7df3519` and drift as tasks land. Anchor on symbol names.
 
@@ -34,7 +61,8 @@
 | `surface.ts:324` | typed — Task 4 |
 | `blast-radius.ts:144` | typed — Task 4 |
 | `program.ts:67`, `:239` | typed — Task 4 |
-| `coverage.ts:26`, `:167` | **unchanged** — see the spec's "Coverage needs no change" |
+| `coverage.ts:167` | **unchanged** — see the spec's "Coverage needs no change" |
+| `coverage.ts:26` | widened in Task 6 together with the note's wording, closing the deleted-JavaScript gap |
 
 ---
 
@@ -97,14 +125,22 @@ describe("scriptKindFor", () => {
     // The assertion is on diagnostics, not on findings. TypeScript's error
     // recovery salvages top-level names from mis-parsed JSX, so a
     // findings-based test passes while the parse is garbage.
-    const jsx = 'const el = <div className="a">hi</div>;\n';
+    //
+    // `parseDiagnostics` is NOT in TypeScript's public typed API. It is
+    // internal, exactly like `getAllowJSCompilerOption`, and reading it off a
+    // bare SourceFile is TS2339. The cast is deliberate and confined to this
+    // test; production code must not depend on it.
+    type Parsed = ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] };
+    const jsx = 'const el = <div className="a">hi</div>;
+';
+    const parseAs = (path: string, kind: ts.ScriptKind): Parsed =>
+      ts.createSourceFile(path, jsx, ts.ScriptTarget.ES2022, true, kind) as Parsed;
+
     for (const path of ["a.jsx", "a.js"]) {
-      const sf = ts.createSourceFile(path, jsx, ts.ScriptTarget.ES2022, true, scriptKindFor(path));
-      expect(sf.parseDiagnostics ?? []).toHaveLength(0);
+      expect(parseAs(path, scriptKindFor(path)).parseDiagnostics ?? []).toHaveLength(0);
     }
     // And the old behaviour is genuinely broken, so the test above means something.
-    const wrong = ts.createSourceFile("a.jsx", jsx, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
-    expect((wrong.parseDiagnostics ?? []).length).toBeGreaterThan(0);
+    expect((parseAs("a.jsx", ts.ScriptKind.TS).parseDiagnostics ?? []).length).toBeGreaterThan(0);
   });
 });
 ```
@@ -278,8 +314,13 @@ In `test/analyze/effects.test.ts`, following that file's existing style:
 
 ```typescript
 it("reads this repository's own shipped JavaScript", () => {
-  const text = readFileSync("action/compose-comment.mjs", "utf8");
-  expect(detectEffects("action/compose-comment.mjs", text).length).toBeGreaterThan(0);
+  // compose-comment-bin.mjs, NOT compose-comment.mjs. The composer imports
+  // nothing — its own header says so — and detectEffects fires only on import
+  // bindings and known global/object/qualified calls, so asserting a finding
+  // there asserts something that cannot happen. The bin wrapper imports
+  // node:fs and does have an effect site.
+  const path = "action/compose-comment-bin.mjs";
+  expect(detectEffects(path, readFileSync(path, "utf8")).length).toBeGreaterThan(0);
 });
 ```
 
@@ -293,7 +334,7 @@ Expected: PASS. Existing report tests may now see symbols for JavaScript files i
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/analyze/effects.ts src/analyze/guards.ts src/extract/index.ts src/extract/symbols.ts src/types.ts test/
+git add src/analyze/effects.ts src/analyze/guards.ts src/extract/index.ts src/extract/symbols.ts \n  src/types.ts test/analyze/source-coverage.test.ts test/analyze/effects.test.ts test/analyze/guards.test.ts
 git commit -m "feat: effects, guards and symbol extraction read JavaScript"
 ```
 
@@ -385,6 +426,16 @@ git commit -m "feat: citations checked in JavaScript, closing the module-explici
 - Produces: `export function allowsJavaScript(root: string): boolean` from `src/analyze/program.ts`, and `listTypeScriptFilesAt` renamed to `listProgramSourcesAt` with the same `(root, rev)` signature.
 
 - [ ] **Step 1: Write the failing tests**
+
+`mkCanonicalTempDir` is **not exported anywhere** — it is a file-local `const` in
+`test/cli.test.ts:51` and `test/action/compose-comment.test.ts:31`, while
+`test/analyze/program.test.ts` uses bare `mkdtempSync`. Define it locally at the top of the
+file, adding `realpathSync` to its `node:fs` import:
+
+```typescript
+const mkCanonicalTempDir = (prefix: string) =>
+  realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+```
 
 ```typescript
 describe("allowsJavaScript", () => {
@@ -507,6 +558,15 @@ It can now return `.js`, so its name becomes false the moment it does — the cl
   );
 ```
 
+**That snippet is surface-shaped. Keep each site's remaining conditions.**
+`blast-radius.ts:144` also filters on `f.symbols.some((s) => s.exported && s.change !== "removed")`;
+dropping it would build programs for files with no exported changed symbol. Widen only the
+language test in each filter and leave everything else in place.
+
+Imports to add: `isJavaScriptFile` into `src/analyze/program.ts`, and `allowsJavaScript`
+into both `surface.ts` and `blast-radius.ts`. `tsc` will catch each, but the plan names
+import edits everywhere else and should here too.
+
 - [ ] **Step 6: Add the behavioural test**
 
 In `test/analyze/surface.test.ts`, two temp projects — one with `allowJs: true`, one with `{}` — each with a `.mjs` file adding an export. Assert surface reports the added export in the first and reports nothing in the second, and that neither throws.
@@ -519,7 +579,7 @@ Expected: PASS.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/analyze/program.ts src/analyze/index.ts src/analyze/surface.ts src/analyze/blast-radius.ts test/
+git add src/analyze/program.ts src/analyze/index.ts src/analyze/surface.ts src/analyze/blast-radius.ts \n  test/analyze/program.test.ts test/analyze/surface.test.ts
 git commit -m "feat: surface and blast radius read JavaScript when the project's compiler does"
 ```
 
@@ -528,10 +588,12 @@ git commit -m "feat: surface and blast radius read JavaScript when the project's
 ### Task 5: Machine-written JavaScript, detected once
 
 **Files:**
+- Modify: `src/extract/symbols.ts` (`isMachineWritten` and its constant)
 - Modify: `src/types.ts` (one optional field on `ChangedFile`)
 - Modify: `src/extract/index.ts` (detection)
 - Modify: `src/analyze/effects.ts`, `src/analyze/guards.ts`, `src/analyze/citations.ts` (skip on the field)
-- Modify: `src/report/coverage.ts` (the disclosure)
+- Modify: `src/analyze/program.ts` (root selection — see Step 4, it cannot use the field)
+- Modify: `src/report/coverage.ts` (the note), **`src/cli.ts` and `src/report/model.ts`** (wiring it to a reader — see Step 5)
 - Test: `test/extract/index.test.ts`, `test/report/coverage.test.ts`
 
 **Interfaces:**
@@ -597,17 +659,46 @@ In `src/types.ts`, on `ChangedFile`:
 
 In `src/extract/index.ts`, set it from the after-side text already read at `:48`.
 
-- [ ] **Step 4: Skip on the field, in the analyzers and in the program**
+- [ ] **Step 4: Skip in the analyzers on the field — and in the program by re-detecting**
 
-`effects.ts:265`, `guards.ts:159` and the citations candidate pass skip a file whose `generated` is set. Root selection in `program.ts` excludes it too, so a bundle in an `allowJs` project does not become a program root and get type-checked.
+`effects.ts:265`, `guards.ts:159` and the citations candidate pass skip a file whose
+`generated` is set.
 
-- [ ] **Step 5: Disclose it**
+**Root selection cannot use the field, and the earlier phrasing of this step was wrong
+about that.** `createProgramAt(root, rev)` (`src/analyze/program.ts:193`) never receives a
+changeset — its only caller is `ctx.programAt`, which passes `(cwd, rev)`
+(`src/extract/index.ts:22`) — so `ChangedFile.generated` cannot reach it. The program layer
+must call `isMachineWritten(p, text)` itself, at `program.ts:231-239` where the file's text
+is already in hand.
 
-In `src/report/coverage.ts`, a note naming the skipped files, in the register of the existing notes and claiming only what is true:
+So detection is once *per layer*, not once overall: the changeset layer marks files for the
+analyzers, and the program layer tests the text it is already holding. Two call sites of one
+shared predicate, which is the honest description — say it that way in the comment rather
+than claiming a single detection point.
+
+- [ ] **Step 5: Disclose it — and wire it, because an exported note reaches nobody**
+
+In `src/report/coverage.ts`, a note naming the skipped files, in the register of the
+existing notes and claiming only what is true:
 
 > `bundle.js is a single line of machine-written JavaScript, so no analyzer read it.`
 
-Add a test that a changeset with one generated file produces exactly this note, and one without produces none.
+**Exporting it is not enough, and stopping there would repeat the failure this feature's own
+spec leads with.** Nothing picks up a new `coverage.ts` export automatically. Every existing
+coverage sentence is explicitly imported and called in **two** places:
+
+- `src/cli.ts:17-20` imports `deletedFilesNote` and `unanalyzedFilesNote`, and calls them at
+  `:683` and `:688` to populate `--json`.
+- `src/report/model.ts:4-8` imports both and calls them at `:840` and `:846` for the
+  rendered report.
+
+The new note needs the same treatment in both, or it is dead code with a passing unit test —
+exactly the shape of the citations-pathspec defect the spec's revision header describes.
+
+Test it at both levels: a unit test that the function produces the sentence, **and** an
+assertion that a review over a changeset containing a generated file carries the sentence
+through `review(...)` into `--json`'s notes. The unit test alone cannot tell you a reader
+ever sees it.
 
 - [ ] **Step 6: Run everything**
 
@@ -617,7 +708,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/types.ts src/extract/ src/analyze/ src/report/coverage.ts test/
+git add src/types.ts src/extract/symbols.ts src/extract/index.ts src/analyze/effects.ts   src/analyze/guards.ts src/analyze/citations.ts src/analyze/program.ts   src/report/coverage.ts src/report/model.ts src/cli.ts   test/extract/index.test.ts test/report/coverage.test.ts
 git commit -m "feat: skip machine-written JavaScript, and say so"
 ```
 
@@ -635,7 +726,16 @@ git commit -m "feat: skip machine-written JavaScript, and say so"
 
 `deletedTypeScriptFiles` (`coverage.ts:26`) stays narrow, so a **deleted** `.mjs` gets no note: its effects finding vanishes with the file, it leaves the unanalyzed list, and nothing tells the reader its exports and callers went unexamined — exactly what `deletedFilesNote` says for TypeScript.
 
-Widen both, and reword the note so it is true of either language. Its current text hardcodes "deleted TypeScript file"/"files"; that wording is what makes widening the predicate alone wrong. Add a test with a deleted `.mjs` asserting the note names it.
+Widen both, and reword the note so it is true of either language. Its current text hardcodes
+"deleted TypeScript file"/"files" (`coverage.ts:52-53`); that wording is what makes widening
+the predicate alone wrong. Add a test with a deleted `.mjs` asserting the note names it.
+
+**One overlap to accept deliberately.** `unanalyzedFiles` (`:167`) stays narrow, so after this
+change a deleted `.mjs` with no vanished effect finding is named **twice** — once by the
+deleted-files note and once in the unanalyzed list — an overlap deleted TypeScript never has,
+because `:167` excludes it by predicate. Both statements are true, so nothing false reaches the
+reader. Leave it, and say so in the test's comment rather than discovering it later and
+wondering which sentence is wrong.
 
 - [ ] **Step 2: Update the README's stated extensions**
 
@@ -658,7 +758,7 @@ Expected: `coverage.unanalyzedFiles` drops from **13 to 11**, with both `.mjs` f
 Run: `npx tsc --noEmit && npx vitest run`
 
 ```bash
-git add src/report/coverage.ts README.md CHANGELOG.md test/
+git add src/report/coverage.ts README.md CHANGELOG.md test/report/coverage.test.ts
 git commit -m "feat: disclose deleted JavaScript, and document the widened reach"
 ```
 

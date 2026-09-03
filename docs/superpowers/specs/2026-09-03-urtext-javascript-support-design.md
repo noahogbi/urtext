@@ -109,7 +109,7 @@ across nine files depend on it meaning what its name says — thirteen calls plu
 passed to `.filter` as a predicate reference (`src/analyze/program.ts:67`), which is why a
 grep for the call form alone undercounts it. Widening it would move all fourteen at once,
 including the six that must stay narrow. That count is `src/` only; `test/extract/symbols.test.ts`
-holds thirteen more calls, which pin the predicate narrow and are expected to survive this
+holds twelve more calls, which pin the predicate narrow and are expected to survive this
 change unaltered — if one of them needs editing, the predicate was widened when it should
 not have been.
 
