@@ -1025,11 +1025,29 @@ describe("lockfile finding copy", () => {
 
   it("pluralizes each tree-churn count on its own, singular only at exactly one", () => {
     // The floor shape minPossibleAnalyzerScore names as producible, so this
-    // is the one that must stay right.
+    // is the one that must stay right. At the two zero positions a correct
+    // ternary and a hardcoded plural render identically ("0 packages"), so
+    // this shape alone cannot prove either the left or the moved ternary is
+    // still there — see the two tests below, which put every position at a
+    // value where singular and plural actually differ.
     const f = toFinding(fact("lockfile_tree_changed", { entered: 1, left: 0, moved: 0 }));
     expect(f.body).toContain("1 package entered the tree");
     expect(f.body).toContain("0 packages left");
     expect(f.body).toContain("0 packages changed version");
+  });
+
+  it("reads singular in every position when every count is one", () => {
+    const f = toFinding(fact("lockfile_tree_changed", { entered: 1, left: 1, moved: 1 }));
+    expect(f.body).toContain(
+      "1 package entered the tree, 1 package left, and 1 package changed version.",
+    );
+  });
+
+  it("reads plural in every position when every count is more than one", () => {
+    const f = toFinding(fact("lockfile_tree_changed", { entered: 2, left: 2, moved: 2 }));
+    expect(f.body).toContain(
+      "2 packages entered the tree, 2 packages left, and 2 packages changed version.",
+    );
   });
 
   it("names both sides of the disagreement when the lockfile has an entry", () => {
