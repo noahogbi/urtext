@@ -1,6 +1,7 @@
+import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { lockfileFactsFor, LockfileParseError, makeLockfileAnalyzer } from "../../src/analyze/lockfile.js";
-import { toFinding } from "../../src/score/index.js";
+import { scoreFact, toFinding, WEIGHTS } from "../../src/score/index.js";
 
 const mkManifest = (o: Record<string, unknown>) => JSON.stringify({ name: "p", version: "1.0.0", ...o }, null, 2);
 const mkLock = (root: Record<string, unknown>, pkgs: Record<string, unknown> = {}, version = "1.0.0") =>
@@ -495,5 +496,66 @@ describe("makeLockfileAnalyzer", () => {
     const moved = facts.filter((f) => f.kind === "dependency_resolved_changed");
     expect(moved).toHaveLength(1);
     expect(moved[0].file).toBe("npm-shrinkwrap.json");
+  });
+});
+
+// The fixtures above prove the core against hand-built JSON; they cannot
+// prove it against a real npm-written lockfile, whose formatting, key
+// ordering and incidental fields no fixture author reliably reproduces. This
+// block runs the same core against two commits already sitting in this
+// repository's own history: a Dependabot bump and a release commit, so a
+// core that only passes its own fixtures and fails on a real lockfile has
+// somewhere to fail.
+describe("against this repository's history", () => {
+  const at = (rev: string, path: string): string | null => {
+    try { return execFileSync("git", ["show", `${rev}:${path}`], { encoding: "utf8", maxBuffer: 1e9 }); }
+    catch { return null; }
+  };
+
+  // `git show` returns null both for a bad revision or path and for a file
+  // that is legitimately absent at that revision. Every path read below
+  // names a file that is expected to exist at every revision named, so null
+  // here means the fixture itself is broken, not that the analyzer found
+  // nothing. `lockfileFactsFor` returns no facts at all once either lockfile
+  // side is null, and an assertion that merely expects zero of some fact
+  // kind would then pass having read nothing — this turns that silent,
+  // vacuous pass into a loud failure naming exactly which read came back
+  // empty.
+  const requireAt = (rev: string, path: string): string => {
+    const text = at(rev, path);
+    if (text === null) {
+      throw new Error(`git show ${rev}:${path} returned nothing; this checkout may be missing the commit`);
+    }
+    return text;
+  };
+
+  it("reads the Dependabot commit as one resolved change and no drift", () => {
+    const facts = lockfileFactsFor(
+      "package-lock.json",
+      requireAt("087674a~1", "package.json"), requireAt("087674a", "package.json"),
+      requireAt("087674a~1", "package-lock.json"), requireAt("087674a", "package-lock.json"),
+    );
+    expect(facts.filter((f) => f.kind === "lockfile_out_of_sync")).toHaveLength(0);
+    const moved = facts.filter((f) => f.kind === "dependency_resolved_changed");
+    expect(moved).toHaveLength(1);
+    expect(moved[0].detail).toMatchObject({
+      name: "@types/node", from: "26.3.0", to: "26.4.0", map: "devDependencies", rangeChanged: false,
+    });
+    // Halved because it is a dev map. An unhalved score is what a missing
+    // detail.map would silently produce, so the assertion goes through the
+    // live constant rather than a copied-down literal that would drift the
+    // moment the weight changes again.
+    expect(scoreFact(moved[0])).toBe(WEIGHTS.factKind.dependency_resolved_changed / 2);
+  });
+
+  it("finds this repository's own stale lockfile version", () => {
+    const facts = lockfileFactsFor(
+      "package-lock.json",
+      requireAt("5206587~1", "package.json"), requireAt("5206587", "package.json"),
+      requireAt("5206587~1", "package-lock.json"), requireAt("5206587", "package-lock.json"),
+    );
+    const stale = facts.filter((f) => f.kind === "lockfile_version_stale");
+    expect(stale).toHaveLength(1);
+    expect(stale[0].detail).toMatchObject({ manifest: "0.4.0", lock: "0.1.2" });
   });
 });
