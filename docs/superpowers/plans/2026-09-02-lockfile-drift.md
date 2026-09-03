@@ -37,6 +37,26 @@
 > Seven local defects fixed alongside, including Task 2 never running the full suite before
 > its commit, and a `// 1.` list marker that violates the numeral contract on its own.
 
+## As built
+
+Executed 2026-09-02. Three decisions overrode this document during execution; they are recorded
+here because the plan is a claim about what was built, and two of its literal strings are no
+longer what the code says.
+
+- **The `lockfile_tree_changed` title carries all three counts**, not the two this plan
+  specifies. Keying the score on all three while titling only two produced "0 in, 0 out" on a
+  plain `npm update` — a near-top finding whose title stated the two quantities that were zero.
+- **The tree body pluralizes.** The literal string here renders "1 packages entered the tree" at
+  the floor shape `minPossibleAnalyzerScore` names as producible.
+- **The out-of-sync pass is gated on `packages[""]` existing, and discloses the skip.** Neither
+  this plan nor the spec considered `lockfileVersion: 1`, which has no `packages` key: every
+  declared dependency would have reported out-of-sync at the family's top weight. The gate is
+  silent by nature, so `lockfileFactsFor` gained an optional `onNote` and says when it skipped.
+
+One value here is stale rather than overridden: the acceptance criterion's prose says the
+`@types/node` finding "scores 17.5", written when the weight was 35. The weight is 36, so the
+halved value is 18. The pasted assertion computes from the constant and was always correct.
+
 ## Global Constraints
 
 - Work continues on one branch; one PR at the end. Direct pushes to `master` bypass a declared protection rule — never push `master`.
