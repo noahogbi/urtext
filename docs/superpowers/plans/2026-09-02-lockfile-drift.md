@@ -10,6 +10,33 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-02-urtext-lockfile-drift-design.md` (revision 1, after a Fable review). Read it first. Its revision header names four errors already made and corrected while designing this; the plan exists to not remake them.
 
+> **Revision 1, after a Fable review returned REVISE with four blocking findings.** The
+> reviewer applied this plan verbatim to a scratch clone and ran it, which is how three of
+> the four were found — none was visible by reading.
+>
+> The worst was pasted code that compiles and is wrong: `evidence(path, text, keys)` was
+> called as `evidence(text, text, keys)` at all four sites. Both parameters are strings, so
+> `tsc` was silent and all nine tests passed — while every finding's `file` became the
+> entire lockfile, and `package-lock.json` stayed in `coverage.unanalyzedFiles`, quietly
+> defeating the one measurement this feature exists to move. Task 4's expected outcome was
+> false as written. There is now a test that fails on it.
+>
+> The anchor-degradation rule — the spec's own headline correction — was guarded by
+> `expect(line).toBeGreaterThan(0)`, which no implementation can fail. Replacing `lineOf`'s
+> body with `return 1` left the suite green. It now asserts a located line, and a second
+> test covers the two-map case the unbounded scan got wrong.
+>
+> `kindNotesFor` is not exported, so that test could not compile; it now asserts through
+> the built model, as every existing note test does.
+>
+> And the weight `35` was not free: a new weight forbids its numeral in every comment in
+> the repository, and `35` already appears in two comments about `Array.prototype`'s member
+> count. The weight is `36` — checked against the comments first, which is now a documented
+> step rather than a discovery.
+>
+> Seven local defects fixed alongside, including Task 2 never running the full suite before
+> its commit, and a `// 1.` list marker that violates the numeral contract on its own.
+
 ## Global Constraints
 
 - Work continues on one branch; one PR at the end. Direct pushes to `master` bypass a declared protection rule — never push `master`.
@@ -18,7 +45,8 @@
 - The before side of every read is `file.previousPath ?? file.path`; `status === "added"` skips the before read, `"deleted"` skips the after read.
 - The factory names its analyzer with `Object.defineProperty(fn, "name", { value: "lockfileAnalyzer" })`. An inner `const` is **not** sufficient: esbuild renames shadowed bindings. See the note in `src/analyze/dependencies.ts` above its `Object.defineProperty` call.
 - New reader-facing copy contains none of: `unsanctioned`, `unauthorized`, `approved`, `permission`, `forbidden`, `allowed` (`test/report/copy-guard.test.ts:29-36`), and never issues a verdict.
-- **Comments must not contain a bare numeral that matches a `WEIGHTS` value** (`test/comment-contract.test.ts:38-42`). This plan adds `65` and `35` to that forbidden set, and `15` is already in it. Write no digits in comments near the scoring code. This has bitten this repository repeatedly.
+- **Comments must not contain a bare numeral that matches a `WEIGHTS` value** (`test/comment-contract.test.ts:38-45`, which builds its forbidden set from `WEIGHTS.factKind` *and* `WEIGHTS.effect` and scans `src/` **and** `test/`). Write no digits in comments anywhere near this work, including in numbered list markers like `// 1.` — `1` is `WEIGHTS.effect.network`.
+- **The weight for `dependency_resolved_changed` is `36`, not `35`, and this is not arbitrary.** A new weight retroactively forbids its numeral everywhere. `35` already appears in two unrelated comments about `Array.prototype`'s member count (`src/analyze/surface.ts:93`, `test/analyze/surface.test.ts:630`) and `34` appears twice in `src/score/reach.ts:45,50` — either would turn a green suite red in files this feature has no business touching. `36` and `65` were checked and collide with nothing; `15` is already in the set, which is why the two kinds weighted `15` need no digits written near them. Verify before changing any weight: `grep -rn "\b<n>\b" src/ test/ --include=*.ts | grep -E "^\S+: *(\*|//)"`.
 - Fact ids: `lockfile_out_of_sync:<path>:<map>:<name>`, `dependency_resolved_changed:<path>:<name>`, `lockfile_version_stale:<path>`, `lockfile_tree_changed:<path>`. `reconcile` indexes facts by id, so a collision silently drops one.
 - `detail.map` is required on `dependency_resolved_changed` even though the id omits it — `scoreFact`'s halving branch reads `fact.detail.map` and nothing else.
 
@@ -154,7 +182,7 @@ Expected: FAIL. `bandOfKind` is not exported, and the four kinds are not members
     // stale version field sits with citation rot, a defect in the
     // repository's account of itself. Tree churn shares the reach base.
     lockfile_out_of_sync: 65,
-    dependency_resolved_changed: 35,
+    dependency_resolved_changed: 36,
     lockfile_version_stale: 15,
     lockfile_tree_changed: 15,
 ```
@@ -299,7 +327,10 @@ In `toFinding`'s switch in `src/score/index.ts`, after the `dependency_changed` 
       const left = num(fact.detail.left, 0);
       const moved = num(fact.detail.moved, 0);
       title = `the dependency tree moved: ${entered} in, ${left} out`;
-      body = `${entered} packages entered the tree, ${left} left, and ${moved} changed version. These are transitive: nothing in package.json names them, and they are counted rather than listed.`;
+      // "does not name" rather than "nothing names": a package dropped from
+      // the manifest in this same change is counted here, and the manifest
+      // named it on the before side. The looser phrasing would be false.
+      body = `${entered} packages entered the tree, ${left} left, and ${moved} changed version. The current package.json does not name them, and they are counted rather than listed.`;
       break;
     }
 ```
@@ -319,15 +350,17 @@ const LOCKFILE_NOTE =
   lockfile_tree_changed: LOCKFILE_NOTE,
 ```
 
-`kindNotesFor` already dedupes by note **text**, so one sentence across four kinds prints once. No change is needed there — assert it instead, in `test/report/model.test.ts`:
+`kindNotesFor` already dedupes by note **text**, so one sentence across four kinds prints once. No change is needed there — assert it instead.
+
+`kindNotesFor` is **not exported** (`src/report/model.ts:649` declares it without `export`), so do not import it: the test will not compile. Assert through `kindNotes` on the built model, which is how every existing note test does it — see `test/report/model.test.ts:758`, `:776`, `:785`, and `:1121`, which filters `m.kindNotes` for the dependency note. Copy the local `model(...)` / `finding(...)` helpers that file already uses:
 
 ```typescript
 it("prints the shared lockfile note once across several lockfile kinds", () => {
-  const notes = kindNotesFor([
-    { id: "lockfile_out_of_sync:package-lock.json:dependencies:a" } as Finding,
-    { id: "lockfile_tree_changed:package-lock.json" } as Finding,
+  const m = model(noSymbols, [
+    finding({ id: "lockfile_out_of_sync:package-lock.json:dependencies:a" }),
+    finding({ id: "lockfile_tree_changed:package-lock.json" }),
   ]);
-  expect(notes.filter((n) => n.startsWith("Lockfile findings"))).toHaveLength(1);
+  expect(m.kindNotes.filter((n) => n.startsWith("Lockfile findings"))).toHaveLength(1);
 });
 ```
 
@@ -341,18 +374,26 @@ A dependency finding — a change to what package.json declares, or to what pack
 
 The `LENS_OF_SUBJECT` doc comment in `src/report/model.ts:689-691` carries the identical claim in the same words. Change it the same way, in this commit.
 
-Then pin the new wording, since the existing tests pin only fragments:
+Then pin the new wording, since the existing tests pin only fragments. Build `html` the way the neighbouring test at `test/report/html.test.ts:755` does — `renderHtml(model(noSymbols, [...]))` with that file's local helpers — rather than referencing a bare `html` that does not exist in scope:
 
 ```typescript
 it("says the narrative holds lockfile findings too", () => {
+  const html = renderHtml(
+    model(noSymbols, [finding({ id: "claim:0:c1", tier: "model", title: "a hunch", evidence: [] })], {
+      model: "claude-opus-5",
+    }),
+  );
   expect(lens(html, "effects")).toContain("or to what package-lock.json resolves");
+  expect(lens(html, "effects")).toContain("All four appear in the narrative.");
 });
 ```
 
 - [ ] **Step 6: Run everything and confirm green**
 
 Run: `npx tsc --noEmit && npx vitest run`
-Expected: PASS. If `test/comment-contract.test.ts` fails, a comment you wrote contains a bare `65`, `35` or `15` — remove the digit rather than the comment.
+Expected: PASS.
+
+If `test/comment-contract.test.ts` fails, read *which file* it names before assuming it is one of yours. A new weight forbids its numeral repository-wide, so the failure can land in a file this feature never touched — that is why the weight is `36` and not `35`. If you changed a weight, re-run the grep in the Global Constraints and pick a numeral that appears in no comment.
 
 - [ ] **Step 7: Commit**
 
@@ -397,9 +438,24 @@ describe("lockfileFactsFor", () => {
     expect(sync[0].id).toBe("lockfile_out_of_sync:package-lock.json:dependencies:a");
   });
 
+  it("names the lockfile as the evidence file, not its contents", () => {
+    // Both parameters of the evidence helper are strings, so passing the
+    // text where the path belongs typechecks and every other test here
+    // still passes — while the whole lockfile ends up in Fact.file, and
+    // coverage stops recognising that the file was reported on.
+    const manifest = mkManifest({ dependencies: { a: "^2.0.0" } });
+    const lock = mkLock({ dependencies: { a: "^1.0.0" } });
+    const [fact] = lockfileFactsFor("package-lock.json", manifest, manifest, lock, lock);
+    expect(fact.file).toBe("package-lock.json");
+    expect(fact.evidence[0].file).toBe("package-lock.json");
+  });
+
   it("anchors an added-but-not-installed dependency even though no key exists to point at", () => {
     // The commonest out-of-sync commit: added to the manifest, npm install
-    // never run. There is no key in packages[""] for it.
+    // never run. There is no key in packages[""] for it, so the anchor must
+    // degrade to the map, and the assertion must be able to fail — asserting
+    // only that a line is positive is a tautology, since every fallback
+    // returns at least the first line.
     const before = mkManifest({ dependencies: {} });
     const after = mkManifest({ dependencies: { a: "^1.0.0" } });
     const lock = mkLock({ dependencies: {} });
@@ -407,7 +463,23 @@ describe("lockfileFactsFor", () => {
     const sync = facts.filter((f) => f.kind === "lockfile_out_of_sync");
     expect(sync).toHaveLength(1);
     expect(sync[0].detail).toMatchObject({ name: "a", manifest: "^1.0.0", lock: null });
-    expect(sync[0].line).toBeGreaterThan(0);
+    // The `"dependencies":` line inside packages[""], found by locating it in
+    // the fixture rather than hard-coding a number that silently rots.
+    const expected = lock.split("\n").findIndex((l) => l.trim().startsWith('"dependencies":')) + 1;
+    expect(expected).toBeGreaterThan(1);
+    expect(sync[0].line).toBe(expected);
+  });
+
+  it("anchors inside the map that owns the key when a package is in two maps", () => {
+    // Unbounded scanning would anchor the devDependencies finding at the
+    // dependencies copy of the same name and quote the wrong range.
+    const manifest = mkManifest({ dependencies: { a: "^1.0.0" }, devDependencies: { a: "^9.0.0" } });
+    const lock = mkLock({ dependencies: { a: "^1.0.0" }, devDependencies: { a: "^8.0.0" } });
+    const sync = lockfileFactsFor("package-lock.json", manifest, manifest, lock, lock)
+      .filter((f) => f.kind === "lockfile_out_of_sync");
+    expect(sync).toHaveLength(1);
+    expect(sync[0].detail).toMatchObject({ map: "devDependencies", manifest: "^9.0.0", lock: "^8.0.0" });
+    expect(sync[0].evidence[0].excerpt).toContain("8.0.0");
   });
 
   it("reports a resolved change under an unchanged range, and no sync finding", () => {
@@ -533,25 +605,62 @@ function versionOf(entry: Record<string, unknown> | undefined): string | undefin
 }
 
 /**
- * Line of a `"<key>":` occurring inside the `"packages"` block, preferring the
- * first match at or after the `packages[""]` entry. Textual because
- * `JSON.parse` yields no positions, and tolerant because the anchor degrades
- * rather than failing: a fact with no evidence is a throw, not a silent drop.
+ * The line of the first key in `keys` that is found, searched in order, with
+ * brace-tracked bounds so a key is matched inside the block that owns it.
+ *
+ * Textual because `JSON.parse` yields no positions. Ordered because the
+ * anchor degrades rather than failing: the key itself, then the map that
+ * would hold it, then the `packages` block, then line one. A fact with no
+ * evidence is a throw, not a silent drop, and the commonest out-of-sync
+ * commit has no key to point at — a dependency added to the manifest with
+ * `npm install` never run.
+ *
+ * Bounds matter and are not decoration: a package declared in two maps has
+ * its name as a key in both, so an unbounded scan anchors the
+ * `devDependencies` finding at the `dependencies` copy and quotes the wrong
+ * range in the excerpt.
+ *
+ * `keys` is a path from the document root, e.g. `["packages", "", "dependencies", "left-pad"]`.
+ * Each element must be found inside the block opened by the one before it.
  */
-function lineOf(text: string, keys: readonly string[]): number {
+function lineOf(text: string, keys: readonly string[]): number | undefined {
   const lines = text.split("\n");
-  for (const key of keys) {
-    const needle = `"${key}":`;
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].trim().startsWith(needle)) return i + 1;
+  let depth = 0;
+  let target = 0;
+  let openAt = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (target < keys.length && depth === target && trimmed.startsWith(`"${keys[target]}":`)) {
+      if (target === keys.length - 1) return i + 1;
+      target++;
+      openAt = depth;
+    }
+    for (const ch of lines[i]) {
+      if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        // Left the block that was opened for the key being descended into:
+        // stop expecting its children.
+        if (openAt >= 0 && depth < target) return undefined;
+      }
     }
   }
-  return 1;
+  return undefined;
 }
 
-function evidence(path: string, text: string, keys: readonly string[]): EvidenceRef[] {
-  const line = lineOf(text, keys);
-  return [{ file: path, line, excerpt: (text.split("\n")[line - 1] ?? "").trim() || path }];
+/**
+ * The first anchor that resolves, from most to least specific. Never empty:
+ * `makeFact` throws on a fact with no evidence.
+ */
+function evidence(path: string, text: string, paths: readonly (readonly string[])[]): EvidenceRef[] {
+  for (const keys of paths) {
+    const line = lineOf(text, keys);
+    if (line !== undefined) {
+      const excerpt = (text.split("\n")[line - 1] ?? "").trim();
+      return [{ file: path, line, excerpt: excerpt === "" ? path : excerpt }];
+    }
+  }
+  return [{ file: path, line: 1, excerpt: (text.split("\n")[0] ?? "").trim() || path }];
 }
 
 export function lockfileFactsFor(
@@ -578,12 +687,16 @@ export function lockfileFactsFor(
   const beforePkgs = packagesOf(beforeLock);
   const lockRoot = afterPkgs[""];
 
-  // 1. Manifest ranges against the lockfile's copy of them.
+  // Manifest ranges against the lockfile's copy of them.
   const direct = new Map<string, string>();
   for (const map of MAPS) {
     const declared = mapOf(afterManifest, map);
     const recorded = mapOf(lockRoot, map);
-    for (const name of Object.keys(declared)) direct.set(name, map);
+    // First map wins, in MAPS order, so a package declared in several takes
+    // one deterministic map rather than an iteration-order accident. It
+    // matters because `detail.map` is what halves the score: `dependencies`
+    // is first, so anything runtime keeps its full weight.
+    for (const name of Object.keys(declared)) if (!direct.has(name)) direct.set(name, map);
     for (const name of new Set([...Object.keys(declared), ...Object.keys(recorded)])) {
       const manifest = declared[name] ?? null;
       const lock = recorded[name] ?? null;
@@ -593,13 +706,18 @@ export function lockfileFactsFor(
           id: `lockfile_out_of_sync:${path}:${map}:${name}`,
           kind: "lockfile_out_of_sync",
           detail: { map, name, manifest, lock },
-          evidence: evidence(afterLockText, afterLockText, [name, map, "packages"]),
+          evidence: evidence(path, afterLockText, [
+            ["packages", "", map, name],
+            ["packages", "", map],
+            ["packages", ""],
+            ["packages"],
+          ]),
         }),
       );
     }
   }
 
-  // 2. Resolved versions of packages the manifest names.
+  // Resolved versions of packages the manifest names.
   for (const [name, map] of direct) {
     const key = `node_modules/${name}`;
     const from = versionOf(beforePkgs[key]);
@@ -612,12 +730,16 @@ export function lockfileFactsFor(
         id: `dependency_resolved_changed:${path}:${name}`,
         kind: "dependency_resolved_changed",
         detail: { map, name, from, to, range, rangeChanged },
-        evidence: evidence(afterLockText, afterLockText, [key, "packages"]),
+        evidence: evidence(path, afterLockText, [
+          ["packages", key, "version"],
+          ["packages", key],
+          ["packages"],
+        ]),
       }),
     );
   }
 
-  // 3. The root version field.
+  // The root version field.
   const manifestVersion = typeof afterManifest?.version === "string" ? afterManifest.version : undefined;
   const lockVersion = typeof afterLock?.version === "string" ? afterLock.version : undefined;
   if (manifestVersion !== undefined && lockVersion !== undefined && manifestVersion !== lockVersion) {
@@ -626,12 +748,12 @@ export function lockfileFactsFor(
         id: `lockfile_version_stale:${path}`,
         kind: "lockfile_version_stale",
         detail: { manifest: manifestVersion, lock: lockVersion },
-        evidence: evidence(afterLockText, afterLockText, ["version"]),
+        evidence: evidence(path, afterLockText, [["version"], ["packages", "", "version"]]),
       }),
     );
   }
 
-  // 4. Everything else in the tree, counted.
+  // Everything else in the tree, counted.
   const enumerated = new Set([...direct.keys()].map((n) => `node_modules/${n}`));
   let entered = 0;
   let left = 0;
@@ -650,7 +772,7 @@ export function lockfileFactsFor(
         id: `lockfile_tree_changed:${path}`,
         kind: "lockfile_tree_changed",
         detail: { entered, left, moved },
-        evidence: evidence(afterLockText, afterLockText, ["packages"]),
+        evidence: evidence(path, afterLockText, [["packages"]]),
       }),
     );
   }
@@ -662,9 +784,16 @@ export function lockfileFactsFor(
 - [ ] **Step 4: Run the tests and confirm they pass**
 
 Run: `npx tsc --noEmit && npx vitest run test/analyze/lockfile.test.ts`
-Expected: PASS, all ten.
+Expected: PASS, all eleven.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Run the FULL suite before committing**
+
+Run: `npx vitest run`
+Expected: PASS.
+
+Not optional and not redundant with Step 4. The file-scoped run above cannot see `test/comment-contract.test.ts`, which scans `src/` for comments restating a `WEIGHTS` value — so a digit written in a comment in this task's new file goes undetected until a later task and lands in this commit. The Global Constraint is that *every* commit leaves the full suite green.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/analyze/lockfile.ts test/analyze/lockfile.test.ts
@@ -678,6 +807,7 @@ git commit -m "feat: pure lockfile diffing core"
 **Files:**
 - Modify: `src/analyze/lockfile.ts` (append the factory)
 - Modify: `src/analyze/index.ts` (export and register)
+- Modify: `src/cli.ts` (the ternary chain around `:399-410` where `makeDependencyAnalyzer` is given its `onNote`)
 - Modify: `README.md` (`:26-30`, `:38`, the bullet list)
 - Test: `test/analyze/lockfile.test.ts`, `test/analyze/index.test.ts`
 
@@ -934,8 +1064,10 @@ Then wait for checks: `gh pr checks --watch`. Do not merge; hand the PR to Noah.
 
 ## Self-Review
 
-**Spec coverage.** Four kinds → Tasks 1-2. Evidence rules including the absent-key anchor → Task 2 Step 3 (`lineOf` degrades through key, map, `packages`, line 1) with its own test. Scoring and the `dependencyMap` halving → Task 1, asserted again on real data in Task 4. Banding → Task 1 Steps 1 and 3. Finding prose → Task 1 Step 4. `KIND_NOTES` dedupe → Task 1 Step 4. Routing via the existing `dependency` subject → Task 1 Step 3. Both prose sites → Task 1 Step 5. Parse failure → Tasks 2 and 3. npm-only, root-pair-only → Task 3 `isLockfile`. `--no-llm` coverage effect → Task 4 Step 3. Testing list → Tasks 2 and 4. The one thing the spec does not mention and this plan adds: `minPossibleAnalyzerScore` and `README.md`, both silent sites found while planning.
+**Spec coverage.** Four kinds → Tasks 1-2. Evidence rules including the absent-key anchor → Task 2 Step 3 (`lineOf` degrades through key, map, `packages`, line 1) with its own test. Scoring and the `dependencyMap` halving → Task 1, asserted again on real data in Task 4. Banding → Task 1 Steps 1 and 3. Finding prose → Task 1 Step 4. `KIND_NOTES` dedupe → Task 1 Step 4. Routing via the existing `dependency` subject → Task 1 Step 3. Both prose sites → Task 1 Step 5. Parse failure → Tasks 2 and 3. npm-only → Task 3 `isLockfile`.
 
-**Placeholders.** None: every step carries the code or the command.
+**One deliberate divergence from the spec.** The spec says "only the pair at the repository root". `isLockfile` also matches `*/package-lock.json`, pairing each with its sibling manifest, which is what `dependencyAnalyzer` already does for nested manifests. This is safe rather than clever: a nested lockfile with no sibling manifest yields nothing, because `readAt` returns null and the core requires both sides. Consistency with the analyzer beside it beats the narrower rule, and the workspaces limit the spec names — one root lockfile covering `packages/foo` — is untouched either way, since a workspace member has no lockfile of its own to find. `--no-llm` coverage effect → Task 4 Step 3. Testing list → Tasks 2 and 4. The one thing the spec does not mention and this plan adds: `minPossibleAnalyzerScore` and `README.md`, both silent sites found while planning.
+
+**Placeholders.** None: every step carries the code or the command. Three snippets rely on helpers already local to the test file they go in — `model`/`finding`/`noSymbols`/`lens`/`renderHtml` in the report tests — and each names the neighbouring test to copy them from. Add to the imports as you go: `bandOfKind` and `minPossibleAnalyzerScore` in `test/score/index.test.ts`, and `scoreFact` plus `WEIGHTS` in `test/analyze/lockfile.test.ts` for Task 4.
 
 **Type consistency.** `lockfileFactsFor` has one signature, used identically in Tasks 2, 3 and 4. `makeLockfileAnalyzer`/`lockfileAnalyzer` match `makeDependencyAnalyzer`/`dependencyAnalyzer`. Detail keys — `map`, `name`, `manifest`, `lock`, `from`, `to`, `range`, `rangeChanged`, `entered`, `left`, `moved` — are spelled the same in the kinds table, the core, the prose cases and the tests.
