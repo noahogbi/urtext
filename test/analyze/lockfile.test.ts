@@ -121,6 +121,28 @@ describe("lockfileFactsFor", () => {
     expect(facts[0].line).toBe(1);
   });
 
+  it("synthesizes a short excerpt for a minified lockfile instead of quoting the whole document", () => {
+    // A single-line lockfile has no anchor for `lineOf` to find, so the last
+    // resort in `evidence()` used to quote the entire first line verbatim —
+    // on a minified lockfile, that is the whole document, embedded straight
+    // into the HTML, Markdown, and PDF reports. This gives that fallback a
+    // filler field long enough that "the whole document" and "short" cannot
+    // be confused for one another.
+    const manifest = mkManifest({ dependencies: { a: "^2.0.0" } });
+    const filler = "x".repeat(5000);
+    const lock = JSON.stringify({
+      name: "p",
+      version: "1.0.0",
+      lockfileVersion: 3,
+      packages: { "": { version: "1.0.0", dependencies: { a: "^1.0.0" } } },
+      _filler: filler,
+    });
+    const facts = lockfileFactsFor("package-lock.json", manifest, manifest, lock, lock);
+    expect(facts[0].line).toBe(1);
+    expect(facts[0].evidence[0].excerpt.length).toBeLessThan(100);
+    expect(facts[0].evidence[0].excerpt).not.toContain(filler);
+  });
+
   it("throws a typed error naming the side and the file that did not parse", () => {
     const manifest = mkManifest({ dependencies: {} });
     const lock = mkLock({});
@@ -365,6 +387,37 @@ describe("makeLockfileAnalyzer", () => {
     await expect(analyzer(changeset as never, ctx as never)).resolves.toEqual([]);
     expect(notes).toHaveLength(1);
     expect(notes[0]).toContain("package-lock.json");
+  });
+
+  it("names the manifest, not the lockfile, when the manifest is what failed to parse", async () => {
+    // `LockfileParseError` carries `which` precisely so this note can tell
+    // the two files apart. Reporting `file.path` unconditionally — the
+    // lockfile's own path — would claim package-lock.json did not parse
+    // when it was package.json, beside the dependency analyzer's true note
+    // about the same file.
+    const notes: string[] = [];
+    const analyzer = makeLockfileAnalyzer({ onNote: (n) => notes.push(n) });
+    const lock = mkLock({ dependencies: { a: "^1.0.0" } });
+    const validManifest = mkManifest({ dependencies: { a: "^1.0.0" } });
+    const changeset = {
+      range: { from: "a", to: "b", label: "x" },
+      files: [{ path: "package-lock.json", status: "modified" as const }],
+    };
+    const ctx = {
+      cwd: ".",
+      range: { from: "a", to: "b", label: "x" },
+      readAt: async (rev: string, p: string) => {
+        if (p === "package-lock.json") return lock;
+        if (p === "package.json" && rev === "a") return "{ not json";
+        if (p === "package.json" && rev === "b") return validManifest;
+        throw new Error(`unexpected read: ${rev} ${p}`);
+      },
+      programAt: async () => { throw new Error("must not be called"); },
+    };
+    await expect(analyzer(changeset as never, ctx as never)).resolves.toEqual([]);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain("package.json");
+    expect(notes[0]).not.toContain("package-lock.json");
   });
 
   it("does not treat package.json itself as a lockfile", async () => {

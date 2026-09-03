@@ -29,6 +29,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # `npm test` below runs the lockfile analyzer's acceptance tests,
+          # which read this repository's own history at fixed commits; the
+          # default depth-1 checkout has none of that history to read.
+          fetch-depth: 0
 
       # Node 24 for its npm: trusted publishing needs npm 11.5.1 or later.
       # The version here answers the registry's requirement and is unrelated

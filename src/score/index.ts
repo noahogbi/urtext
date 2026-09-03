@@ -556,7 +556,7 @@ export function toFinding(fact: Fact): Finding {
         fact.detail.rangeChanged === false && range !== ""
           ? `The declared range \`${range}\` did not change; the `
           : `The `;
-      body = `${unchanged}version the lockfile pins moved from \`${from}\` to \`${to}\`. This is what installs.`;
+      body = `${unchanged}version the lockfile pins moved from \`${from}\` to \`${to}\`. The lockfile, not the declared range, is what an install follows.`;
       break;
     }
     case "lockfile_version_stale": {

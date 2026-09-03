@@ -23,7 +23,10 @@ dates are the release date.
 
   A lockfile that fails to parse becomes one warning naming the file and side, and the rest of
   the review's findings survive; a nested lockfile pairs with its sibling `package.json` the
-  same way the dependencies analyzer already does for nested manifests.
+  same way the dependencies analyzer already does for nested manifests. An npm-6-era lockfile
+  with no root package entry produces its own warning — `package-lock.json has no root package
+  entry, so its dependencies were not checked against package.json.` — since there is nothing
+  recorded in that older format to check the manifest's ranges against.
 
 ## 0.4.0 — 2026-09-02
 

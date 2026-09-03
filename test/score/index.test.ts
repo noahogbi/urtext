@@ -1086,6 +1086,20 @@ describe("lockfile finding copy", () => {
     expect(changed.body.startsWith("The version")).toBe(true);
   });
 
+  it("states the lockfile's role rather than predicting an install outcome that a sibling lockfile_out_of_sync finding can falsify", () => {
+    // The old closing sentence, "This is what installs.", is false whenever
+    // a lockfile_out_of_sync finding is also present in the same review:
+    // npm ci then refuses to install at all. The replacement states a role,
+    // not an outcome, so it stays true in that same review.
+    const f = toFinding(
+      fact("dependency_resolved_changed", {
+        name: "left-pad", from: "1.0.0", to: "1.1.0", range: "^1.0.0", rangeChanged: false,
+      }),
+    );
+    expect(f.body).toContain("The lockfile, not the declared range, is what an install follows.");
+    expect(f.body).not.toContain("This is what installs");
+  });
+
   it("says what a stale lockfile version field means", () => {
     const f = toFinding(fact("lockfile_version_stale", { manifest: "2.0.0", lock: "1.0.0" }));
     expect(f.title).toBe("package-lock.json still says 1.0.0");

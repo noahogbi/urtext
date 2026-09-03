@@ -551,7 +551,7 @@ const DEPENDENCY_NOTE =
   "Dependency findings report the manifest's declared constraints; within a range, the lockfile decides what actually resolves.";
 
 const LOCKFILE_NOTE =
-  "Lockfile findings report what a clean install would actually resolve, which is not always what package.json declares.";
+  "Lockfile findings report what package-lock.json records, which is not always what package.json declares.";
 
 export const KIND_NOTES: Record<string, string> = {
   blast_radius: "Reach findings report how widely a changed export is used. Wide reach is not a defect; it is the cost of getting one wrong.",

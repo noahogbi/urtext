@@ -99,6 +99,14 @@ function lineOf(text: string, keys: readonly string[]): number | undefined {
 /**
  * The first anchor that resolves, from most to least specific. Never empty:
  * `makeFact` throws on a fact with no evidence.
+ *
+ * The last resort does not quote the file's first line: a minified lockfile
+ * is one line long, and that line is the entire document, embedded verbatim
+ * into the HTML, Markdown, and PDF reports. `dependencies.ts`'s own
+ * last-resort synthesizes a short string instead of reading one from the
+ * text for the same reason; here there is no per-fact map, name, or version
+ * to build one from, so the excerpt names the file — the fact is still
+ * true, it just points at the file rather than the entry.
  */
 function evidence(path: string, text: string, paths: readonly (readonly string[])[]): EvidenceRef[] {
   for (const keys of paths) {
@@ -108,7 +116,7 @@ function evidence(path: string, text: string, paths: readonly (readonly string[]
       return [{ file: path, line, excerpt: excerpt === "" ? path : excerpt }];
     }
   }
-  return [{ file: path, line: 1, excerpt: (text.split("\n")[0] ?? "").trim() || path }];
+  return [{ file: path, line: 1, excerpt: path }];
 }
 
 export function lockfileFactsFor(
@@ -283,8 +291,22 @@ export function makeLockfileAnalyzer(
         );
       } catch (e) {
         if (e instanceof LockfileParseError) {
+          // `file.path` names the lockfile, but a `LockfileParseError` can
+          // also come from the sibling manifest — `which` says so, `side`
+          // says which revision, and the two together pick the one of the
+          // four read paths that actually failed. Reporting `file.path`
+          // unconditionally would name the lockfile even when package.json
+          // is what did not parse.
+          const erroredPath =
+            e.which === "manifest"
+              ? e.side === "before"
+                ? beforeManifestPath
+                : manifestPath
+              : e.side === "before"
+                ? beforePath
+                : file.path;
           options.onNote?.(
-            `${file.path} did not parse on the ${e.side} side, so its lockfile changes were not analyzed.`,
+            `${erroredPath} did not parse on the ${e.side} side, so its lockfile changes were not analyzed.`,
           );
           continue;
         }
