@@ -108,7 +108,11 @@ export type FactKind =
   | "citation_rot"
   | "dependency_added"
   | "dependency_removed"
-  | "dependency_changed";
+  | "dependency_changed"
+  | "lockfile_out_of_sync"
+  | "dependency_resolved_changed"
+  | "lockfile_version_stale"
+  | "lockfile_tree_changed";
 
 export interface EvidenceRef {
   file: string;

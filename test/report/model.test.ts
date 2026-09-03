@@ -1122,3 +1122,103 @@ describe("dependency kind notes", () => {
     expect(depNotes).toHaveLength(1);
   });
 });
+
+describe("lockfile kind notes", () => {
+  it("prints the shared lockfile note once across several lockfile kinds", () => {
+    // The note is shared by four kinds; a kind-keyed dedup would print it
+    // once per kind present.
+    const m = buildReportModel(
+      changeset(),
+      [
+        finding({
+          id: "lockfile_out_of_sync:package-lock.json:dependencies:a",
+          tier: "verified",
+          file: "package-lock.json",
+        }),
+        finding({
+          id: "lockfile_tree_changed:package-lock.json",
+          tier: "verified",
+          file: "package-lock.json",
+        }),
+      ],
+      { warnings: [] },
+    );
+    expect(m.kindNotes.filter((n) => n.startsWith("Lockfile findings"))).toHaveLength(1);
+  });
+
+  // The test above only ever mixes two of the four kinds LOCKFILE_NOTE is
+  // keyed under, in one review — enough to prove the note dedupes, not
+  // enough to prove all four mappings still exist. Deleting
+  // `lockfile_version_stale: LOCKFILE_NOTE` from `KIND_NOTES` left the whole
+  // suite green until these four were added: each finding here appears
+  // alone, with no sibling finding of a different lockfile kind present to
+  // supply the note in its place, so dropping any one kind's mapping
+  // silences the note in exactly the test for that kind.
+  it("states the shared lockfile note for a lockfile_out_of_sync finding on its own", () => {
+    const m = buildReportModel(
+      changeset(),
+      [
+        finding({
+          id: "lockfile_out_of_sync:package-lock.json:dependencies:a",
+          tier: "verified",
+          file: "package-lock.json",
+        }),
+      ],
+      { warnings: [] },
+    );
+    expect(m.kindNotes).toEqual([
+      "Lockfile findings report what package-lock.json records, which is not always what package.json declares.",
+    ]);
+  });
+
+  it("states the shared lockfile note for a dependency_resolved_changed finding on its own", () => {
+    const m = buildReportModel(
+      changeset(),
+      [
+        finding({
+          id: "dependency_resolved_changed:package-lock.json:a",
+          tier: "verified",
+          file: "package-lock.json",
+        }),
+      ],
+      { warnings: [] },
+    );
+    expect(m.kindNotes).toEqual([
+      "Lockfile findings report what package-lock.json records, which is not always what package.json declares.",
+    ]);
+  });
+
+  it("states the shared lockfile note for a lockfile_version_stale finding on its own", () => {
+    const m = buildReportModel(
+      changeset(),
+      [
+        finding({
+          id: "lockfile_version_stale:package-lock.json",
+          tier: "verified",
+          file: "package-lock.json",
+        }),
+      ],
+      { warnings: [] },
+    );
+    expect(m.kindNotes).toEqual([
+      "Lockfile findings report what package-lock.json records, which is not always what package.json declares.",
+    ]);
+  });
+
+  it("states the shared lockfile note for a lockfile_tree_changed finding on its own", () => {
+    const m = buildReportModel(
+      changeset(),
+      [
+        finding({
+          id: "lockfile_tree_changed:package-lock.json",
+          tier: "verified",
+          file: "package-lock.json",
+        }),
+      ],
+      { warnings: [] },
+    );
+    expect(m.kindNotes).toEqual([
+      "Lockfile findings report what package-lock.json records, which is not always what package.json declares.",
+    ]);
+  });
+});

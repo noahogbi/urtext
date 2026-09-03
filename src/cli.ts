@@ -4,7 +4,9 @@ import {
   ANALYZERS,
   citationsAnalyzer,
   dependencyAnalyzer,
+  lockfileAnalyzer,
   makeDependencyAnalyzer,
+  makeLockfileAnalyzer,
   makeCitationsAnalyzer,
   runAnalyzers,
 } from "./analyze/index.js";
@@ -407,7 +409,12 @@ export async function review(
         // becomes one warnings line instead of a failed analyzer.
         a === dependencyAnalyzer
         ? makeDependencyAnalyzer({ onNote: (note) => warnings.push(note) })
-        : a,
+        : // Same swap again: a lockfile that does not parse, or carries no
+          // root package entry to check the manifest against, becomes a
+          // warnings line instead of a failed analyzer or unstated silence.
+          a === lockfileAnalyzer
+          ? makeLockfileAnalyzer({ onNote: (note) => warnings.push(note) })
+          : a,
   );
   let failureCount = 0;
   const facts = await runAnalyzers(changeset, ctx, runnable, (f) => {

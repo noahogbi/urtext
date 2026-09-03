@@ -498,6 +498,10 @@ const SUBJECT_OF_KIND = {
   dependency_added: "dependency",
   dependency_removed: "dependency",
   dependency_changed: "dependency",
+  lockfile_out_of_sync: "dependency",
+  dependency_resolved_changed: "dependency",
+  lockfile_version_stale: "dependency",
+  lockfile_tree_changed: "dependency",
 } satisfies Record<FactKind, Subject>;
 
 /**
@@ -546,6 +550,9 @@ const SUBJECT_OF_KIND = {
 const DEPENDENCY_NOTE =
   "Dependency findings report the manifest's declared constraints; within a range, the lockfile decides what actually resolves.";
 
+const LOCKFILE_NOTE =
+  "Lockfile findings report what package-lock.json records, which is not always what package.json declares.";
+
 export const KIND_NOTES: Record<string, string> = {
   blast_radius: "Reach findings report how widely a changed export is used. Wide reach is not a defect; it is the cost of getting one wrong.",
   signature_changed:
@@ -555,6 +562,10 @@ export const KIND_NOTES: Record<string, string> = {
   dependency_added: DEPENDENCY_NOTE,
   dependency_removed: DEPENDENCY_NOTE,
   dependency_changed: DEPENDENCY_NOTE,
+  lockfile_out_of_sync: LOCKFILE_NOTE,
+  dependency_resolved_changed: LOCKFILE_NOTE,
+  lockfile_version_stale: LOCKFILE_NOTE,
+  lockfile_tree_changed: LOCKFILE_NOTE,
 };
 
 /**
@@ -648,9 +659,9 @@ function kindOf(id: string): string | undefined {
  */
 function kindNotesFor(findings: Finding[]): string[] {
   // Deduped by note text, not by kind: the three dependency kinds share one
-  // sentence, and a review holding two of them owes the reader that sentence
-  // once. Identical behaviour for every other kind, whose notes are all
-  // distinct.
+  // sentence and the four lockfile kinds share another, so a review holding
+  // several of either owes the reader that sentence once. Identical
+  // behaviour for every other kind, whose notes are all distinct.
   const seen = new Set<string>();
   const notes: string[] = [];
   for (const f of findings) {
@@ -687,8 +698,8 @@ function subjectOf(id: string): Subject | undefined {
  * no filtered pane and live in the narrative, which shows every finding
  * regardless of lens. A rotted citation is not an effect, not a guard, and
  * not a change to the public surface — and neither is a change to what
- * package.json declares: each belongs to the account of what this change
- * did, which is what the narrative is.
+ * package.json declares, or to what package-lock.json resolves: each belongs
+ * to the account of what this change did, which is what the narrative is.
  */
 const LENS_OF_SUBJECT: Record<Subject, Lens> = {
   effect: "effects",

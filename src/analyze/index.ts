@@ -4,6 +4,7 @@ import { citationsAnalyzer } from "./citations.js";
 import { dependencyAnalyzer } from "./dependencies.js";
 import { effectsAnalyzer } from "./effects.js";
 import { guardsAnalyzer } from "./guards.js";
+import { lockfileAnalyzer } from "./lockfile.js";
 import { surfaceAnalyzer } from "./surface.js";
 
 export { detectEffects, effectsAnalyzer } from "./effects.js";
@@ -12,6 +13,7 @@ export { exportedSignatures, surfaceAnalyzer } from "./surface.js";
 export { countReferences, blastRadiusAnalyzer } from "./blast-radius.js";
 export { citationsAnalyzer, makeCitationsAnalyzer } from "./citations.js";
 export { dependencyAnalyzer, makeDependencyAnalyzer } from "./dependencies.js";
+export { lockfileAnalyzer, makeLockfileAnalyzer } from "./lockfile.js";
 export { createProgramAt, listTypeScriptFilesAt } from "./program.js";
 
 export { makeFact } from "./fact.js";
@@ -23,6 +25,7 @@ export const ANALYZERS: Analyzer[] = [
   blastRadiusAnalyzer,
   citationsAnalyzer,
   dependencyAnalyzer,
+  lockfileAnalyzer,
 ];
 
 /** One analyzer that threw, named so the user knows what is missing. */

@@ -3,6 +3,31 @@
 Notable changes to urtext. Versions follow [semantic versioning](https://semver.org/);
 dates are the release date.
 
+## Unreleased
+
+### Added
+
+- **A seventh analyzer: lockfile.** Deterministic, `verified`-tier facts from
+  `package-lock.json`, checked against `package.json` and against its own previous state. Runs
+  on every review, `--no-llm` included.
+
+  A lockfile the manifest disagrees with is the finding that matters most: `npm ci` refuses to
+  install from a manifest and lockfile that disagree, so it ranks above every dependency finding
+  from the manifest itself. A resolved version — what a clean install actually gets, as opposed
+  to the range package.json declares — is its own finding, separate from a declared-range
+  change, and a dev-map resolved change still scores below the same change in a runtime map. A
+  root `version` field left stale after a manifest bump is reported alongside citation rot,
+  since nothing installs differently. Everything else that moved in the transitive tree —
+  arrivals, departures, and version changes — is counted in one finding that never outranks a
+  finding naming an actual problem, however large the count.
+
+  A lockfile that fails to parse becomes one warning naming the file and side, and the rest of
+  the review's findings survive; a nested lockfile pairs with its sibling `package.json` the
+  same way the dependencies analyzer already does for nested manifests. An npm-6-era lockfile
+  with no root package entry produces its own warning — `package-lock.json has no root package
+  entry, so its dependencies were not checked against package.json.` — since there is nothing
+  recorded in that older format to check the manifest's ranges against.
+
 ## 0.4.0 — 2026-09-02
 
 ### Added

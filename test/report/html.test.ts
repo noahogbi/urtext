@@ -764,6 +764,16 @@ describe("renderHtml lenses", () => {
     expect(lens(html, "effects")).toContain("All four appear in the narrative.");
   });
 
+  it("says the narrative holds lockfile findings too", () => {
+    const html = renderHtml(
+      model(noSymbols, [finding({ id: "claim:0:c1", tier: "model", title: "a hunch", evidence: [] })], {
+        model: "claude-opus-5",
+      }),
+    );
+    expect(lens(html, "effects")).toContain("or to what package-lock.json resolves");
+    expect(lens(html, "effects")).toContain("All four appear in the narrative.");
+  });
+
   it("tells the reader a standalone reach finding is in the narrative and not in this lens", () => {
     // `SUBJECT_OF_KIND` classifies blast_radius as "reach", which no section
     // in this lens filters on. That is a decision, so the lens has to say it:

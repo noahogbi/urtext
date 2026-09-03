@@ -778,6 +778,83 @@ describe("review", () => {
     ).toBe(true);
   });
 
+  it("carries the lockfile's missing-root-entry note through review() into --json's warnings, beside a real finding on the same file", async () => {
+    // The missing-root-entry disclosure end to end: a legacy lockfile with
+    // no packages[""] root entry still produces a real, non-model finding (the stale root
+    // version below), which is exactly what removes a file from
+    // `coverage.unanalyzedFiles` — so without this note reaching `warnings`
+    // through `review()`'s own wiring, a reader sees a lockfile finding and
+    // no hint that the out-of-sync check never ran against it.
+    const lockRepo = mkCanonicalTempDir("urtext-cli-lockfile-");
+    const run = (args: string[]) => gitIn(lockRepo, args);
+    run(["init", "-b", "main"]);
+    run(["config", "user.email", "test@example.com"]);
+    run(["config", "user.name", "Test"]);
+    writeFileSync(
+      join(lockRepo, "package.json"),
+      JSON.stringify({ name: "p", version: "1.0.0", dependencies: { a: "^1.0.0" } }, null, 2),
+    );
+    // Written before the `packages` map existed: a `dependencies` map of
+    // resolved objects at the document root, no `packages` key at all — the
+    // same legacy shape `test/analyze/lockfile.test.ts`'s `mkLegacyLock`
+    // builds for the pure-core tests.
+    writeFileSync(
+      join(lockRepo, "package-lock.json"),
+      JSON.stringify(
+        {
+          name: "p",
+          version: "1.0.0",
+          lockfileVersion: 1,
+          dependencies: { a: { version: "1.0.0", resolved: "https://example.invalid/a", integrity: "sha-fake-a" } },
+        },
+        null,
+        2,
+      ),
+    );
+    run(["add", "-A"]);
+    run(["commit", "-m", "first"]);
+    // The manifest's version moves, so the lockfile's own root version field
+    // goes stale against it — a real finding. And the lockfile file itself
+    // changes too (dependency b joins both), so it appears in the diff at
+    // all; an untouched lockfile is not a file `review()` reads.
+    writeFileSync(
+      join(lockRepo, "package.json"),
+      JSON.stringify(
+        { name: "p", version: "2.0.0", dependencies: { a: "^1.0.0", b: "^1.0.0" } },
+        null,
+        2,
+      ),
+    );
+    writeFileSync(
+      join(lockRepo, "package-lock.json"),
+      JSON.stringify(
+        {
+          name: "p",
+          version: "1.0.0",
+          lockfileVersion: 1,
+          dependencies: {
+            a: { version: "1.0.0", resolved: "https://example.invalid/a", integrity: "sha-fake-a" },
+            b: { version: "1.0.0", resolved: "https://example.invalid/b", integrity: "sha-fake-b" },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const r = await review(lockRepo, { command: "review", json: true, noLlm: true, help: false });
+    const parsed = JSON.parse(r.output);
+    expect(parsed.warnings).toContain(
+      "package-lock.json has no root package entry, so its dependencies were not checked against package.json.",
+    );
+    expect(
+      parsed.findings.some((f: Finding) => f.id === "lockfile_version_stale:package-lock.json"),
+    ).toBe(true);
+    // The premise the comment above states: a real finding is what makes the
+    // disclosure necessary in the first place, not merely possible.
+    expect(parsed.coverage.unanalyzedFiles).not.toContain("package-lock.json");
+  });
+
   it("reports an empty unanalyzed list when every changed file is TypeScript", async () => {
     // Always present, zero included — the rule the neighbouring keys follow.
     const r = await review(repo, { command: "review", json: true, noLlm: true, help: false });

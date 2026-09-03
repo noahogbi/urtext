@@ -1,7 +1,7 @@
 # package-lock.json drift facts — design
 
 **Date:** 2026-09-02
-**Status:** proposed
+**Status:** implemented (2026-09-02), on the branch this document rode in on
 
 > **Revision 1, after a Fable review returned REVISE with four blocking findings.** Each
 > was checked against the code before being accepted; all four held.

@@ -8,6 +8,7 @@ import {
   SETTER_FRAME_PREFIX,
 } from "../../src/extract/scope.js";
 import {
+  bandOfKind,
   MAX_RENDERED_SIGNATURE,
   minPossibleAnalyzerScore,
   rank,
@@ -943,5 +944,166 @@ describe("dependency findings", () => {
     const dev = dep("dependency_added", { map: "devDependencies", name: "b", to: "^1.0.0" });
     const ranked = rank([dev, runtime]);
     expect(ranked[0].id).toContain(":dependencies:");
+  });
+});
+
+describe("lockfile findings", () => {
+  const fact = (kind: Fact["kind"], detail: Record<string, unknown>): Fact => ({
+    id: `${kind}:package-lock.json`,
+    kind,
+    file: "package-lock.json",
+    line: 1,
+    detail,
+    evidence: [{ file: "package-lock.json", line: 1, excerpt: "x" }],
+  });
+
+  it("ranks an out-of-sync lockfile above every manifest dependency kind", () => {
+    const outOfSync = scoreFact(
+      fact("lockfile_out_of_sync", { map: "dependencies", name: "a", manifest: "^2.0.0", lock: "^1.0.0" }),
+    );
+    expect(outOfSync).toBeGreaterThan(
+      scoreFact(fact("dependency_added", { map: "dependencies", name: "a", to: "^1.0.0" })),
+    );
+    expect(outOfSync).toBeLessThan(WEIGHTS.factKind.export_removed);
+  });
+
+  it("halves a resolved change in a dev map, which needs detail.map to work at all", () => {
+    const dev = fact("dependency_resolved_changed", {
+      map: "devDependencies", name: "a", from: "1.0.0", to: "1.1.0", range: "^1.0.0", rangeChanged: false,
+    });
+    const runtime = fact("dependency_resolved_changed", {
+      map: "dependencies", name: "a", from: "1.0.0", to: "1.1.0", range: "^1.0.0", rangeChanged: false,
+    });
+    expect(scoreFact(dev)).toBe(scoreFact(runtime) / 2);
+  });
+
+  it("log-scales tree churn on total movement, not arrivals alone", () => {
+    const arrivals = scoreFact(fact("lockfile_tree_changed", { entered: 40, left: 0, moved: 0 }));
+    const departures = scoreFact(fact("lockfile_tree_changed", { entered: 0, left: 40, moved: 0 }));
+    expect(departures).toBe(arrivals);
+    expect(scoreFact(fact("lockfile_tree_changed", { entered: 1, left: 0, moved: 0 }))).toBeLessThan(arrivals);
+  });
+
+  it("never lets tree churn outrank a kind that reports a problem", () => {
+    const huge = scoreFact(fact("lockfile_tree_changed", { entered: 5000, left: 5000, moved: 5000 }));
+    expect(huge).toBeLessThanOrEqual(WEIGHTS.factKind.effect_added);
+  });
+
+  it("sorts tree churn into the context band and the other three into the defect band", () => {
+    expect(bandOfKind("lockfile_tree_changed")).toBe(bandOfKind("blast_radius"));
+    expect(bandOfKind("lockfile_out_of_sync")).toBe(bandOfKind("dependency_changed"));
+    expect(bandOfKind("lockfile_version_stale")).toBe(bandOfKind("dependency_changed"));
+    expect(bandOfKind("dependency_resolved_changed")).toBe(bandOfKind("dependency_changed"));
+  });
+
+  it("leaves the analyzer floor where it was, so MODEL_CEILING does not move", () => {
+    expect(minPossibleAnalyzerScore()).toBe(6);
+  });
+});
+
+describe("lockfile finding copy", () => {
+  const fact = (kind: Fact["kind"], detail: Record<string, unknown>): Fact => ({
+    id: `${kind}:package-lock.json`,
+    kind,
+    file: "package-lock.json",
+    line: 1,
+    detail,
+    evidence: [{ file: "package-lock.json", line: 1, excerpt: "x" }],
+  });
+
+  it("states all three tree-churn counts in the title, not the old two-count form", () => {
+    const f = toFinding(fact("lockfile_tree_changed", { entered: 0, left: 0, moved: 500 }));
+    expect(f.title).toContain("0 in");
+    expect(f.title).toContain("0 out");
+    expect(f.title).toContain("500 changed");
+    // The pre-fix title named only entered/left, so an all-zero-but-moved
+    // shape — the one a plain `npm update` produces — read "0 in, 0 out"
+    // while carrying most of the score. Pinned as the exact string a
+    // regression would reproduce.
+    expect(f.title).not.toBe("the dependency tree moved: 0 in, 0 out");
+  });
+
+  it("pluralizes each tree-churn count on its own, singular only at exactly one", () => {
+    // The floor shape minPossibleAnalyzerScore names as producible, so this
+    // is the one that must stay right. At the two zero positions a correct
+    // ternary and a hardcoded plural render identically ("0 packages"), so
+    // this shape alone cannot prove either the left or the moved ternary is
+    // still there — see the two tests below, which put every position at a
+    // value where singular and plural actually differ.
+    const f = toFinding(fact("lockfile_tree_changed", { entered: 1, left: 0, moved: 0 }));
+    expect(f.body).toContain("1 package entered the tree");
+    expect(f.body).toContain("0 packages left");
+    expect(f.body).toContain("0 packages changed version");
+  });
+
+  it("reads singular in every position when every count is one", () => {
+    const f = toFinding(fact("lockfile_tree_changed", { entered: 1, left: 1, moved: 1 }));
+    expect(f.body).toContain(
+      "1 package entered the tree, 1 package left, and 1 package changed version.",
+    );
+  });
+
+  it("reads plural in every position when every count is more than one", () => {
+    const f = toFinding(fact("lockfile_tree_changed", { entered: 2, left: 2, moved: 2 }));
+    expect(f.body).toContain(
+      "2 packages entered the tree, 2 packages left, and 2 packages changed version.",
+    );
+  });
+
+  it("names both sides of the disagreement when the lockfile has an entry", () => {
+    const f = toFinding(
+      fact("lockfile_out_of_sync", {
+        map: "dependencies", name: "left-pad", manifest: "^2.0.0", lock: "^1.0.0",
+      }),
+    );
+    expect(f.body).toContain("package.json declares `^2.0.0`");
+    expect(f.body).toContain("the lockfile records `^1.0.0`");
+  });
+
+  it("says the lockfile has no entry for it when lock is absent", () => {
+    const f = toFinding(
+      fact("lockfile_out_of_sync", {
+        map: "dependencies", name: "left-pad", manifest: "^2.0.0", lock: null,
+      }),
+    );
+    expect(f.body).toContain("the lockfile has no entry for it");
+  });
+
+  it("leads with the unchanged range only when rangeChanged is false", () => {
+    const unchanged = toFinding(
+      fact("dependency_resolved_changed", {
+        name: "left-pad", from: "1.0.0", to: "1.1.0", range: "^1.0.0", rangeChanged: false,
+      }),
+    );
+    expect(unchanged.body).toContain("The declared range `^1.0.0` did not change; the version");
+
+    const changed = toFinding(
+      fact("dependency_resolved_changed", {
+        name: "left-pad", from: "1.0.0", to: "1.1.0", range: "^1.0.0", rangeChanged: true,
+      }),
+    );
+    expect(changed.body).not.toContain("did not change");
+    expect(changed.body.startsWith("The version")).toBe(true);
+  });
+
+  it("states the lockfile's role rather than predicting an install outcome that a sibling lockfile_out_of_sync finding can falsify", () => {
+    // The old closing sentence, "This is what installs.", is false whenever
+    // a lockfile_out_of_sync finding is also present in the same review:
+    // npm ci then refuses to install at all. The replacement states a role,
+    // not an outcome, so it stays true in that same review.
+    const f = toFinding(
+      fact("dependency_resolved_changed", {
+        name: "left-pad", from: "1.0.0", to: "1.1.0", range: "^1.0.0", rangeChanged: false,
+      }),
+    );
+    expect(f.body).toContain("The lockfile, not the declared range, is what an install follows.");
+    expect(f.body).not.toContain("This is what installs");
+  });
+
+  it("says what a stale lockfile version field means", () => {
+    const f = toFinding(fact("lockfile_version_stale", { manifest: "2.0.0", lock: "1.0.0" }));
+    expect(f.title).toBe("package-lock.json still says 1.0.0");
+    expect(f.body).toContain("package.json declares version `2.0.0`");
+    expect(f.body).toContain("the lockfile was not regenerated");
   });
 });
