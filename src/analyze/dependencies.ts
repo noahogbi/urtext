@@ -1,4 +1,5 @@
 import { makeFact } from "./fact.js";
+import { MAPS, lineOf, mapOf } from "./manifest-json.js";
 import type { Analyzer, EvidenceRef, Fact } from "../types.js";
 
 /**
@@ -9,13 +10,6 @@ import type { Analyzer, EvidenceRef, Fact } from "../types.js";
  * half owns only text in, facts out, which is what makes the diffing rules
  * testable without a repository.
  */
-
-const MAPS = [
-  "dependencies",
-  "devDependencies",
-  "peerDependencies",
-  "optionalDependencies",
-] as const;
 
 /**
  * Thrown when a non-null side fails JSON.parse. The factory catches it and
@@ -46,59 +40,6 @@ function parseSide(text: string | null, side: "before" | "after"): Record<string
     : {};
 }
 
-/**
- * One dependency map, read defensively: an absent side, an absent map, and a
- * map that is not an object of strings all read as empty. `parseSide` is the
- * trust boundary for JSON syntax; this is the boundary for JSON shape.
- */
-function mapOf(source: Record<string, unknown> | null, key: string): Record<string, string> {
-  const raw = source?.[key];
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
-  const out: Record<string, string> = {};
-  for (const [name, value] of Object.entries(raw)) {
-    if (typeof value === "string") out[name] = value;
-  }
-  return out;
-}
-
-/**
- * The line of `"<name>":` inside the top-level `"<map>":` block, by exact key
- * match with brace-tracked bounds. Textual on purpose — `JSON.parse` yields
- * no positions — and exact on purpose: `"peerDependenciesMeta"` is a
- * superstring of `"peerDependencies"` and holds the same package names as
- * keys, and so do `overrides` and `resolutions`, so a bare indexOf on either
- * the map or the name anchors the wrong block.
- *
- * Undefined when the scan finds nothing — a manifest serialized on one line.
- * The caller falls back to line one; the fact is still true, it just points
- * at the file rather than the entry.
- */
-function entryLine(text: string, map: string, name: string): number | undefined {
-  const lines = text.split("\n");
-  const mapKey = `"${map}":`;
-  const nameKey = `"${name}":`;
-  let depth = 0;
-  let inMap = false;
-  let mapDepth = 0;
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (!inMap && depth === 1 && trimmed.startsWith(mapKey)) {
-      inMap = true;
-      mapDepth = depth;
-    } else if (inMap && trimmed.startsWith(nameKey)) {
-      return i + 1;
-    }
-    for (const ch of lines[i]) {
-      if (ch === "{") depth++;
-      else if (ch === "}") {
-        depth--;
-        if (inMap && depth <= mapDepth) inMap = false;
-      }
-    }
-  }
-  return undefined;
-}
-
 function evidenceFor(
   text: string,
   map: string,
@@ -106,7 +47,7 @@ function evidenceFor(
   version: string,
   side?: "before",
 ): EvidenceRef {
-  const line = entryLine(text, map, name);
+  const line = lineOf(text, [map, name]);
   const ref: EvidenceRef = {
     file: "",
     line: line ?? 1,

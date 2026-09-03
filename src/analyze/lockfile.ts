@@ -1,7 +1,6 @@
 import { makeFact } from "./fact.js";
+import { MAPS, lineOf, mapOf } from "./manifest-json.js";
 import type { Analyzer, EvidenceRef, Fact } from "../types.js";
-
-const MAPS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"] as const;
 
 const LOCKFILES = ["package-lock.json", "npm-shrinkwrap.json"];
 
@@ -29,14 +28,6 @@ function parse(text: string | null, side: "before" | "after", which: "manifest" 
   }
 }
 
-function mapOf(source: Record<string, unknown> | null | undefined, key: string): Record<string, string> {
-  const raw = source?.[key];
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(raw)) if (typeof v === "string") out[k] = v;
-  return out;
-}
-
 /** The `packages` map of a lockfile, or an empty object. */
 function packagesOf(lock: Record<string, unknown> | null): Record<string, Record<string, unknown>> {
   const raw = lock?.packages;
@@ -46,54 +37,6 @@ function packagesOf(lock: Record<string, unknown> | null): Record<string, Record
 
 function versionOf(entry: Record<string, unknown> | undefined): string | undefined {
   return typeof entry?.version === "string" ? entry.version : undefined;
-}
-
-/**
- * The line of the first key in `keys` that is found, searched in order, with
- * brace-tracked bounds so a key is matched inside the block that owns it.
- *
- * Textual because `JSON.parse` yields no positions. Ordered because the
- * anchor degrades rather than failing: the key itself, then the map that
- * would hold it, then the `packages` block, then line one. A fact with no
- * evidence is a throw, not a silent drop, and the commonest out-of-sync
- * commit has no key to point at — a dependency added to the manifest with
- * `npm install` never run.
- *
- * Bounds matter and are not decoration: a package declared in two maps has
- * its name as a key in both, so an unbounded scan anchors the
- * `devDependencies` finding at the `dependencies` copy and quotes the wrong
- * range in the excerpt.
- *
- * `keys` is a path from the document root, e.g. `["packages", "", "dependencies", "left-pad"]`.
- * Each element must be found inside the block opened by the one before it.
- */
-function lineOf(text: string, keys: readonly string[]): number | undefined {
-  const lines = text.split("\n");
-  let depth = 0;
-  // How many keys of the path have been entered so far. A key at the
-  // document root is seen while depth is one, not zero: the opening brace of
-  // the document itself has already been counted by the time any key line is
-  // read. Hence every comparison below adds one to `matched` rather than
-  // comparing depth to `matched` directly — `dependencies.ts` uses the same
-  // offset, testing its top-level maps against a depth of one.
-  let matched = 0;
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (matched < keys.length && depth === matched + 1 && trimmed.startsWith(`"${keys[matched]}":`)) {
-      if (matched === keys.length - 1) return i + 1;
-      matched++;
-    }
-    for (const ch of lines[i]) {
-      if (ch === "{") depth++;
-      else if (ch === "}") {
-        depth--;
-        // Closed the block that held the key last descended into, without
-        // finding the next key in the path: this anchor does not resolve.
-        if (matched > 0 && depth < matched + 1) return undefined;
-      }
-    }
-  }
-  return undefined;
 }
 
 /**
