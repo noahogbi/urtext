@@ -8,6 +8,7 @@ import {
   SETTER_FRAME_PREFIX,
 } from "../../src/extract/scope.js";
 import {
+  bandOfKind,
   MAX_RENDERED_SIGNATURE,
   minPossibleAnalyzerScore,
   rank,
@@ -943,5 +944,59 @@ describe("dependency findings", () => {
     const dev = dep("dependency_added", { map: "devDependencies", name: "b", to: "^1.0.0" });
     const ranked = rank([dev, runtime]);
     expect(ranked[0].id).toContain(":dependencies:");
+  });
+});
+
+describe("lockfile findings", () => {
+  const fact = (kind: Fact["kind"], detail: Record<string, unknown>): Fact => ({
+    id: `${kind}:package-lock.json`,
+    kind,
+    file: "package-lock.json",
+    line: 1,
+    detail,
+    evidence: [{ file: "package-lock.json", line: 1, excerpt: "x" }],
+  });
+
+  it("ranks an out-of-sync lockfile above every manifest dependency kind", () => {
+    const outOfSync = scoreFact(
+      fact("lockfile_out_of_sync", { map: "dependencies", name: "a", manifest: "^2.0.0", lock: "^1.0.0" }),
+    );
+    expect(outOfSync).toBeGreaterThan(
+      scoreFact(fact("dependency_added", { map: "dependencies", name: "a", to: "^1.0.0" })),
+    );
+    expect(outOfSync).toBeLessThan(WEIGHTS.factKind.export_removed);
+  });
+
+  it("halves a resolved change in a dev map, which needs detail.map to work at all", () => {
+    const dev = fact("dependency_resolved_changed", {
+      map: "devDependencies", name: "a", from: "1.0.0", to: "1.1.0", range: "^1.0.0", rangeChanged: false,
+    });
+    const runtime = fact("dependency_resolved_changed", {
+      map: "dependencies", name: "a", from: "1.0.0", to: "1.1.0", range: "^1.0.0", rangeChanged: false,
+    });
+    expect(scoreFact(dev)).toBe(scoreFact(runtime) / 2);
+  });
+
+  it("log-scales tree churn on total movement, not arrivals alone", () => {
+    const arrivals = scoreFact(fact("lockfile_tree_changed", { entered: 40, left: 0, moved: 0 }));
+    const departures = scoreFact(fact("lockfile_tree_changed", { entered: 0, left: 40, moved: 0 }));
+    expect(departures).toBe(arrivals);
+    expect(scoreFact(fact("lockfile_tree_changed", { entered: 1, left: 0, moved: 0 }))).toBeLessThan(arrivals);
+  });
+
+  it("never lets tree churn outrank a kind that reports a problem", () => {
+    const huge = scoreFact(fact("lockfile_tree_changed", { entered: 5000, left: 5000, moved: 5000 }));
+    expect(huge).toBeLessThanOrEqual(WEIGHTS.factKind.effect_added);
+  });
+
+  it("sorts tree churn into the context band and the other three into the defect band", () => {
+    expect(bandOfKind("lockfile_tree_changed")).toBe(bandOfKind("blast_radius"));
+    expect(bandOfKind("lockfile_out_of_sync")).toBe(bandOfKind("dependency_changed"));
+    expect(bandOfKind("lockfile_version_stale")).toBe(bandOfKind("dependency_changed"));
+    expect(bandOfKind("dependency_resolved_changed")).toBe(bandOfKind("dependency_changed"));
+  });
+
+  it("leaves the analyzer floor where it was, so MODEL_CEILING does not move", () => {
+    expect(minPossibleAnalyzerScore()).toBe(6);
   });
 });

@@ -1122,3 +1122,27 @@ describe("dependency kind notes", () => {
     expect(depNotes).toHaveLength(1);
   });
 });
+
+describe("lockfile kind notes", () => {
+  it("prints the shared lockfile note once across several lockfile kinds", () => {
+    // The note is shared by four kinds; a kind-keyed dedup would print it
+    // once per kind present.
+    const m = buildReportModel(
+      changeset(),
+      [
+        finding({
+          id: "lockfile_out_of_sync:package-lock.json:dependencies:a",
+          tier: "verified",
+          file: "package-lock.json",
+        }),
+        finding({
+          id: "lockfile_tree_changed:package-lock.json",
+          tier: "verified",
+          file: "package-lock.json",
+        }),
+      ],
+      { warnings: [] },
+    );
+    expect(m.kindNotes.filter((n) => n.startsWith("Lockfile findings"))).toHaveLength(1);
+  });
+});

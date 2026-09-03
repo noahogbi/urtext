@@ -56,6 +56,18 @@ export const WEIGHTS = {
     dependency_added: 55,
     dependency_removed: 45,
     dependency_changed: 30,
+    // A lockfile reports what a clean install actually resolves. An
+    // inconsistent lockfile outranks every manifest kind because it is
+    // certain rather than probable — the install refuses — but it sits below
+    // the kinds that report a regression nothing else catches, since a
+    // failing install announces itself. A resolved change sits just above a
+    // range change: it is what installs rather than what was declared. A
+    // stale version field sits with citation rot, a defect in the
+    // repository's account of itself. Tree churn shares the reach base.
+    lockfile_out_of_sync: 65,
+    dependency_resolved_changed: 36,
+    lockfile_version_stale: 15,
+    lockfile_tree_changed: 15,
   } satisfies Record<Fact["kind"], number>,
   effect: {
     network: 1.0,
@@ -86,6 +98,18 @@ function effectOf(fact: Fact): EffectKind {
     : "timing";
 }
 
+/**
+ * The log curve two kinds share, with the ceiling both are held to.
+ *
+ * Both report cost rather than a defect — reach for one, tree movement for
+ * the other — so neither may outrank a kind that names a problem, whatever
+ * count it carries. The ceiling is `effect_added` for the reason stated on
+ * that weight.
+ */
+function logScaledScore(base: number, count: number): number {
+  return Math.min(base * (1 + Math.log10(Math.max(count, 1))), WEIGHTS.factKind.effect_added);
+}
+
 export function scoreFact(fact: Fact): number {
   const base = WEIGHTS.factKind[fact.kind];
 
@@ -99,23 +123,22 @@ export function scoreFact(fact: Fact): number {
     // not hit the ceiling below the reference counts real repositories
     // produce — a saturated curve ranks nothing (see `WEIGHTS.factKind.blast_radius`).
     const refs = typeof fact.detail.references === "number" ? fact.detail.references : 1;
-    const logScaled = base * (1 + Math.log10(Math.max(refs, 1)));
-    // A blast-radius fact reports reach, not a defect: "this changed and a
-    // lot of code uses it" names no problem by itself, so no reference count
-    // may push it above a fact that does. `effect_added` is a deliberately
-    // chosen ceiling, set below guard_removed / signature_changed /
-    // export_removed — the kinds that most directly report a regression —
-    // so a widely-used export can never bury one of those under sheer reach.
-    // Do not raise this to "fix" a large-repo score; raise it only by
-    // deciding blast radius should outrank a removed guard, which it should
-    // not.
-    return Math.min(logScaled, WEIGHTS.factKind.effect_added);
+    return logScaledScore(base, refs);
+  }
+
+  if (fact.kind === "lockfile_tree_changed") {
+    // Total movement, not arrivals: a package leaving costs the same review
+    // attention as one arriving, and keying on arrivals scores a purely
+    // subtractive change at bare base.
+    const n = (k: string) => (typeof fact.detail[k] === "number" ? (fact.detail[k] as number) : 0);
+    return logScaledScore(base, n("entered") + n("left") + n("moved"));
   }
 
   if (
     fact.kind === "dependency_added" ||
     fact.kind === "dependency_removed" ||
-    fact.kind === "dependency_changed"
+    fact.kind === "dependency_changed" ||
+    fact.kind === "dependency_resolved_changed"
   ) {
     const map = typeof fact.detail.map === "string" ? fact.detail.map : "dependencies";
     return base * (WEIGHTS.dependencyMap[map] ?? 1);
@@ -166,7 +189,8 @@ export function minPossibleAnalyzerScore(): number {
     if (
       kind === "dependency_added" ||
       kind === "dependency_removed" ||
-      kind === "dependency_changed"
+      kind === "dependency_changed" ||
+      kind === "dependency_resolved_changed"
     ) {
       // A dependency fact always carries a map — a `{}` synthetic is an
       // input the analyzer cannot produce, and a floor computed from an
@@ -175,6 +199,11 @@ export function minPossibleAnalyzerScore(): number {
       return Object.keys(WEIGHTS.dependencyMap).map((map) =>
         scoreFact(syntheticFact(kind, { map })),
       );
+    }
+    if (kind === "lockfile_tree_changed") {
+      // One moved entry is the floor: the analyzer emits no tree fact when
+      // nothing moved, so a zeroed synthetic is a shape it cannot produce.
+      return [scoreFact(syntheticFact(kind, { entered: 1, left: 0, moved: 0 }))];
     }
     return [scoreFact(syntheticFact(kind, {}))];
   });
@@ -491,6 +520,54 @@ export function toFinding(fact: Fact): Finding {
       body = `The declared range moved. This is the manifest's constraint, not what installs: within a range, the lockfile decides what actually resolves.`;
       break;
     }
+    case "lockfile_out_of_sync": {
+      const map = str(fact.detail.map, "dependencies");
+      const name = str(fact.detail.name, "a package");
+      const manifest = fact.detail.manifest;
+      const lock = fact.detail.lock;
+      title = `package-lock.json disagrees with package.json about ${name}`;
+      const declared =
+        typeof manifest === "string"
+          ? `package.json declares \`${manifest}\` in \`${map}\``
+          : `package.json no longer declares \`${name}\` in \`${map}\``;
+      const recorded =
+        typeof lock === "string"
+          ? `the lockfile records \`${lock}\``
+          : `the lockfile has no entry for it`;
+      body = `${declared}; ${recorded}. \`npm ci\` refuses to install from a manifest and lockfile that disagree, so this fails every clean install until \`npm install\` is run and the result committed.`;
+      break;
+    }
+    case "dependency_resolved_changed": {
+      const name = str(fact.detail.name, "a package");
+      const from = str(fact.detail.from, "unknown");
+      const to = str(fact.detail.to, "unknown");
+      const range = str(fact.detail.range, "");
+      title = `${name} now resolves to ${to}`;
+      const unchanged =
+        fact.detail.rangeChanged === false && range !== ""
+          ? `The declared range \`${range}\` did not change; the `
+          : `The `;
+      body = `${unchanged}version the lockfile pins moved from \`${from}\` to \`${to}\`. This is what installs.`;
+      break;
+    }
+    case "lockfile_version_stale": {
+      const manifest = str(fact.detail.manifest, "unknown");
+      const lock = str(fact.detail.lock, "unknown");
+      title = `package-lock.json still says ${lock}`;
+      body = `package.json declares version \`${manifest}\`. This does not affect what installs — \`npm ci\` succeeds — but the lockfile was not regenerated when the version was bumped.`;
+      break;
+    }
+    case "lockfile_tree_changed": {
+      const entered = num(fact.detail.entered, 0);
+      const left = num(fact.detail.left, 0);
+      const moved = num(fact.detail.moved, 0);
+      title = `the dependency tree moved: ${entered} in, ${left} out`;
+      // "does not name" rather than "nothing names": a package dropped from
+      // the manifest in this same change is counted here, and the manifest
+      // named it on the before side. The looser phrasing would be false.
+      body = `${entered} packages entered the tree, ${left} left, and ${moved} changed version. The current package.json does not name them, and they are counted rather than listed.`;
+      break;
+    }
     case "citation_rot": {
       const cited = str(fact.detail.citedFile, "the cited file");
       const start = num(fact.detail.citedLine, 0);
@@ -635,7 +712,17 @@ export function toFinding(fact: Fact): Finding {
 const CONTEXT_KINDS: ReadonlySet<Fact["kind"]> = new Set<Fact["kind"]>([
   "blast_radius",
   "export_added",
+  // Tree churn reports arrival and departure, not a defect: nothing here is
+  // something to go and fix. The other three lockfile kinds are — an install
+  // that refuses, a version that resolved differently, a lockfile that was
+  // not regenerated — so they stay in the defect band.
+  "lockfile_tree_changed",
 ]);
+
+/** `bandOf` by kind, exported so the banding decision is directly testable. */
+export function bandOfKind(kind: Fact["kind"]): number {
+  return bandOf(kind);
+}
 
 /**
  * Which band a fact's finding sorts into: the defect band first, the context
