@@ -1,6 +1,6 @@
 import ts from "typescript";
 import { framesFor, MODULE_OWNER, qualifyOwner } from "../extract/scope.js";
-import { isTypeScriptFile } from "../extract/symbols.js";
+import { isTypeScriptFile, scriptKindFor } from "../extract/symbols.js";
 import { makeFact } from "./fact.js";
 import type {
   AnalysisContext,
@@ -54,7 +54,7 @@ export function collectGuards(path: string, text: string): GuardSite[] {
     text,
     ts.ScriptTarget.ES2022,
     true,
-    path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    scriptKindFor(path),
   );
   const lines = text.split("\n");
   const out: GuardSite[] = [];
@@ -254,7 +254,7 @@ function collectDeclaredOwners(path: string, text: string): string[] {
     text,
     ts.ScriptTarget.ES2022,
     true,
-    path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    scriptKindFor(path),
   );
   const owners: string[] = [];
   const stack: string[] = [];

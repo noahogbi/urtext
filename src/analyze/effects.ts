@@ -1,5 +1,5 @@
 import ts from "typescript";
-import { isTypeScriptFile } from "../extract/symbols.js";
+import { isTypeScriptFile, scriptKindFor } from "../extract/symbols.js";
 import { makeFact, MAX_EVIDENCE } from "./fact.js";
 import type {
   AnalysisContext,
@@ -159,7 +159,7 @@ export function detectEffects(path: string, text: string): EffectSite[] {
     text,
     ts.ScriptTarget.ES2022,
     true,
-    path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    scriptKindFor(path),
   );
   const lines = text.split("\n");
   const sites: EffectSite[] = [];

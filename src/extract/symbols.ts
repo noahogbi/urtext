@@ -14,6 +14,43 @@ export function isTypeScriptFile(path: string): boolean {
   return /\.(?:ts|tsx|mts|cts)$/.test(path) && !/\.d\.(?:ts|mts|cts)$/.test(path);
 }
 
+/**
+ * A JavaScript implementation file, in every extension the language has.
+ * There is no `.mjsx`/`.cjsx` — JSX never got module-explicit flavours — and
+ * no declaration flavour to exclude, JavaScript having no `.d.js`.
+ */
+export function isJavaScriptFile(path: string): boolean {
+  return /\.(?:js|mjs|cjs|jsx)$/.test(path);
+}
+
+/**
+ * Source an analyzer can read on its own: TypeScript or JavaScript.
+ *
+ * Named for the capability rather than the languages because that is what the
+ * call sites are choosing. An analyzer that builds its own SourceFile can read
+ * either; one that needs the type checker can only read what the project's
+ * compiler options admit, which is a different question asked elsewhere.
+ */
+export function isSyntacticSource(path: string): boolean {
+  return isTypeScriptFile(path) || isJavaScriptFile(path);
+}
+
+/**
+ * The ScriptKind a path must be parsed under.
+ *
+ * `.jsx` is tested before the general JavaScript case because it is both, and
+ * JSX is the one that matters: parsed as TypeScript, `<div className="a">`
+ * reads as a type assertion and the file yields parse errors. Plain
+ * JavaScript is given its own kind for the same reason — JSX inside a `.js`
+ * file is the Babel convention and mis-parses identically.
+ */
+export function scriptKindFor(path: string): ts.ScriptKind {
+  if (path.endsWith(".tsx")) return ts.ScriptKind.TSX;
+  if (path.endsWith(".jsx")) return ts.ScriptKind.JSX;
+  if (isJavaScriptFile(path)) return ts.ScriptKind.JS;
+  return ts.ScriptKind.TS;
+}
+
 interface Declared {
   name: string;
   qualifiedName: string;
@@ -34,7 +71,7 @@ function parse(path: string, text: string): ts.SourceFile {
     text,
     ts.ScriptTarget.ES2022,
     /* setParentNodes */ true,
-    path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    scriptKindFor(path),
   );
 }
 
