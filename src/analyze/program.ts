@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { git, readAt } from "../extract/git.js";
-import { isTypeScriptFile } from "../extract/symbols.js";
+import { isJavaScriptFile, isTypeScriptFile } from "../extract/symbols.js";
 import { WORKTREE } from "../types.js";
 
 /**
@@ -13,6 +13,13 @@ import { WORKTREE } from "../types.js";
  * extensions and all three declaration flavours end in one of these.
  */
 const TS_SOURCE = /\.(?:ts|tsx|mts|cts)$/;
+
+/**
+ * Any JavaScript file, read-into-the-host shaped like `TS_SOURCE` above.
+ * JavaScript has no declaration flavour to widen for, so unlike `TS_SOURCE`
+ * this already matches `isJavaScriptFile`'s program-root set exactly.
+ */
+const JS_SOURCE = /\.(?:js|mjs|cjs|jsx)$/;
 
 const CASE_SENSITIVE = ts.sys.useCaseSensitiveFileNames;
 
@@ -56,15 +63,24 @@ async function listPathsAt(root: string, rev: string): Promise<string[]> {
 }
 
 /**
- * Repo-relative TypeScript source paths at a revision. Declaration files are
- * excluded: they contribute no analyzable implementation and inflate the
- * program.
+ * Repo-relative program-source paths at a revision: TypeScript always, and
+ * JavaScript when the project's own compiler configuration includes it.
+ * Declaration files are excluded: they contribute no analyzable
+ * implementation and inflate the program.
+ *
+ * Named for what it returns rather than for TypeScript alone — the name this
+ * function carried before it could return `.js` would have gone quietly
+ * wrong the moment it did, the exact class of defect this project's citation
+ * rule exists to catch.
  */
-export async function listTypeScriptFilesAt(
+export async function listProgramSourcesAt(
   root: string,
   rev: string,
 ): Promise<string[]> {
-  return (await listPathsAt(root, rev)).filter(isTypeScriptFile);
+  const js = allowsJavaScript(root);
+  return (await listPathsAt(root, rev)).filter(
+    (p) => isTypeScriptFile(p) || (js && isJavaScriptFile(p)),
+  );
 }
 
 /** The repo's compiler options, or defaults when it has no usable tsconfig. */
@@ -96,6 +112,29 @@ function compilerOptions(root: string): ts.CompilerOptions {
     ...options
   } = parsed.options;
   return { ...options, noEmit: true, skipLibCheck: true };
+}
+
+/**
+ * Whether the project's own compiler configuration includes its JavaScript.
+ *
+ * Not `options.allowJs` alone: TypeScript turns JavaScript on when `checkJs`
+ * is set while leaving `allowJs` unset, so reading the raw field excludes a
+ * project whose compiler does include it — the silent-invisibility failure
+ * this feature is built to avoid.
+ *
+ * The rule is spelled out here rather than delegated to the compiler's own
+ * `getAllowJSCompilerOption`, which is not part of the public typed API and
+ * does not compile against it. The two were checked against each other over
+ * every combination of the two options and agree on all of them; the test
+ * below pins that agreement so a future TypeScript cannot drift from it
+ * unnoticed.
+ *
+ * Reads the tsconfig, never a program: the analyzers that ask this must not
+ * pay for a program to learn there is nothing for them to do.
+ */
+export function allowsJavaScript(root: string): boolean {
+  const options = compilerOptions(root);
+  return options.allowJs ?? Boolean(options.checkJs);
 }
 
 /**
@@ -195,6 +234,11 @@ export async function createProgramAt(
   rev: string,
 ): Promise<ts.Program> {
   const options = compilerOptions(root);
+  // JavaScript is read into the host only when the project's own compiler
+  // configuration includes it — the same rule `allowsJavaScript` states,
+  // inlined against `options` already in scope here rather than re-reading
+  // the tsconfig a second time.
+  const js = options.allowJs ?? Boolean(options.checkJs);
   // Sources, plus the manifests module resolution consults. A package.json
   // is what tells the compiler whether a directory is ESM or CommonJS under
   // node16/nodenext; without it every relative import in such a repo is
@@ -202,7 +246,11 @@ export async function createProgramAt(
   // wrongness this host exists to avoid. They come from the revision like
   // any other repository file.
   const paths = (await listPathsAt(root, rev)).filter(
-    (p) => TS_SOURCE.test(p) || p === "package.json" || p.endsWith("/package.json"),
+    (p) =>
+      TS_SOURCE.test(p) ||
+      (js && JS_SOURCE.test(p)) ||
+      p === "package.json" ||
+      p.endsWith("/package.json"),
   );
 
   // Reading a commit's files means one `git show` per file. Done serially
@@ -235,8 +283,10 @@ export async function createProgramAt(
     contents.set(key, text);
     // Only implementation sources are program roots. Declaration files and
     // manifests stay readable and resolvable — an ambient .d.ts is part of
-    // the revision's type surface — without inflating the program.
-    if (isTypeScriptFile(p)) rootNames.push(abs);
+    // the revision's type surface — without inflating the program. A
+    // JavaScript file becomes a root on the same condition it was let into
+    // `contents` above.
+    if (isTypeScriptFile(p) || (js && isJavaScriptFile(p))) rootNames.push(abs);
 
     const segments = key.split("/");
     for (let i = segments.length - 1; i > 0; i--) {

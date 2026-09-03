@@ -14,7 +14,7 @@ export { countReferences, blastRadiusAnalyzer } from "./blast-radius.js";
 export { citationsAnalyzer, makeCitationsAnalyzer } from "./citations.js";
 export { dependencyAnalyzer, makeDependencyAnalyzer } from "./dependencies.js";
 export { lockfileAnalyzer, makeLockfileAnalyzer } from "./lockfile.js";
-export { createProgramAt, listTypeScriptFilesAt } from "./program.js";
+export { createProgramAt, listProgramSourcesAt } from "./program.js";
 
 export { makeFact } from "./fact.js";
 

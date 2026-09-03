@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import ts from "typescript";
-import { isTypeScriptFile } from "../extract/symbols.js";
+import { isJavaScriptFile, isTypeScriptFile } from "../extract/symbols.js";
 import { makeFact, MAX_EVIDENCE } from "./fact.js";
-import { relativePathOf } from "./program.js";
+import { allowsJavaScript, relativePathOf } from "./program.js";
 import type {
   AnalysisContext,
   Analyzer,
@@ -139,9 +139,13 @@ export const blastRadiusAnalyzer: Analyzer = async (
   changeset: Changeset,
   ctx: AnalysisContext,
 ): Promise<Fact[]> => {
+  // Computed once, before the filter: the early return just below is what
+  // lets an analyzer that finds nothing relevant skip building a program at
+  // all, and `allowsJavaScript` itself only ever reads the tsconfig.
+  const js = allowsJavaScript(ctx.cwd);
   const relevant = changeset.files.filter(
     (f) =>
-      isTypeScriptFile(f.path) &&
+      (isTypeScriptFile(f.path) || (js && isJavaScriptFile(f.path))) &&
       f.status !== "deleted" &&
       f.symbols.some((s) => s.exported && s.change !== "removed"),
   );

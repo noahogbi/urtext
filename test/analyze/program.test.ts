@@ -1,11 +1,14 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import ts from "typescript";
-import { createProgramAt, listTypeScriptFilesAt } from "../../src/analyze/program.js";
+import { allowsJavaScript, createProgramAt, listProgramSourcesAt } from "../../src/analyze/program.js";
 import { WORKTREE } from "../../src/types.js";
+
+const mkCanonicalTempDir = (prefix: string) =>
+  realpathSync(mkdtempSync(join(tmpdir(), prefix)));
 
 let repo: string;
 let absentRepo: string;
@@ -60,15 +63,15 @@ beforeAll(() => {
   );
 });
 
-describe("listTypeScriptFilesAt", () => {
+describe("listProgramSourcesAt", () => {
   it("lists TypeScript files at a commit and skips others", async () => {
-    const files = await listTypeScriptFilesAt(repo, "main");
+    const files = await listProgramSourcesAt(repo, "main");
     expect(files).toContain("src/lib.ts");
     expect(files).not.toContain("notes.md");
   });
 
   it("lists working-tree files for the WORKTREE sentinel", async () => {
-    expect(await listTypeScriptFilesAt(repo, WORKTREE)).toContain("src/lib.ts");
+    expect(await listProgramSourcesAt(repo, WORKTREE)).toContain("src/lib.ts");
   });
 });
 
@@ -132,5 +135,50 @@ describe("createProgramAt", () => {
         .getSemanticDiagnostics(current)
         .map((d) => ts.flattenDiagnosticMessageText(d.messageText, " ")),
     ).toEqual([]);
+  });
+});
+
+describe("allowsJavaScript", () => {
+  it("follows checkJs even when allowJs is unset", () => {
+    // TypeScript turns JavaScript on when checkJs is set, leaving allowJs
+    // undefined. Reading the raw field would exclude a project whose
+    // compiler does include its JavaScript.
+    const dir = mkCanonicalTempDir("urtext-allowjs-");
+    writeFileSync(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { checkJs: true } }));
+    expect(allowsJavaScript(dir)).toBe(true);
+  });
+
+  it("is false for a project that sets neither, and for one with no tsconfig", () => {
+    const bare = mkCanonicalTempDir("urtext-allowjs-none-");
+    expect(allowsJavaScript(bare)).toBe(false);
+    const empty = mkCanonicalTempDir("urtext-allowjs-empty-");
+    writeFileSync(join(empty, "tsconfig.json"), JSON.stringify({ compilerOptions: {} }));
+    expect(allowsJavaScript(empty)).toBe(false);
+  });
+
+  it("is true for this repository, which sets both", () => {
+    expect(allowsJavaScript(process.cwd())).toBe(true);
+  });
+
+  it("agrees with the compiler's own rule, which is not public API", () => {
+    // allowsJavaScript spells out a rule TypeScript implements internally as
+    // getAllowJSCompilerOption. That function is absent from the public typed
+    // API — using it is a compile error — so the rule is duplicated, and this
+    // pins the duplicate against the original so a future TypeScript cannot
+    // drift from it silently.
+    const internal = (ts as unknown as {
+      getAllowJSCompilerOption?: (o: ts.CompilerOptions) => boolean;
+    }).getAllowJSCompilerOption;
+    if (!internal) return; // gone from the runtime: nothing to compare against
+    for (const compilerOptions of [
+      { checkJs: true },
+      { allowJs: true },
+      {},
+      { allowJs: false, checkJs: true },
+      { allowJs: true, checkJs: false },
+    ]) {
+      const parsed = ts.parseJsonConfigFileContent({ compilerOptions }, ts.sys, process.cwd()).options;
+      expect(parsed.allowJs ?? Boolean(parsed.checkJs)).toBe(internal(parsed));
+    }
   });
 });

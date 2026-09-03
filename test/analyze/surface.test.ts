@@ -895,3 +895,52 @@ describe("surfaceAnalyzer long string-literal signatures", () => {
     expect(lone.test(stored)).toBe(false);
   });
 });
+
+describe("surfaceAnalyzer and the project's own compiler options", () => {
+  /** Commits one export in a JavaScript module, then adds a second beside it, uncommitted. */
+  function commitThenAddExport(dir: string, run2: (args: string[]) => void, path: string): void {
+    writeFileSync(
+      join(dir, path),
+      ["export function helper() {", "  return true;", "}", ""].join("\n"),
+    );
+    run2(["add", "-A"]);
+    run2(["commit", "-m", "first"]);
+    writeFileSync(
+      join(dir, path),
+      [
+        "export function helper() {",
+        "  return true;",
+        "}",
+        "export function addedInJs() {",
+        "  return false;",
+        "}",
+        "",
+      ].join("\n"),
+    );
+  }
+
+  it("reports the added export in a .mjs file when the project's tsconfig allows JavaScript", async () => {
+    const { dir, run: run2 } = makeRepo();
+    writeFileSync(
+      join(dir, "tsconfig.json"),
+      JSON.stringify({ compilerOptions: { allowJs: true } }),
+    );
+    commitThenAddExport(dir, run2, "src/util.mjs");
+
+    const cs = await extract(dir);
+    const facts = await surfaceAnalyzer(cs, createContext(dir, cs.range));
+    expect(
+      facts.filter((f) => f.kind === "export_added").map((f) => f.detail.export),
+    ).toContain("addedInJs");
+  });
+
+  it("reports nothing for the same .mjs change, and does not throw, when the tsconfig admits neither allowJs nor checkJs", async () => {
+    const { dir, run: run2 } = makeRepo();
+    writeFileSync(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: {} }));
+    commitThenAddExport(dir, run2, "src/util.mjs");
+
+    const cs = await extract(dir);
+    const facts = await surfaceAnalyzer(cs, createContext(dir, cs.range));
+    expect(facts).toEqual([]);
+  });
+});
