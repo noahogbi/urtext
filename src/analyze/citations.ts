@@ -1,6 +1,6 @@
 import ts from "typescript";
 import { git } from "../extract/git.js";
-import { isTypeScriptFile } from "../extract/symbols.js";
+import { isSyntacticSource } from "../extract/symbols.js";
 import {
   REPORT_DIR,
   WORKTREE,
@@ -60,12 +60,23 @@ export const PROSE_EXTENSIONS = [".md", ".markdown", ".txt"] as const;
 
 /**
  * The pathspecs the candidate-file queries in this file's scan half pass to
- * git. Narrower than `isTypeScriptFile` accepts — it also takes the
- * module-explicit extensions, which no pathspec here names — so a citation
- * written in one of those files is not checked at all. An under-report, the
- * direction every approximation in this feature leans.
+ * git: prose, plus every extension `isSyntacticSource` treats as source. The
+ * two lists must stay in step — it was exactly this pair drifting apart that
+ * let a module-explicit citation go unchecked before.
  */
-export const CITATION_PATHSPECS = ["*.md", "*.markdown", "*.txt", "*.ts", "*.tsx"] as const;
+export const CITATION_PATHSPECS = [
+  "*.md",
+  "*.markdown",
+  "*.txt",
+  "*.ts",
+  "*.tsx",
+  "*.mts",
+  "*.cts",
+  "*.js",
+  "*.mjs",
+  "*.cjs",
+  "*.jsx",
+] as const;
 
 export type CitationForm = "line" | "quote";
 
@@ -364,7 +375,7 @@ export function citationsInComments(source: string, fileName: string): Citation[
 /** Every citation in one file, scanned the way that file's kind is scanned. */
 export function citationsIn(path: string, text: string): Citation[] {
   if (isProseFile(path)) return citationsInProse(text);
-  if (isTypeScriptFile(path)) return citationsInComments(text, path);
+  if (isSyntacticSource(path)) return citationsInComments(text, path);
   return [];
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CITATION_PATHSPECS,
   citationsIn,
   citationsInComments,
   citationsInProse,
@@ -280,6 +281,21 @@ describe("citationsIn", () => {
     expect(citationsIn("docs/a.md", text)).toHaveLength(1);
     expect(citationsIn("src/a.ts", text)).toHaveLength(0);
     expect(citationsIn("assets/logo.png", text)).toHaveLength(0);
+  });
+
+  it("checks a citation written in a JavaScript comment", () => {
+    // The dispatch in citationsIn is not the gate. CITATION_PATHSPECS decides
+    // which files ever become candidates, so widening the dispatch alone
+    // leaves this dead.
+    expect([...CITATION_PATHSPECS]).toContain("*.mjs");
+    expect(citationsIn("a.mjs", "// see src/x.ts:3\n")).toHaveLength(1);
+  });
+
+  it("checks a citation written in a module-explicit TypeScript comment", () => {
+    // A pre-existing under-report the pathspec comment has documented all
+    // along: isTypeScriptFile accepts .mts, no pathspec named it.
+    expect([...CITATION_PATHSPECS]).toContain("*.mts");
+    expect(citationsIn("a.mts", "// see src/x.ts:3\n")).toHaveLength(1);
   });
 });
 
