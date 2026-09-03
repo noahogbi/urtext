@@ -37,6 +37,10 @@ beforeAll(() => {
     "export function load(id: string) {\n  return id;\n}\n",
   );
   writeFileSync(join(repo, "notes.md"), "hello\n");
+  writeFileSync(
+    join(repo, "util.mjs"),
+    "export function helper(a) {\n  return a;\n}\n",
+  );
   run(["add", "-A"]);
   run(["commit", "-m", "first"]);
 
@@ -45,21 +49,35 @@ beforeAll(() => {
     "export function load(id: string) {\n  return fetch(id);\n}\n",
   );
   writeFileSync(join(repo, "notes.md"), "hello there\n");
+  writeFileSync(
+    join(repo, "util.mjs"),
+    "export function helper(a) {\n  return fetch(a);\n}\n",
+  );
 });
 
 describe("extract", () => {
   it("returns changed files with hunks", async () => {
     const cs = await extract(repo);
     expect(cs.range.label).toBe("vs main");
-    expect(cs.files.map((f) => f.path).sort()).toEqual(["notes.md", "svc.ts"]);
+    expect(cs.files.map((f) => f.path).sort()).toEqual([
+      "notes.md",
+      "svc.ts",
+      "util.mjs",
+    ]);
     expect(cs.files.find((f) => f.path === "svc.ts")!.hunks.length).toBeGreaterThan(0);
   });
 
-  it("attaches symbols to TypeScript files only", async () => {
+  it("attaches symbols to TypeScript and JavaScript files, not to prose", async () => {
+    // Reads through the real `extract()` pipeline, not `mapSymbols` directly
+    // — the read gate that decides whether a file's text is even fetched
+    // from git lives one layer above `mapSymbols`'s own gate, and only this
+    // path exercises both.
     const cs = await extract(repo);
     const ts = cs.files.find((f) => f.path === "svc.ts")!;
+    const js = cs.files.find((f) => f.path === "util.mjs")!;
     const md = cs.files.find((f) => f.path === "notes.md")!;
     expect(ts.symbols.map((s) => s.name)).toContain("load");
+    expect(js.symbols.map((s) => s.name)).toContain("helper");
     expect(md.symbols).toEqual([]);
   });
 

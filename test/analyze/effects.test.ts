@@ -186,6 +186,19 @@ describe("effectsAnalyzer", () => {
     expect(facts).toEqual([]);
   });
 
+  it("emits effect_added for a JavaScript file, not only detectEffects", async () => {
+    // The analyzer's own per-file gate is a separate call site from
+    // detectEffects's — a `.mjs` path has to clear both before this fact can
+    // exist at all.
+    const facts = await effectsAnalyzer(
+      changesetFor("a.mjs"),
+      ctxFor({ "a.mjs": { before: "export const x = 1;\n", after: "export const x = fetch(u);\n" } }),
+    );
+    expect(facts).toHaveLength(1);
+    expect(facts[0].kind).toBe("effect_added");
+    expect(facts[0].detail.effect).toBe("network");
+  });
+
   it("gives every fact a distinct id", async () => {
     const facts = await effectsAnalyzer(
       changesetFor("a.ts"),
