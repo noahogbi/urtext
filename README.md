@@ -26,8 +26,9 @@ matters — ranked, with every claim labeled by the kind of evidence behind it:
 **It analyses TypeScript projects.** The four code analyzers below read the TypeScript
 compiler, so they fire on `.ts`, `.tsx`, `.mts` and `.cts`. Point urtext at a Python, Go or
 Rust repository and the code analyzers find nothing; the citations analyzer still checks
-prose in `.md` and `.txt`, and the dependencies analyzer still reads `package.json` — two of
-the six. That is a limit, not a roadmap item.
+prose in `.md` and `.txt`, and the dependencies and lockfile analyzers still read
+`package.json` and `package-lock.json` — three of the seven. That is a limit, not a
+roadmap item.
 
 **And every review says where that limit fell.** A report names the changed files no
 analyzer reported on — a `package.json`, a workflow YAML, a SQL migration — so silence
@@ -35,7 +36,7 @@ about a file is never mistaken for a clean bill of health. It claims non-reporti
 non-reading, and it says plainly that anything the report does say about those files came
 from the model alone.
 
-Six analyzers run over the change:
+Seven analyzers run over the change:
 
 - **guards** — conditionals, early returns, and throws removed from code that survived
 - **surface** — exports added, removed, or changed shape
@@ -46,6 +47,9 @@ Six analyzers run over the change:
 - **dependencies** — `package.json` entries added, removed, or version-changed, in any of the
   four dependency maps; declared constraints only, since within a range the lockfile decides
   what actually resolves
+- **lockfile** — `package-lock.json` against `package.json` and against its own previous state:
+  a lockfile the manifest disagrees with, a resolved version that moved, a stale root version,
+  and a count of how the transitive tree changed
 
 Findings are ranked. A `verified` or `inferred` finding carries the evidence
 behind it — file, line, and the quoted source. A `model` finding carries none

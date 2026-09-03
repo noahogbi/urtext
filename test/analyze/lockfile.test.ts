@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lockfileFactsFor, LockfileParseError } from "../../src/analyze/lockfile.js";
+import { lockfileFactsFor, LockfileParseError, makeLockfileAnalyzer } from "../../src/analyze/lockfile.js";
 import { toFinding } from "../../src/score/index.js";
 
 const mkManifest = (o: Record<string, unknown>) => JSON.stringify({ name: "p", version: "1.0.0", ...o }, null, 2);
@@ -199,6 +199,28 @@ describe("lockfileFactsFor", () => {
     expect(facts.filter((f) => f.kind === "lockfile_out_of_sync")).toEqual([]);
   });
 
+  it("notes, exactly once, that a legacy lockfile with no root package entry went unchecked", () => {
+    // The out-of-sync pass above is silent about the skip on its own; this
+    // pins the disclosure that makes the gap visible instead. One call, not
+    // one per dependency map, even though the manifest below declares only
+    // a single map.
+    const notes: string[] = [];
+    const manifest = mkManifest({ dependencies: { a: "^1.0.0" } });
+    const lock = mkLegacyLock({ a: { version: "1.0.1", resolved: "https://example.invalid/a", integrity: "sha-fake" } });
+    lockfileFactsFor("package-lock.json", manifest, manifest, lock, lock, (n) => notes.push(n));
+    expect(notes).toEqual([
+      "package-lock.json has no root package entry, so its dependencies were not checked against package.json.",
+    ]);
+  });
+
+  it("emits no note for an ordinary lockfile that carries a root package entry", () => {
+    const notes: string[] = [];
+    const manifest = mkManifest({ dependencies: { a: "^1.0.0" } });
+    const lock = mkLock({ dependencies: { a: "^1.0.0" } });
+    lockfileFactsFor("package-lock.json", manifest, manifest, lock, lock, (n) => notes.push(n));
+    expect(notes).toEqual([]);
+  });
+
   it("still reports a stale root version against a legacy lockfile with no packages map", () => {
     const before = mkManifest({ dependencies: { a: "^1.0.0" } });
     const after = JSON.stringify({ name: "p", version: "2.0.0", dependencies: { a: "^1.0.0" } }, null, 2);
@@ -319,5 +341,22 @@ describe("lockfileFactsFor", () => {
     const moved = facts.filter((f) => f.kind === "dependency_resolved_changed");
     expect(moved).toHaveLength(1);
     expect(moved[0].detail).toMatchObject({ map: "dependencies" });
+  });
+});
+
+describe("makeLockfileAnalyzer", () => {
+  it("turns an unparseable lockfile into one note rather than a throw", async () => {
+    const notes: string[] = [];
+    const analyzer = makeLockfileAnalyzer({ onNote: (n) => notes.push(n) });
+    const changeset = { range: { from: "a", to: "b", label: "x" }, files: [{ path: "package-lock.json", status: "modified" as const }] };
+    const ctx = {
+      cwd: ".",
+      range: { from: "a", to: "b", label: "x" },
+      readAt: async (_rev: string, p: string) => (p.endsWith("lock.json") ? "{ not json" : '{"name":"p","version":"1.0.0"}'),
+      programAt: async () => { throw new Error("must not be called"); },
+    };
+    await expect(analyzer(changeset as never, ctx as never)).resolves.toEqual([]);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain("package-lock.json");
   });
 });

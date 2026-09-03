@@ -1,7 +1,13 @@
 import { makeFact } from "./fact.js";
-import type { EvidenceRef, Fact } from "../types.js";
+import type { Analyzer, EvidenceRef, Fact } from "../types.js";
 
 const MAPS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"] as const;
+
+const LOCKFILES = ["package-lock.json", "npm-shrinkwrap.json"];
+
+function isLockfile(path: string): boolean {
+  return LOCKFILES.some((n) => path === n || path.endsWith(`/${n}`));
+}
 
 export class LockfileParseError extends Error {
   constructor(
@@ -111,6 +117,11 @@ export function lockfileFactsFor(
   afterManifestText: string | null,
   beforeLockText: string | null,
   afterLockText: string | null,
+  // Added last so every existing call and test keeps compiling unchanged.
+  // Optional for the same reason: most callers of this pure core, including
+  // most of this file's own tests, have nothing to say and no warnings
+  // surface to say it to.
+  onNote?: (note: string) => void,
 ): Fact[] {
   // Every kind compares two sides. An added or deleted lockfile is not a
   // finding, so both sides are required before anything is computed.
@@ -137,6 +148,18 @@ export function lockfileFactsFor(
   // at all, so `packages[""]` is absent and there is nothing recorded to
   // disagree with. Asserting disagreement anyway would turn every declared
   // dependency into a false, top-severity out-of-sync finding.
+  //
+  // That skip is silent to the caller unless said out loud: a stale root
+  // version or transitive tree churn can still fire against this same
+  // lockfile, so a reader has no way to tell "checked, nothing disagreed"
+  // from "not checked" without this note. Said once for the whole lockfile,
+  // ahead of the loop below, rather than once per dependency map.
+  if (lockRoot === undefined) {
+    onNote?.(
+      `${path} has no root package entry, so its dependencies were not checked against package.json.`,
+    );
+  }
+
   const direct = new Map<string, string>();
   for (const map of MAPS) {
     const declared = mapOf(afterManifest, map);
@@ -229,3 +252,53 @@ export function lockfileFactsFor(
 
   return facts;
 }
+
+/**
+ * The analyzer, as a factory for the reason `makeDependencyAnalyzer` is one:
+ * `Analyzer` returns facts and has no channel for anything else, and a
+ * lockfile that does not parse must become one warnings line rather than a
+ * throw. `runAnalyzers` keeps facts per analyzer, not per file, so a throw
+ * discards what every other file in the changeset already produced. A
+ * lockfile is large and machine-written, so the realistic failure is a
+ * conflict marker left in after a bad merge — exactly when a review is most
+ * wanted.
+ */
+export function makeLockfileAnalyzer(
+  options: { onNote?: (note: string) => void } = {},
+): Analyzer {
+  const lockfileAnalyzer: Analyzer = async (changeset, ctx): Promise<Fact[]> => {
+    const facts: Fact[] = [];
+    for (const file of changeset.files) {
+      if (!isLockfile(file.path)) continue;
+      const beforePath = file.previousPath ?? file.path;
+      const manifestPath = file.path.replace(/[^/]+$/, "package.json");
+      const beforeManifestPath = beforePath.replace(/[^/]+$/, "package.json");
+      const beforeLock = file.status === "added" ? null : await ctx.readAt(ctx.range.from, beforePath);
+      const afterLock = file.status === "deleted" ? null : await ctx.readAt(ctx.range.to, file.path);
+      const beforeManifest = file.status === "added" ? null : await ctx.readAt(ctx.range.from, beforeManifestPath);
+      const afterManifest = file.status === "deleted" ? null : await ctx.readAt(ctx.range.to, manifestPath);
+      try {
+        facts.push(
+          ...lockfileFactsFor(file.path, beforeManifest, afterManifest, beforeLock, afterLock, options.onNote),
+        );
+      } catch (e) {
+        if (e instanceof LockfileParseError) {
+          options.onNote?.(
+            `${file.path} did not parse on the ${e.side} side, so its lockfile changes were not analyzed.`,
+          );
+          continue;
+        }
+        throw e;
+      }
+    }
+    return facts;
+  };
+  // Written down rather than inferred: this binding shadows the module-level
+  // singleton below, and esbuild renames shadowed bindings, taking the
+  // inferred name with it. See makeCitationsAnalyzer, which learned it first.
+  Object.defineProperty(lockfileAnalyzer, "name", { value: "lockfileAnalyzer" });
+  return lockfileAnalyzer;
+}
+
+/** The default instance `ANALYZERS` registers; `review` swaps in a configured one. */
+export const lockfileAnalyzer: Analyzer = makeLockfileAnalyzer();
