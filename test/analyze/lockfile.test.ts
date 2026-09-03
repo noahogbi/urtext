@@ -201,12 +201,18 @@ describe("lockfileFactsFor", () => {
 
   it("notes, exactly once, that a legacy lockfile with no root package entry went unchecked", () => {
     // The out-of-sync pass above is silent about the skip on its own; this
-    // pins the disclosure that makes the gap visible instead. One call, not
-    // one per dependency map, even though the manifest below declares only
-    // a single map.
+    // pins the disclosure that makes the gap visible instead. A single
+    // declared dependency is not enough to prove "once, outside every loop":
+    // the inner per-declared-name loop below the skipped-out-of-sync check
+    // would also fire exactly once for one name, in one map, and only look
+    // wrong once a name-scoped regression has somewhere to show a second
+    // note. Two dependencies, in two different maps, give it that somewhere.
     const notes: string[] = [];
-    const manifest = mkManifest({ dependencies: { a: "^1.0.0" } });
-    const lock = mkLegacyLock({ a: { version: "1.0.1", resolved: "https://example.invalid/a", integrity: "sha-fake" } });
+    const manifest = mkManifest({ dependencies: { a: "^1.0.0" }, devDependencies: { b: "^2.0.0" } });
+    const lock = mkLegacyLock({
+      a: { version: "1.0.1", resolved: "https://example.invalid/a", integrity: "sha-fake" },
+      b: { version: "2.0.1", resolved: "https://example.invalid/b", integrity: "sha-fake" },
+    });
     lockfileFactsFor("package-lock.json", manifest, manifest, lock, lock, (n) => notes.push(n));
     expect(notes).toEqual([
       "package-lock.json has no root package entry, so its dependencies were not checked against package.json.",
@@ -358,5 +364,136 @@ describe("makeLockfileAnalyzer", () => {
     await expect(analyzer(changeset as never, ctx as never)).resolves.toEqual([]);
     expect(notes).toHaveLength(1);
     expect(notes[0]).toContain("package-lock.json");
+  });
+
+  it("does not treat package.json itself as a lockfile", async () => {
+    // The sharpest of the three file-selection regressions this pins: were
+    // `package.json` ever added to `LOCKFILES`, this exact manifest — read
+    // as its own "lockfile" on every side — carries no `packages` root
+    // entry, so it would produce the missing-root-entry note below on any
+    // review that merely touches a manifest. A false, reader-visible
+    // disclosure, not a crash, which is why nothing before this caught it.
+    const notes: string[] = [];
+    const analyzer = makeLockfileAnalyzer({ onNote: (n) => notes.push(n) });
+    const changeset = {
+      range: { from: "a", to: "b", label: "x" },
+      files: [{ path: "package.json", status: "modified" as const }],
+    };
+    const manifestText = mkManifest({ dependencies: { a: "^1.0.0" } });
+    const ctx = {
+      cwd: ".",
+      range: { from: "a", to: "b", label: "x" },
+      readAt: async () => manifestText,
+      programAt: async () => { throw new Error("must not be called"); },
+    };
+    await expect(analyzer(changeset as never, ctx as never)).resolves.toEqual([]);
+    expect(notes).toEqual([]);
+  });
+
+  it("resolves the before side through previousPath for a renamed lockfile", async () => {
+    // Mirrors `dependencies.ts`'s own beforePath comment: reading the new
+    // path at the old revision (or the old path at the new one) returns
+    // content for the wrong side rather than failing loudly, and turns a
+    // directory move into a screen of false findings. Every read this
+    // fixture's `readAt` does not recognise throws instead of guessing.
+    const oldLock = mkLock({ dependencies: { a: "^1.0.0" } }, { "node_modules/a": { version: "1.0.0" } });
+    const newLock = mkLock({ dependencies: { a: "^1.0.0" } }, { "node_modules/a": { version: "1.1.0" } });
+    const manifest = mkManifest({ dependencies: { a: "^1.0.0" } });
+    const analyzer = makeLockfileAnalyzer();
+    const changeset = {
+      range: { from: "a", to: "b", label: "x" },
+      files: [
+        { path: "package-lock.json", previousPath: "old/package-lock.json", status: "modified" as const },
+      ],
+    };
+    const ctx = {
+      cwd: ".",
+      range: { from: "a", to: "b", label: "x" },
+      readAt: async (rev: string, p: string) => {
+        if (rev === "a" && p === "old/package-lock.json") return oldLock;
+        if (rev === "b" && p === "package-lock.json") return newLock;
+        if (rev === "a" && p === "old/package.json") return manifest;
+        if (rev === "b" && p === "package.json") return manifest;
+        throw new Error(`unexpected read: ${rev} ${p}`);
+      },
+      programAt: async () => { throw new Error("must not be called"); },
+    };
+    const facts = await analyzer(changeset as never, ctx as never);
+    const moved = facts.filter((f) => f.kind === "dependency_resolved_changed");
+    expect(moved).toHaveLength(1);
+    expect(moved[0].detail).toMatchObject({ name: "a", from: "1.0.0", to: "1.1.0" });
+    expect(moved[0].file).toBe("package-lock.json");
+  });
+
+  it("does not read the before revision for a newly added lockfile", async () => {
+    const analyzer = makeLockfileAnalyzer();
+    const changeset = {
+      range: { from: "a", to: "b", label: "x" },
+      files: [{ path: "package-lock.json", status: "added" as const }],
+    };
+    const ctx = {
+      cwd: ".",
+      range: { from: "a", to: "b", label: "x" },
+      readAt: async (rev: string, p: string) => {
+        if (rev === "a") throw new Error(`must not read the before revision: ${p}`);
+        return p.endsWith("lock.json")
+          ? mkLock({ dependencies: { a: "^1.0.0" } }, { "node_modules/a": { version: "1.0.0" } })
+          : mkManifest({ dependencies: { a: "^1.0.0" } });
+      },
+      programAt: async () => { throw new Error("must not be called"); },
+    };
+    await expect(analyzer(changeset as never, ctx as never)).resolves.toEqual([]);
+  });
+
+  it("delivers the missing-root-entry note through its own onNote, not just the pure core's", async () => {
+    // The pure-core tests above call `lockfileFactsFor` directly, which
+    // proves the note exists but not that this factory forwards it. Without
+    // that forwarding, `review()` in `cli.ts` — which only ever configures
+    // this factory, never the pure core — would never see it.
+    const notes: string[] = [];
+    const analyzer = makeLockfileAnalyzer({ onNote: (n) => notes.push(n) });
+    const manifest = mkManifest({ dependencies: { a: "^1.0.0" } });
+    const legacyLock = mkLegacyLock({
+      a: { version: "1.0.1", resolved: "https://example.invalid/a", integrity: "sha-fake" },
+    });
+    const changeset = {
+      range: { from: "a", to: "b", label: "x" },
+      files: [{ path: "package-lock.json", status: "modified" as const }],
+    };
+    const ctx = {
+      cwd: ".",
+      range: { from: "a", to: "b", label: "x" },
+      readAt: async (_rev: string, p: string) => (p.endsWith("lock.json") ? legacyLock : manifest),
+      programAt: async () => { throw new Error("must not be called"); },
+    };
+    await analyzer(changeset as never, ctx as never);
+    expect(notes).toEqual([
+      "package-lock.json has no root package entry, so its dependencies were not checked against package.json.",
+    ]);
+  });
+
+  it("analyzes npm-shrinkwrap.json the same way it analyzes package-lock.json", async () => {
+    const analyzer = makeLockfileAnalyzer();
+    const before = mkLock({ dependencies: { a: "^1.0.0" } }, { "node_modules/a": { version: "1.0.0" } });
+    const after = mkLock({ dependencies: { a: "^1.0.0" } }, { "node_modules/a": { version: "1.1.0" } });
+    const manifest = mkManifest({ dependencies: { a: "^1.0.0" } });
+    const changeset = {
+      range: { from: "a", to: "b", label: "x" },
+      files: [{ path: "npm-shrinkwrap.json", status: "modified" as const }],
+    };
+    const ctx = {
+      cwd: ".",
+      range: { from: "a", to: "b", label: "x" },
+      readAt: async (rev: string, p: string) => {
+        if (p !== "npm-shrinkwrap.json" && p !== "package.json") throw new Error(`unexpected read: ${p}`);
+        if (p === "package.json") return manifest;
+        return rev === "a" ? before : after;
+      },
+      programAt: async () => { throw new Error("must not be called"); },
+    };
+    const facts = await analyzer(changeset as never, ctx as never);
+    const moved = facts.filter((f) => f.kind === "dependency_resolved_changed");
+    expect(moved).toHaveLength(1);
+    expect(moved[0].file).toBe("npm-shrinkwrap.json");
   });
 });
