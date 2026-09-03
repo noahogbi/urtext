@@ -23,6 +23,16 @@ const AFTER_KEPT = `export function validate(token: string) {
 }
 `;
 
+// No type annotation on the parameter — this is JavaScript, parsed under
+// the JS ScriptKind rather than TS.
+const MJS_THROWING_GUARD = `export function validate(token) {
+  if (!token) {
+    throw new Error("missing token");
+  }
+  return token;
+}
+`;
+
 describe("collectGuards", () => {
   it("finds an if-guard and attributes it to its enclosing function", () => {
     const guards = collectGuards("a.ts", BEFORE);
@@ -42,6 +52,15 @@ describe("collectGuards", () => {
 
   it("ignores non-TypeScript files", () => {
     expect(collectGuards("a.md", BEFORE)).toEqual([]);
+  });
+
+  it("finds a throwing early guard in a .mjs file, at its real line", () => {
+    const guards = collectGuards("a.mjs", MJS_THROWING_GUARD);
+    const g = guards.find((x) => x.signature.startsWith("throw"));
+    expect(g).toBeDefined();
+    expect(g!.qualifiedOwner).toBe("validate");
+    expect(g!.line).toBe(3);
+    expect(g!.excerpt).toContain("missing token");
   });
 });
 

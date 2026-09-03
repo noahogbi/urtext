@@ -3,7 +3,7 @@ import { WORKTREE, type AnalysisContext, type Changeset, type ChangedFile, type 
 import { createProgramAt } from "../analyze/program.js";
 import { countUntracked, diffText, parseUnifiedDiff } from "./diff.js";
 import { readAt, repoRoot, resolveRange } from "./git.js";
-import { isTypeScriptFile, mapSymbols } from "./symbols.js";
+import { isSyntacticSource, mapSymbols } from "./symbols.js";
 
 export { resolveRange, readAt, repoRoot } from "./git.js";
 
@@ -43,9 +43,10 @@ export async function extract(
 
   const files: ChangedFile[] = [];
   for (const p of parsed) {
-    // mapSymbols discards non-TypeScript files anyway; reading them out of
-    // git first only pulls lockfiles and binaries into memory as utf8.
-    const wanted = isTypeScriptFile(p.path);
+    // mapSymbols reads both TypeScript and JavaScript; the gate below just
+    // keeps lockfiles and binaries out of memory, since reading everything
+    // out of git as utf8 to find that out would be worse than the gate.
+    const wanted = isSyntacticSource(p.path);
     const beforePath = p.previousPath ?? p.path;
     const before =
       !wanted || p.status === "added"

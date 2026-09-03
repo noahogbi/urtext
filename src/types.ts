@@ -74,7 +74,7 @@ export interface ChangedFile {
   status: FileStatus;
   previousPath?: string;
   hunks: Hunk[];
-  /** Empty for files that are not TypeScript. */
+  /** Empty for files that are neither TypeScript nor JavaScript. */
   symbols: ChangedSymbol[];
 }
 

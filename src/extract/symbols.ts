@@ -278,7 +278,7 @@ export function mapSymbols(
   after: string | null,
   hunks: Hunk[],
 ): ChangedSymbol[] {
-  if (!isTypeScriptFile(path)) return [];
+  if (!isSyntacticSource(path)) return [];
   // A deleted file: reporting every symbol in it as "removed" is noise, since
   // the file's deletion is already the finding.
   if (after === null) return [];

@@ -1,6 +1,6 @@
 import ts from "typescript";
 import { framesFor, MODULE_OWNER, qualifyOwner } from "../extract/scope.js";
-import { isTypeScriptFile, scriptKindFor } from "../extract/symbols.js";
+import { isSyntacticSource, scriptKindFor } from "../extract/symbols.js";
 import { makeFact } from "./fact.js";
 import type {
   AnalysisContext,
@@ -47,7 +47,7 @@ function normalise(text: string): string {
  * that symbol to have gone down.
  */
 export function collectGuards(path: string, text: string): GuardSite[] {
-  if (!isTypeScriptFile(path)) return [];
+  if (!isSyntacticSource(path)) return [];
 
   const sf = ts.createSourceFile(
     path,
@@ -156,7 +156,7 @@ export const guardsAnalyzer: Analyzer = async (
   const facts: Fact[] = [];
 
   for (const file of changeset.files) {
-    if (!isTypeScriptFile(file.path)) continue;
+    if (!isSyntacticSource(file.path)) continue;
     if (file.status === "added" || file.status === "deleted") continue;
 
     const beforePath = file.previousPath ?? file.path;
@@ -248,7 +248,7 @@ export const guardsAnalyzer: Analyzer = async (
  * `run` absent from it.
  */
 function collectDeclaredOwners(path: string, text: string): string[] {
-  if (!isTypeScriptFile(path)) return [];
+  if (!isSyntacticSource(path)) return [];
   const sf = ts.createSourceFile(
     path,
     text,

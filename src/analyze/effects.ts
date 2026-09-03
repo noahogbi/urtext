@@ -1,5 +1,5 @@
 import ts from "typescript";
-import { isTypeScriptFile, scriptKindFor } from "../extract/symbols.js";
+import { isSyntacticSource, scriptKindFor } from "../extract/symbols.js";
 import { makeFact, MAX_EVIDENCE } from "./fact.js";
 import type {
   AnalysisContext,
@@ -152,7 +152,7 @@ function importBindings(sf: ts.SourceFile): Map<string, EffectKind> {
 
 /** Effect sites in a file, in source order. Syntactic — no type checker. */
 export function detectEffects(path: string, text: string): EffectSite[] {
-  if (!isTypeScriptFile(path)) return [];
+  if (!isSyntacticSource(path)) return [];
 
   const sf = ts.createSourceFile(
     path,
@@ -262,7 +262,7 @@ export const effectsAnalyzer: Analyzer = async (
   const facts: Fact[] = [];
 
   for (const file of changeset.files) {
-    if (!isTypeScriptFile(file.path)) continue;
+    if (!isSyntacticSource(file.path)) continue;
 
     const beforePath = file.previousPath ?? file.path;
     const beforeText =
