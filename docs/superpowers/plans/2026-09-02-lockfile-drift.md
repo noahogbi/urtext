@@ -626,22 +626,25 @@ function versionOf(entry: Record<string, unknown> | undefined): string | undefin
 function lineOf(text: string, keys: readonly string[]): number | undefined {
   const lines = text.split("\n");
   let depth = 0;
-  let target = 0;
-  let openAt = -1;
+  // How many keys of the path have been entered so far. A key at the
+  // document root is seen while depth is one, not zero: the opening brace of
+  // the document itself has already been counted by the time any key line is
+  // read. Hence `matched + 1` throughout — `dependencies.ts` uses the same
+  // offset, testing its top-level maps against a depth of one.
+  let matched = 0;
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
-    if (target < keys.length && depth === target && trimmed.startsWith(`"${keys[target]}":`)) {
-      if (target === keys.length - 1) return i + 1;
-      target++;
-      openAt = depth;
+    if (matched < keys.length && depth === matched + 1 && trimmed.startsWith(`"${keys[matched]}":`)) {
+      if (matched === keys.length - 1) return i + 1;
+      matched++;
     }
     for (const ch of lines[i]) {
       if (ch === "{") depth++;
       else if (ch === "}") {
         depth--;
-        // Left the block that was opened for the key being descended into:
-        // stop expecting its children.
-        if (openAt >= 0 && depth < target) return undefined;
+        // Closed the block that held the key last descended into, without
+        // finding the next key in the path: this anchor does not resolve.
+        if (matched > 0 && depth < matched + 1) return undefined;
       }
     }
   }
