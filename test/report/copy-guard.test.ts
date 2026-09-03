@@ -79,11 +79,11 @@ const findings: Finding[] = [
     score: 55,
     evidence: [{ file: "package.json", line: 12, excerpt: '"left-pad": "^1.3.0"' }],
   },
-  // A lockfile finding, composed by `toFinding` rather than hand-typed, so
-  // this surface is checked against the copy the scorer actually produces:
-  // the guard is total over copy only if the fixture produces it, and the
-  // lockfile kinds arrived after this fixture was last extended for exactly
-  // this reason.
+  // One finding per lockfile kind, each composed by `toFinding` rather than
+  // hand-typed, so this surface is checked against the copy the scorer
+  // actually produces: the guard is total over copy only if the fixture
+  // produces it, and the lockfile kinds arrived after this fixture was last
+  // extended for exactly this reason.
   toFinding({
     id: "lockfile_out_of_sync:package-lock.json:dependencies:left-pad",
     kind: "lockfile_out_of_sync",
@@ -93,6 +93,39 @@ const findings: Finding[] = [
     evidence: [
       { file: "package-lock.json", line: 12, excerpt: '"left-pad": { "version": "1.0.0" }' },
     ],
+  }),
+  toFinding({
+    id: "dependency_resolved_changed:package-lock.json:dependencies:left-pad",
+    kind: "dependency_resolved_changed",
+    file: "package-lock.json",
+    line: 13,
+    detail: {
+      map: "dependencies",
+      name: "left-pad",
+      from: "1.3.0",
+      to: "1.3.1",
+      range: "^1.3.0",
+      rangeChanged: false,
+    },
+    evidence: [
+      { file: "package-lock.json", line: 13, excerpt: '"version": "1.3.1"' },
+    ],
+  }),
+  toFinding({
+    id: "lockfile_version_stale:package.json:package-lock.json",
+    kind: "lockfile_version_stale",
+    file: "package.json",
+    line: 2,
+    detail: { manifest: "2.0.0", lock: "1.0.0" },
+    evidence: [{ file: "package.json", line: 2, excerpt: '"version": "2.0.0"' }],
+  }),
+  toFinding({
+    id: "lockfile_tree_changed:package-lock.json",
+    kind: "lockfile_tree_changed",
+    file: "package-lock.json",
+    line: 1,
+    detail: { entered: 3, left: 1, moved: 2 },
+    evidence: [{ file: "package-lock.json", line: 1, excerpt: '"lockfileVersion": 3' }],
   }),
   {
     id: "claim:0:c1",

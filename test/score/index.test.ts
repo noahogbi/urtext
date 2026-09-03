@@ -1000,3 +1000,78 @@ describe("lockfile findings", () => {
     expect(minPossibleAnalyzerScore()).toBe(6);
   });
 });
+
+describe("lockfile finding copy", () => {
+  const fact = (kind: Fact["kind"], detail: Record<string, unknown>): Fact => ({
+    id: `${kind}:package-lock.json`,
+    kind,
+    file: "package-lock.json",
+    line: 1,
+    detail,
+    evidence: [{ file: "package-lock.json", line: 1, excerpt: "x" }],
+  });
+
+  it("states all three tree-churn counts in the title, not the old two-count form", () => {
+    const f = toFinding(fact("lockfile_tree_changed", { entered: 0, left: 0, moved: 500 }));
+    expect(f.title).toContain("0 in");
+    expect(f.title).toContain("0 out");
+    expect(f.title).toContain("500 changed");
+    // The pre-fix title named only entered/left, so an all-zero-but-moved
+    // shape — the one a plain `npm update` produces — read "0 in, 0 out"
+    // while carrying most of the score. Pinned as the exact string a
+    // regression would reproduce.
+    expect(f.title).not.toBe("the dependency tree moved: 0 in, 0 out");
+  });
+
+  it("pluralizes each tree-churn count on its own, singular only at exactly one", () => {
+    // The floor shape minPossibleAnalyzerScore names as producible, so this
+    // is the one that must stay right.
+    const f = toFinding(fact("lockfile_tree_changed", { entered: 1, left: 0, moved: 0 }));
+    expect(f.body).toContain("1 package entered the tree");
+    expect(f.body).toContain("0 packages left");
+    expect(f.body).toContain("0 packages changed version");
+  });
+
+  it("names both sides of the disagreement when the lockfile has an entry", () => {
+    const f = toFinding(
+      fact("lockfile_out_of_sync", {
+        map: "dependencies", name: "left-pad", manifest: "^2.0.0", lock: "^1.0.0",
+      }),
+    );
+    expect(f.body).toContain("package.json declares `^2.0.0`");
+    expect(f.body).toContain("the lockfile records `^1.0.0`");
+  });
+
+  it("says the lockfile has no entry for it when lock is absent", () => {
+    const f = toFinding(
+      fact("lockfile_out_of_sync", {
+        map: "dependencies", name: "left-pad", manifest: "^2.0.0", lock: null,
+      }),
+    );
+    expect(f.body).toContain("the lockfile has no entry for it");
+  });
+
+  it("leads with the unchanged range only when rangeChanged is false", () => {
+    const unchanged = toFinding(
+      fact("dependency_resolved_changed", {
+        name: "left-pad", from: "1.0.0", to: "1.1.0", range: "^1.0.0", rangeChanged: false,
+      }),
+    );
+    expect(unchanged.body).toContain("The declared range `^1.0.0` did not change; the version");
+
+    const changed = toFinding(
+      fact("dependency_resolved_changed", {
+        name: "left-pad", from: "1.0.0", to: "1.1.0", range: "^1.0.0", rangeChanged: true,
+      }),
+    );
+    expect(changed.body).not.toContain("did not change");
+    expect(changed.body.startsWith("The version")).toBe(true);
+  });
+
+  it("says what a stale lockfile version field means", () => {
+    const f = toFinding(fact("lockfile_version_stale", { manifest: "2.0.0", lock: "1.0.0" }));
+    expect(f.title).toBe("package-lock.json still says 1.0.0");
+    expect(f.body).toContain("package.json declares version `2.0.0`");
+    expect(f.body).toContain("the lockfile was not regenerated");
+  });
+});
