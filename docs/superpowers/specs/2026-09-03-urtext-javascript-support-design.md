@@ -25,7 +25,7 @@ The README's `**It analyses TypeScript projects.**` is deliberate and well defen
 the test is whether reading `.js` moves it.
 
 It does not, and the argument is structural rather than a judgement call.
-`compilerOptions` (`src/analyze/program.ts:70-99`) reads the repository's own
+`compilerOptions` (`src/analyze/program.ts:71-99`) reads the repository's own
 `tsconfig.json` and adopts its options wholesale, dropping only the emit-shaped ones. The
 hardcoded `allowJs: false` at `:79` lives in the **fallback** used when a repository has
 no usable tsconfig — it is not a policy urtext applies to configured projects. So for any
@@ -67,9 +67,11 @@ So:
 
 `isTypeScriptFile` is **unchanged**. Its own comment records that the `.tsx?`-only version
 of this test "made every `.mts`/`.cts` file invisible to every analyzer, silently — the
-worst outcome this tool has" (`src/extract/symbols.ts:5-12`), and seventeen call sites
-across nine files depend on it meaning what its name says. Widening it would move all
-seventeen at once, including the two that must stay narrow.
+worst outcome this tool has" (`src/extract/symbols.ts:5-12`), and fourteen usages
+across nine files depend on it meaning what its name says — thirteen calls plus one
+passed to `.filter` as a predicate reference (`src/analyze/program.ts:67`), which is why a
+grep for the call form alone undercounts it. Widening it would move all fourteen at once,
+including the six that must stay narrow.
 
 Added beside it, in the same file:
 
@@ -89,7 +91,7 @@ Four extensions, and the omissions are deliberate for the reason the TypeScript 
 already gives: there is no `.mjsx` or `.cjsx`, because JSX never got module-explicit
 flavours. There is no declaration flavour to exclude — JavaScript has no `.d.js`.
 
-Every call site then states which tier it means. The seventeen divide as follows.
+Every call site then states which tier it means. The fourteen divide as follows.
 
 **Widened to `isSyntacticSource`:**
 
@@ -204,8 +206,8 @@ files specifically, and widening it would make that note's wording false.
 
 ## What the compiler catches, and what it does not
 
-Nothing here is defended by a type. `isTypeScriptFile` returns a boolean at seventeen call
-sites, and every one of them compiles whichever predicate it calls. The failure this design
+Nothing here is defended by a type. `isTypeScriptFile` returns a boolean at fourteen
+usages, and every one of them compiles whichever predicate it calls. The failure this design
 risks is exactly the one already in the record: a file class that is invisible to one
 analyzer, silently, because a single call site was missed.
 
