@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { lockfileFactsFor, LockfileParseError } from "../../src/analyze/lockfile.js";
+import { toFinding } from "../../src/score/index.js";
 
 const mkManifest = (o: Record<string, unknown>) => JSON.stringify({ name: "p", version: "1.0.0", ...o }, null, 2);
 const mkLock = (root: Record<string, unknown>, pkgs: Record<string, unknown> = {}, version = "1.0.0") =>
   JSON.stringify({ name: "p", version, lockfileVersion: 3, packages: { "": { name: "p", version, ...root }, ...pkgs } }, null, 2);
+// An older lockfile format written before the `packages` map existed: a
+// `dependencies` map of resolved objects at the document root, no
+// `packages` key at all.
+const mkLegacyLock = (deps: Record<string, unknown> = {}, version = "1.0.0") =>
+  JSON.stringify({ name: "p", version, lockfileVersion: 1, dependencies: deps }, null, 2);
 
 describe("lockfileFactsFor", () => {
   it("reports a range the lockfile does not agree with", () => {
@@ -117,7 +123,45 @@ describe("lockfileFactsFor", () => {
   it("throws a typed error naming the side and the file that did not parse", () => {
     const manifest = mkManifest({ dependencies: {} });
     const lock = mkLock({});
-    expect(() => lockfileFactsFor("package-lock.json", manifest, manifest, lock, "{ not json")).toThrow(LockfileParseError);
+
+    // Catches the thrown LockfileParseError so its `side`/`which` fields can
+    // be asserted directly — `toThrow(LockfileParseError)` alone only
+    // checks the error's class, not which of the four parse call sites
+    // threw it or what it claimed about itself, so swapping "before" for
+    // "after" or "manifest" for "lockfile" at any of them would still pass.
+    const thrown = (fn: () => unknown): LockfileParseError => {
+      try {
+        fn();
+      } catch (e) {
+        if (e instanceof LockfileParseError) return e;
+        throw e;
+      }
+      throw new Error("expected lockfileFactsFor to throw");
+    };
+
+    const beforeManifestErr = thrown(() =>
+      lockfileFactsFor("package-lock.json", "{ not json", manifest, lock, lock),
+    );
+    expect(beforeManifestErr.side).toBe("before");
+    expect(beforeManifestErr.which).toBe("manifest");
+
+    const afterManifestErr = thrown(() =>
+      lockfileFactsFor("package-lock.json", manifest, "{ not json", lock, lock),
+    );
+    expect(afterManifestErr.side).toBe("after");
+    expect(afterManifestErr.which).toBe("manifest");
+
+    const beforeLockErr = thrown(() =>
+      lockfileFactsFor("package-lock.json", manifest, manifest, "{ not json", lock),
+    );
+    expect(beforeLockErr.side).toBe("before");
+    expect(beforeLockErr.which).toBe("lockfile");
+
+    const afterLockErr = thrown(() =>
+      lockfileFactsFor("package-lock.json", manifest, manifest, lock, "{ not json"),
+    );
+    expect(afterLockErr.side).toBe("after");
+    expect(afterLockErr.which).toBe("lockfile");
   });
 
   it("produces nothing when either side is absent", () => {
@@ -142,5 +186,138 @@ describe("lockfileFactsFor", () => {
       "node_modules/a": { version: "1.0.0" }, "node_modules/b": { version: "1.0.0" },
     });
     expect(lockfileFactsFor("package-lock.json", before, after, beforeLock, afterLock)).toEqual([]);
+  });
+
+  it("emits no out-of-sync facts against a legacy lockfile that carries no packages map", () => {
+    // A lockfile written before the packages map existed has nothing
+    // recorded to compare the manifest's ranges against, so the out-of-sync
+    // pass must be skipped rather than reporting every declared dependency
+    // as unrecorded.
+    const manifest = mkManifest({ dependencies: { a: "^1.0.0" } });
+    const lock = mkLegacyLock({ a: { version: "1.0.1", resolved: "https://example.invalid/a", integrity: "sha-fake" } });
+    const facts = lockfileFactsFor("package-lock.json", manifest, manifest, lock, lock);
+    expect(facts.filter((f) => f.kind === "lockfile_out_of_sync")).toEqual([]);
+  });
+
+  it("still reports a stale root version against a legacy lockfile with no packages map", () => {
+    const before = mkManifest({ dependencies: { a: "^1.0.0" } });
+    const after = JSON.stringify({ name: "p", version: "2.0.0", dependencies: { a: "^1.0.0" } }, null, 2);
+    const lock = mkLegacyLock({ a: { version: "1.0.1", resolved: "https://example.invalid/a", integrity: "sha-fake" } });
+    const facts = lockfileFactsFor("package-lock.json", before, after, lock, lock);
+    expect(facts.map((f) => f.kind)).toEqual(["lockfile_version_stale"]);
+    expect(facts[0].detail).toMatchObject({ manifest: "2.0.0", lock: "1.0.0" });
+  });
+
+  it("flags rangeChanged when the declared range itself moved, and changes the finding's leading clause", () => {
+    // The Dependabot test pins rangeChanged: false under an unchanged range.
+    // A hard-coded false would still pass that test, since its fixture never
+    // moves the range. Here the before manifest's range genuinely differs
+    // from the after manifest's, so only a real comparison returns true —
+    // and the rendered finding body changes its opening clause to match.
+    const before = mkManifest({ devDependencies: { a: "^26.2.0" } });
+    const after = mkManifest({ devDependencies: { a: "^26.3.0" } });
+    const beforeLock = mkLock({ devDependencies: { a: "^26.2.0" } }, { "node_modules/a": { version: "26.2.0" } });
+    const afterLock = mkLock({ devDependencies: { a: "^26.3.0" } }, { "node_modules/a": { version: "26.3.0" } });
+    const facts = lockfileFactsFor("package-lock.json", before, after, beforeLock, afterLock);
+    const moved = facts.filter((f) => f.kind === "dependency_resolved_changed");
+    expect(moved).toHaveLength(1);
+    expect(moved[0].detail).toMatchObject({ rangeChanged: true, range: "^26.3.0" });
+    expect(toFinding(moved[0]).body).not.toMatch(/did not change/);
+  });
+
+  it("does not swap entered and left: an asymmetric count only a correct pairing survives", () => {
+    // The only existing tree-churn fixture uses one-in, one-out, one-moved —
+    // symmetric enough that swapping the entered and left branches still
+    // produces the same object. This fixture is asymmetric on purpose.
+    const manifest = mkManifest({ dependencies: { a: "^1.0.0" } });
+    const before = mkLock({ dependencies: { a: "^1.0.0" } }, {
+      "node_modules/a": { version: "1.0.0" }, "node_modules/x": { version: "1.0.0" }, "node_modules/y": { version: "1.0.0" },
+    });
+    const after = mkLock({ dependencies: { a: "^1.0.0" } }, {
+      "node_modules/a": { version: "1.0.0" }, "node_modules/w": { version: "1.0.0" },
+    });
+    const facts = lockfileFactsFor("package-lock.json", manifest, manifest, before, after);
+    const tree = facts.filter((f) => f.kind === "lockfile_tree_changed");
+    expect(tree).toHaveLength(1);
+    expect(tree[0].detail).toMatchObject({ entered: 1, left: 2, moved: 0 });
+  });
+
+  it("does not let the bound-exit guard leak past an empty map into a sibling map's same-named key", () => {
+    // A weakened exit guard would let the scan continue past the closed,
+    // empty dependencies block and match b inside the sibling
+    // devDependencies block instead, quoting that block's range as if it
+    // belonged to dependencies. The existing two-map test only exercises the
+    // forward case, where the key is present in its own map.
+    const manifest = mkManifest({ dependencies: { b: "^1.0.0" } });
+    const lock = mkLock({ dependencies: {}, devDependencies: { b: "^9.9.9" } });
+    const sync = lockfileFactsFor("package-lock.json", manifest, manifest, lock, lock).filter(
+      (f) => f.kind === "lockfile_out_of_sync" && f.detail.map === "dependencies" && f.detail.name === "b",
+    );
+    expect(sync).toHaveLength(1);
+    expect(sync[0].evidence[0].excerpt).not.toContain("9.9.9");
+    expect(sync[0].evidence[0].excerpt).toContain("dependencies");
+  });
+
+  it("quotes the after-side lockfile text as evidence, not the before-side text", () => {
+    // Both fact-emitting evidence calls read afterLockText. Switching either
+    // one to beforeLockText would quote the wrong revision's range or
+    // resolved version, while every detail-based assertion elsewhere in
+    // this file still passes, since detail is built independently of
+    // evidence.
+    const manifest = mkManifest({ dependencies: { a: "^2.0.0" } });
+    const beforeLock = mkLock({ dependencies: { a: "^1.0.0" } }, { "node_modules/a": { version: "1.0.0" } });
+    const afterLock = mkLock({ dependencies: { a: "^3.0.0" } }, { "node_modules/a": { version: "3.0.0" } });
+    const facts = lockfileFactsFor("package-lock.json", manifest, manifest, beforeLock, afterLock);
+
+    const sync = facts.find((f) => f.kind === "lockfile_out_of_sync");
+    expect(sync?.evidence[0].excerpt).toContain("3.0.0");
+    expect(sync?.evidence[0].excerpt).not.toContain("1.0.0");
+
+    const moved = facts.find((f) => f.kind === "dependency_resolved_changed");
+    expect(moved?.evidence[0].excerpt).toContain("3.0.0");
+    expect(moved?.evidence[0].excerpt).not.toContain("1.0.0");
+  });
+
+  it("gives each fact its own id, not a constant shared across a fact kind's occurrences", () => {
+    // reconcile indexes findings by id, so a per-path constant for any of
+    // these formats would silently collapse several distinct facts into
+    // one entry. Two changed direct dependencies pin the
+    // dependency_resolved_changed format; the version and tree facts pin
+    // their own, otherwise-unasserted-elsewhere formats.
+    const before = mkManifest({ dependencies: { a: "^1.0.0", c: "^1.0.0" } });
+    const after = JSON.stringify({ name: "p", version: "2.0.0", dependencies: { a: "^1.0.0", c: "^1.0.0" } }, null, 2);
+    const beforeLock = mkLock({ dependencies: { a: "^1.0.0", c: "^1.0.0" } }, {
+      "node_modules/a": { version: "1.0.0" }, "node_modules/c": { version: "1.0.0" }, "node_modules/x": { version: "1.0.0" },
+    });
+    const afterLock = mkLock({ dependencies: { a: "^1.0.0", c: "^1.0.0" } }, {
+      "node_modules/a": { version: "1.1.0" }, "node_modules/c": { version: "1.1.0" }, "node_modules/y": { version: "1.0.0" },
+    });
+    const facts = lockfileFactsFor("package-lock.json", before, after, beforeLock, afterLock);
+
+    const moved = facts.filter((f) => f.kind === "dependency_resolved_changed");
+    expect(moved.map((f) => f.id).sort()).toEqual([
+      "dependency_resolved_changed:package-lock.json:a",
+      "dependency_resolved_changed:package-lock.json:c",
+    ]);
+
+    const stale = facts.find((f) => f.kind === "lockfile_version_stale");
+    expect(stale?.id).toBe("lockfile_version_stale:package-lock.json");
+
+    const tree = facts.find((f) => f.kind === "lockfile_tree_changed");
+    expect(tree?.id).toBe("lockfile_tree_changed:package-lock.json");
+  });
+
+  it("keeps the first-declared map when a package appears in two maps, not the last", () => {
+    // detail.map halves the score for dev/optional maps (see the
+    // first-map-wins comment above direct.set in the source). Last-wins
+    // would silently halve a runtime dependency's score whenever it is
+    // also duplicated in devDependencies.
+    const manifest = mkManifest({ dependencies: { a: "^1.0.0" }, devDependencies: { a: "^1.0.0" } });
+    const before = mkLock({ dependencies: { a: "^1.0.0" }, devDependencies: { a: "^1.0.0" } }, { "node_modules/a": { version: "1.0.0" } });
+    const after = mkLock({ dependencies: { a: "^1.0.0" }, devDependencies: { a: "^1.0.0" } }, { "node_modules/a": { version: "1.1.0" } });
+    const facts = lockfileFactsFor("package-lock.json", manifest, manifest, before, after);
+    const moved = facts.filter((f) => f.kind === "dependency_resolved_changed");
+    expect(moved).toHaveLength(1);
+    expect(moved[0].detail).toMatchObject({ map: "dependencies" });
   });
 });

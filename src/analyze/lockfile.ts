@@ -118,8 +118,10 @@ export function lockfileFactsFor(
   if (afterManifestText === null) return [];
 
   const afterManifest = parse(afterManifestText, "after", "manifest");
-  // Parsed once, and its result kept: it is read below for `rangeChanged`,
-  // and parsing it inside the loop would re-throw the same error per entry.
+
+  // beforeManifest is parsed once here, its result kept: it is read below
+  // for `rangeChanged`, and parsing it inside the loop would re-throw the
+  // same error per entry.
   const beforeManifest = parse(beforeManifestText, "before", "manifest");
   const beforeLock = parse(beforeLockText, "before", "lockfile");
   const afterLock = parse(afterLockText, "after", "lockfile");
@@ -129,16 +131,22 @@ export function lockfileFactsFor(
   const beforePkgs = packagesOf(beforeLock);
   const lockRoot = afterPkgs[""];
 
-  // Manifest ranges against the lockfile's copy of them.
+  // Manifest ranges against the lockfile's copy of them. Skipped when the
+  // lockfile carries no root entry to compare against — an older lockfile
+  // format written before the `packages` map existed has no `packages` key
+  // at all, so `packages[""]` is absent and there is nothing recorded to
+  // disagree with. Asserting disagreement anyway would turn every declared
+  // dependency into a false, top-severity out-of-sync finding.
   const direct = new Map<string, string>();
   for (const map of MAPS) {
     const declared = mapOf(afterManifest, map);
-    const recorded = mapOf(lockRoot, map);
     // First map wins, in MAPS order, so a package declared in several takes
     // one deterministic map rather than an iteration-order accident. It
     // matters because `detail.map` is what halves the score: `dependencies`
     // is first, so anything runtime keeps its full weight.
     for (const name of Object.keys(declared)) if (!direct.has(name)) direct.set(name, map);
+    if (lockRoot === undefined) continue;
+    const recorded = mapOf(lockRoot, map);
     for (const name of new Set([...Object.keys(declared), ...Object.keys(recorded)])) {
       const manifest = declared[name] ?? null;
       const lock = recorded[name] ?? null;
