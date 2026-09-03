@@ -27,6 +27,15 @@ export const WEIGHTS = {
     guard_removed: 90,
     signature_changed: 75,
     export_removed: 70,
+    // The ceiling `logScaledScore` clamps its curve to (see `scoreFact`): a
+    // count-based fact — reach, tree churn — names no problem by itself, so
+    // no count may push it above a fact that does. Deliberately chosen below
+    // guard_removed / signature_changed / export_removed — the kinds that
+    // most directly report a regression — so a widely-used export or a
+    // churning tree can never bury one of those under sheer count. Do not
+    // raise this to "fix" a large-repo score; raise it only by deciding
+    // reach or tree churn should outrank a removed guard, which it should
+    // not.
     effect_added: 60,
     // Deliberately far below the ceiling the log curve is clamped to (see
     // `effect_added`, above): this is the *base* the log-scaled formula in
@@ -561,11 +570,15 @@ export function toFinding(fact: Fact): Finding {
       const entered = num(fact.detail.entered, 0);
       const left = num(fact.detail.left, 0);
       const moved = num(fact.detail.moved, 0);
-      title = `the dependency tree moved: ${entered} in, ${left} out`;
+      // All three counts, not just entered/left: `scoreFact` keys on their
+      // sum, and a title stating only the two that can land at zero while
+      // the third carries the whole score is a false statement to the
+      // reader.
+      title = `the dependency tree moved: ${entered} in, ${left} out, ${moved} changed`;
       // "does not name" rather than "nothing names": a package dropped from
       // the manifest in this same change is counted here, and the manifest
       // named it on the before side. The looser phrasing would be false.
-      body = `${entered} packages entered the tree, ${left} left, and ${moved} changed version. The current package.json does not name them, and they are counted rather than listed.`;
+      body = `${entered} package${entered === 1 ? "" : "s"} entered the tree, ${left} package${left === 1 ? "" : "s"} left, and ${moved} package${moved === 1 ? "" : "s"} changed version. The current package.json does not name them, and they are counted rather than listed.`;
       break;
     }
     case "citation_rot": {

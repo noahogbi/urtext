@@ -79,6 +79,21 @@ const findings: Finding[] = [
     score: 55,
     evidence: [{ file: "package.json", line: 12, excerpt: '"left-pad": "^1.3.0"' }],
   },
+  // A lockfile finding, composed by `toFinding` rather than hand-typed, so
+  // this surface is checked against the copy the scorer actually produces:
+  // the guard is total over copy only if the fixture produces it, and the
+  // lockfile kinds arrived after this fixture was last extended for exactly
+  // this reason.
+  toFinding({
+    id: "lockfile_out_of_sync:package-lock.json:dependencies:left-pad",
+    kind: "lockfile_out_of_sync",
+    file: "package-lock.json",
+    line: 12,
+    detail: { map: "dependencies", name: "left-pad", manifest: "^2.0.0", lock: "^1.0.0" },
+    evidence: [
+      { file: "package-lock.json", line: 12, excerpt: '"left-pad": { "version": "1.0.0" }' },
+    ],
+  }),
   {
     id: "claim:0:c1",
     tier: "model",

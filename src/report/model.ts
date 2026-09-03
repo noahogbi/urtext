@@ -659,9 +659,9 @@ function kindOf(id: string): string | undefined {
  */
 function kindNotesFor(findings: Finding[]): string[] {
   // Deduped by note text, not by kind: the three dependency kinds share one
-  // sentence, and a review holding two of them owes the reader that sentence
-  // once. Identical behaviour for every other kind, whose notes are all
-  // distinct.
+  // sentence and the four lockfile kinds share another, so a review holding
+  // several of either owes the reader that sentence once. Identical
+  // behaviour for every other kind, whose notes are all distinct.
   const seen = new Set<string>();
   const notes: string[] = [];
   for (const f of findings) {
