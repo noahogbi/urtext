@@ -61,9 +61,14 @@ export async function extract(
     // place a `ChangedFile` is ever built, so it is the only place that can
     // set the mark the analyzers read it from.
     const generated = after !== null && isMachineWritten(p.path, after);
+    // A minified symbol table is not something a reviewer reads or a model
+    // should be prompted with, and the report's exported-symbol pane has no
+    // way to say "these are the bundle's, not the reported-on kind" — so a
+    // generated file gets none, the same way a deleted file does two lines
+    // above.
     files.push({
       ...p,
-      symbols: mapSymbols(p.path, before, after, p.hunks),
+      symbols: generated ? [] : mapSymbols(p.path, before, after, p.hunks),
       ...(generated ? { generated: true } : {}),
     });
   }

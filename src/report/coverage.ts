@@ -204,20 +204,41 @@ export function generatedFiles(changeset: Changeset): string[] {
 
 /**
  * What a reader is owed about those files, and no more than `isMachineWritten`
- * can tell: they were not read, because their shape says a tool wrote them.
- * `effectsAnalyzer`, `guardsAnalyzer`, and the citations candidate pass all
- * skip a file carrying the mark (see `ChangedFile.generated`), and a program
- * built for the type checker excludes it from the roots it walks too — the
- * program layer calls `isMachineWritten` itself rather than reading the mark,
- * since it is built from a revision alone and never sees the changeset that
- * carries it. Both layers apply the same rule; this sentence describes what
- * that rule leaves unread, not why either layer applies it.
+ * can tell.
+ *
+ * Claims non-reporting, not non-reading — the same distinction
+ * `unanalyzedFilesNote` draws for its own files, and for the same reason:
+ * the text is still read, to test its shape and, for an imported file under
+ * `allowJs`, by the program that resolves it. "Unread" would be false;
+ * "not reported on" is what every gate below actually delivers.
+ *
+ * Also does not say "a single line": `isMachineWritten` measures the length
+ * up to the file's first newline (or the whole text when there is none), not
+ * how many lines follow it — real bundler output commonly carries a
+ * `//# sourceMappingURL=` comment on a second line, and two of this
+ * predicate's own test fixtures are themselves multi-line. "Begins with a
+ * line long enough" is the claim the measurement actually supports.
+ *
+ * Currently every gate that checks `ChangedFile.generated`, or calls
+ * `isMachineWritten` directly: `effectsAnalyzer`, `guardsAnalyzer`,
+ * `surfaceAnalyzer`, `blastRadiusAnalyzer`, the citations candidate pass, and
+ * `extract/index.ts`'s own symbol extraction (all read the field);
+ * `analyze/program.ts`'s program-root selection (calls the predicate itself,
+ * since it never receives a changeset). `surfaceAnalyzer` and
+ * `blastRadiusAnalyzer` need their own check — not only the root exclusion —
+ * because excluding a file from a program's *roots* leaves it resolvable,
+ * and an import under `allowJs` pulls it back into the same program those two
+ * analyzers walk. This enumeration is a liability disguised as documentation:
+ * an earlier version of it named three of these six and was still accurate
+ * prose, right up until a `verified` finding on an imported bundle proved two
+ * of them had never been guarded at all. Whoever adds a seventh gate and
+ * skips updating this comment reintroduces exactly that gap — undetectably.
  */
 export function generatedFilesNote(paths: string[]): string {
   if (paths.length === 1) {
-    return `${paths[0]} is a single line of machine-written JavaScript, so no analyzer read it.`;
+    return `${paths[0]} begins with a line long enough that a tool wrote it, so no analyzer reported on it.`;
   }
-  return `${paths.join(", ")} are each a single line of machine-written JavaScript, so no analyzer read them.`;
+  return `${paths.join(", ")} each begin with a line long enough that a tool wrote it, so no analyzer reported on them.`;
 }
 
 function plural(n: number, noun: string): string {

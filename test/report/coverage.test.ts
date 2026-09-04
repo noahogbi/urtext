@@ -98,9 +98,13 @@ describe("generatedFiles", () => {
 });
 
 describe("generatedFilesNote", () => {
-  it("names the one file, in the exact wording the shape justifies", () => {
+  it("names the one file, claiming only what the measurement supports", () => {
+    // Neither "read" (the text is read, to test its shape and, for an
+    // imported file, by the program that resolves it) nor "single line"
+    // (the predicate measures the first line's length, not the line count)
+    // is a claim this sentence is entitled to make.
     expect(generatedFilesNote(["bundle.js"])).toBe(
-      "bundle.js is a single line of machine-written JavaScript, so no analyzer read it.",
+      "bundle.js begins with a line long enough that a tool wrote it, so no analyzer reported on it.",
     );
   });
 
@@ -108,7 +112,7 @@ describe("generatedFilesNote", () => {
     const note = generatedFilesNote(["a.js", "b.js"]);
     expect(note).toContain("a.js");
     expect(note).toContain("b.js");
-    expect(note).toContain("no analyzer read them");
+    expect(note).toContain("no analyzer reported on them");
   });
 
   it("issues no verdict about the code and none of the six forbidden words", () => {
@@ -325,7 +329,7 @@ describe("the generated-file note, carried through review() into --json", () => 
     const parsed = JSON.parse(r.output);
     expect(parsed.coverage.generatedFiles).toEqual(["bundle.js"]);
     expect(parsed.coverage.generatedNote).toBe(
-      "bundle.js is a single line of machine-written JavaScript, so no analyzer read it.",
+      "bundle.js begins with a line long enough that a tool wrote it, so no analyzer reported on it.",
     );
   });
 

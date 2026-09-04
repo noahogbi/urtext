@@ -229,3 +229,52 @@ describe("blastRadiusAnalyzer over JavaScript, gated by the project's own compil
     expect(facts).toEqual([]);
   });
 });
+
+describe("blastRadiusAnalyzer and machine-written JavaScript", () => {
+  // Same shape as "over JavaScript, gated by the project's own compiler
+  // options" above — a change to an exported function, referenced by three
+  // consumers — except `core.mjs`'s first line is now the machine-written
+  // shape. Doubly guarded today: `extract/index.ts` withholds symbols for a
+  // generated file, so `f.symbols.some(...)` alone would already exclude it,
+  // and this analyzer's own `!f.generated` check does too — belt and
+  // suspenders, per the ruling that added the second one after the first
+  // proved insufficient for `surfaceAnalyzer`, which does not key on symbols
+  // at all.
+  it("reports no blast radius for an export changed in a generated file, even though three files reference it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "urtext-blast-generated-"));
+    const runIn = (args: string[]) =>
+      execFileSync("git", ["-c", "commit.gpgsign=false", ...args], { cwd: dir, stdio: "pipe" });
+    runIn(["init", "-b", "main"]);
+    runIn(["config", "user.email", "t@e.com"]);
+    runIn(["config", "user.name", "T"]);
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(
+      join(dir, "tsconfig.json"),
+      JSON.stringify({ compilerOptions: { allowJs: true } }),
+    );
+    writeFileSync(
+      join(dir, "src", "core.mjs"),
+      `export function used(n) { return n; } // ${"x".repeat(420)}\n`,
+    );
+    for (const c of ["a", "b", "c"]) {
+      writeFileSync(
+        join(dir, "src", `${c}.mjs`),
+        `import { used } from "./core.mjs";\nexport const ${c} = used(1);\n`,
+      );
+    }
+    runIn(["add", "-A"]);
+    runIn(["commit", "-m", "first"]);
+    writeFileSync(
+      join(dir, "src", "core.mjs"),
+      `export function used(n) { return n + 1; } // ${"x".repeat(420)}\n`,
+    );
+
+    const cs = await extract(dir);
+    const core = cs.files.find((f) => f.path === "src/core.mjs");
+    expect(core?.generated).toBe(true);
+    expect(core?.symbols).toEqual([]);
+
+    const facts = await blastRadiusAnalyzer(cs, createContext(dir, cs.range));
+    expect(facts.some((f) => f.qualifiedSymbol === "used")).toBe(false);
+  });
+});

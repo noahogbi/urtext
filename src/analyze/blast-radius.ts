@@ -147,6 +147,9 @@ export const blastRadiusAnalyzer: Analyzer = async (
     (f) =>
       (isTypeScriptFile(f.path) || (js && isJavaScriptFile(f.path))) &&
       f.status !== "deleted" &&
+      // See `ChangedFile.generated`: root exclusion alone does not keep a
+      // resolvable, imported bundle out of the program this analyzer walks.
+      !f.generated &&
       f.symbols.some((s) => s.exported && s.change !== "removed"),
   );
   if (relevant.length === 0) return [];

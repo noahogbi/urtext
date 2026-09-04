@@ -325,7 +325,15 @@ export const surfaceAnalyzer: Analyzer = async (
   // all, and `allowsJavaScript` itself only ever reads the tsconfig.
   const js = allowsJavaScript(ctx.cwd);
   const relevant = changeset.files.filter(
-    (f) => (isTypeScriptFile(f.path) || (js && isJavaScriptFile(f.path))) && f.status !== "deleted",
+    (f) =>
+      (isTypeScriptFile(f.path) || (js && isJavaScriptFile(f.path))) &&
+      f.status !== "deleted" &&
+      // See `ChangedFile.generated`: excluding a machine-written file from a
+      // program's roots only withdraws root status, not resolvability — an
+      // imported bundle under `allowJs` is still pulled in and type-checked,
+      // and would otherwise surface a `signature_changed` fact anchored in
+      // it. This gate is what actually keeps that out of this analyzer.
+      !f.generated,
   );
   if (relevant.length === 0) return [];
 
