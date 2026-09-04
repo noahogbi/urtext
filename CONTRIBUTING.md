@@ -117,6 +117,11 @@ the README says so on purpose. Proposals to widen it are welcome as issues and
 are a positioning decision rather than an implementation one — please do not
 open a pull request that assumes the answer.
 
+## Releasing
+
+Maintainer-only, and written down because two of its steps have been missed:
+[RELEASING.md](RELEASING.md).
+
 ## Licence
 
 By contributing you agree that your contributions are licensed under the
