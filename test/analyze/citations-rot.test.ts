@@ -494,6 +494,14 @@ describe("degradation", () => {
     expect(swept[0].baseline).toBeUndefined();
   });
 
+  // The one test here that needs more than the global ceiling. It spends the
+  // whole MAX_BASELINE_READS budget on purpose, and every distinct pair inside
+  // it is its own `git show` subprocess — spawns that cost far more on Windows
+  // than the reads they perform. Run alone it finishes well inside the ceiling;
+  // under full-suite parallelism the contention for process creation pushes it
+  // past. Raising the global timeout instead would make a genuine hang in every
+  // other suite take proportionally longer to surface, so the exception lives
+  // here, beside the thing that earns it.
   it("falls back to existence-only checking once the historical-read budget is spent, still claiming no commit", async () => {
     // Driven over the real edge rather than asserted about: the refusal path
     // is where the baseline-read note's promise — "checked only for whether
@@ -527,7 +535,7 @@ describe("degradation", () => {
     expect(rots[0].citingLine).toBe(MAX_BASELINE_READS + 1);
     expect(rots[0].baseline).toBeUndefined();
     expect(notes).toEqual([baselineReadsCappedNote(1)]);
-  });
+  }, 180_000);
 });
 
 describe("blame", () => {
