@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import ts from "typescript";
-import { allowsJavaScript, createProgramAt, listProgramSourcesAt } from "../../src/analyze/program.js";
+import {
+  allowsJavaScript,
+  allowsJavaScriptIn,
+  createProgramAt,
+  listProgramSourcesAt,
+} from "../../src/analyze/program.js";
 import { WORKTREE } from "../../src/types.js";
 
 const mkCanonicalTempDir = (prefix: string) =>
@@ -161,11 +166,11 @@ describe("allowsJavaScript", () => {
   });
 
   it("agrees with the compiler's own rule, which is not public API", () => {
-    // allowsJavaScript spells out a rule TypeScript implements internally as
-    // getAllowJSCompilerOption. That function is absent from the public typed
-    // API — using it is a compile error — so the rule is duplicated, and this
-    // pins the duplicate against the original so a future TypeScript cannot
-    // drift from it silently.
+    // allowsJavaScriptIn spells out a rule TypeScript implements internally
+    // as getAllowJSCompilerOption. That function is absent from the public
+    // typed API — using it is a compile error — so the rule is duplicated,
+    // and this calls the real, shipped implementation (not a rewritten copy
+    // of its body) so a future TypeScript cannot drift from it silently.
     const internal = (ts as unknown as {
       getAllowJSCompilerOption?: (o: ts.CompilerOptions) => boolean;
     }).getAllowJSCompilerOption;
@@ -178,7 +183,7 @@ describe("allowsJavaScript", () => {
       { allowJs: true, checkJs: false },
     ]) {
       const parsed = ts.parseJsonConfigFileContent({ compilerOptions }, ts.sys, process.cwd()).options;
-      expect(parsed.allowJs ?? Boolean(parsed.checkJs)).toBe(internal(parsed));
+      expect(allowsJavaScriptIn(parsed)).toBe(internal(parsed));
     }
   });
 });

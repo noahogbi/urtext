@@ -934,7 +934,15 @@ describe("surfaceAnalyzer and the project's own compiler options", () => {
     ).toContain("addedInJs");
   });
 
-  it("reports nothing for the same .mjs change, and does not throw, when the tsconfig admits neither allowJs nor checkJs", async () => {
+  it("does not throw on the same .mjs change when the tsconfig admits neither allowJs nor checkJs (TypeScript itself, not this analyzer's gate, is what excludes the file)", async () => {
+    // Not a test of allowsJavaScript's false direction: TypeScript's own
+    // program construction already drops a .mjs root when neither allowJs
+    // nor checkJs is set, before surfaceAnalyzer's own gate ever gets a
+    // chance to matter — this passes identically even with that gate forced
+    // to always return true. The gate's false direction is pinned directly,
+    // against the shipped implementation, by the allowsJavaScript tests in
+    // program.test.ts. All this test pins is that the analyzer degrades to
+    // no facts, rather than throwing, once the compiler drops the file.
     const { dir, run: run2 } = makeRepo();
     writeFileSync(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: {} }));
     commitThenAddExport(dir, run2, "src/util.mjs");

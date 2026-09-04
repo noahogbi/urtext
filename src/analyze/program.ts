@@ -14,13 +14,6 @@ import { WORKTREE } from "../types.js";
  */
 const TS_SOURCE = /\.(?:ts|tsx|mts|cts)$/;
 
-/**
- * Any JavaScript file, read-into-the-host shaped like `TS_SOURCE` above.
- * JavaScript has no declaration flavour to widen for, so unlike `TS_SOURCE`
- * this already matches `isJavaScriptFile`'s program-root set exactly.
- */
-const JS_SOURCE = /\.(?:js|mjs|cjs|jsx)$/;
-
 const CASE_SENSITIVE = ts.sys.useCaseSensitiveFileNames;
 
 /**
@@ -115,7 +108,7 @@ function compilerOptions(root: string): ts.CompilerOptions {
 }
 
 /**
- * Whether the project's own compiler configuration includes its JavaScript.
+ * Whether a set of compiler options includes JavaScript.
  *
  * Not `options.allowJs` alone: TypeScript turns JavaScript on when `checkJs`
  * is set while leaving `allowJs` unset, so reading the raw field excludes a
@@ -125,16 +118,27 @@ function compilerOptions(root: string): ts.CompilerOptions {
  * The rule is spelled out here rather than delegated to the compiler's own
  * `getAllowJSCompilerOption`, which is not part of the public typed API and
  * does not compile against it. The two were checked against each other over
- * every combination of the two options and agree on all of them; the test
- * below pins that agreement so a future TypeScript cannot drift from it
- * unnoticed.
+ * every combination of the two options and agree on all of them; a test
+ * imports this exact function and pins that agreement against it, so a
+ * future TypeScript cannot drift from it unnoticed.
+ *
+ * Pure and options-shaped, not path-shaped, so the one caller that has
+ * already parsed a tsconfig into options (`createProgramAt`) can reuse the
+ * rule without a second read of the file, and so there is exactly one place
+ * that states it rather than one per caller.
+ */
+export function allowsJavaScriptIn(options: ts.CompilerOptions): boolean {
+  return options.allowJs ?? Boolean(options.checkJs);
+}
+
+/**
+ * Whether the project's own compiler configuration includes its JavaScript.
  *
  * Reads the tsconfig, never a program: the analyzers that ask this must not
  * pay for a program to learn there is nothing for them to do.
  */
 export function allowsJavaScript(root: string): boolean {
-  const options = compilerOptions(root);
-  return options.allowJs ?? Boolean(options.checkJs);
+  return allowsJavaScriptIn(compilerOptions(root));
 }
 
 /**
@@ -235,10 +239,10 @@ export async function createProgramAt(
 ): Promise<ts.Program> {
   const options = compilerOptions(root);
   // JavaScript is read into the host only when the project's own compiler
-  // configuration includes it — the same rule `allowsJavaScript` states,
-  // inlined against `options` already in scope here rather than re-reading
-  // the tsconfig a second time.
-  const js = options.allowJs ?? Boolean(options.checkJs);
+  // configuration includes it — `options` is already in scope here, so this
+  // reuses the pure rule directly rather than re-reading the tsconfig a
+  // second time the way `allowsJavaScript(root)` would.
+  const js = allowsJavaScriptIn(options);
   // Sources, plus the manifests module resolution consults. A package.json
   // is what tells the compiler whether a directory is ESM or CommonJS under
   // node16/nodenext; without it every relative import in such a repo is
@@ -248,7 +252,7 @@ export async function createProgramAt(
   const paths = (await listPathsAt(root, rev)).filter(
     (p) =>
       TS_SOURCE.test(p) ||
-      (js && JS_SOURCE.test(p)) ||
+      (js && isJavaScriptFile(p)) ||
       p === "package.json" ||
       p.endsWith("/package.json"),
   );

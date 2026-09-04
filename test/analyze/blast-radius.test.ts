@@ -174,3 +174,58 @@ describe("blastRadiusAnalyzer on a named default export", () => {
     expect(facts.map((f) => f.qualifiedSymbol)).toEqual(["main"]);
   });
 });
+
+describe("blastRadiusAnalyzer over JavaScript, gated by the project's own compiler options", () => {
+  // Otherwise identical repos: `used`, exported from a JavaScript module and
+  // imported by three separate .mjs consumers, then changed. Only the
+  // tsconfig differs between them, so the difference in outcome across the
+  // two `it`s below is attributable to that one setting, not to anything
+  // else in the fixture.
+  let allowedRepo: string;
+  let disallowedRepo: string;
+
+  function populate(dir: string, compilerOptions: Record<string, unknown>): void {
+    const runIn = (args: string[]) =>
+      execFileSync("git", ["-c", "commit.gpgsign=false", ...args], { cwd: dir, stdio: "pipe" });
+    runIn(["init", "-b", "main"]);
+    runIn(["config", "user.email", "t@e.com"]);
+    runIn(["config", "user.name", "T"]);
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions }));
+    writeFileSync(join(dir, "src", "core.mjs"), "export function used(n) {\n  return n;\n}\n");
+    for (const c of ["a", "b", "c"]) {
+      writeFileSync(
+        join(dir, "src", `${c}.mjs`),
+        `import { used } from "./core.mjs";\nexport const ${c} = used(1);\n`,
+      );
+    }
+    runIn(["add", "-A"]);
+    runIn(["commit", "-m", "first"]);
+    writeFileSync(join(dir, "src", "core.mjs"), "export function used(n) {\n  return n + 1;\n}\n");
+  }
+
+  beforeAll(() => {
+    allowedRepo = mkdtempSync(join(tmpdir(), "urtext-blast-js-allowed-"));
+    populate(allowedRepo, { allowJs: true });
+    disallowedRepo = mkdtempSync(join(tmpdir(), "urtext-blast-js-disallowed-"));
+    populate(disallowedRepo, {});
+  });
+
+  it("counts references to a changed export across .mjs consumers when the tsconfig allows JavaScript", async () => {
+    // This is the case dropping the widening in blast-radius.ts's filter
+    // would silently break: the full suite stays green without it because
+    // nothing else exercises blast radius over JavaScript at all.
+    const cs = await extract(allowedRepo);
+    const facts = await blastRadiusAnalyzer(cs, createContext(allowedRepo, cs.range));
+    const f = facts.find((x) => x.qualifiedSymbol === "used");
+    expect(f).toBeDefined();
+    expect(f!.kind).toBe("blast_radius");
+    expect(f!.detail.references).toBe(3);
+  });
+
+  it("reports nothing for the identical change, and does not throw, when the tsconfig admits neither allowJs nor checkJs", async () => {
+    const cs = await extract(disallowedRepo);
+    const facts = await blastRadiusAnalyzer(cs, createContext(disallowedRepo, cs.range));
+    expect(facts).toEqual([]);
+  });
+});
