@@ -192,6 +192,34 @@ export function unanalyzedFilesNote(paths: string[], total: number): string {
   );
 }
 
+/**
+ * Changed files whose shape says a tool wrote them — see `isMachineWritten`
+ * in `../extract/symbols.ts` — in the order the diff listed them. Reads only
+ * `ChangedFile.generated`, which `extract/index.ts` sets; this function makes
+ * no judgement of its own.
+ */
+export function generatedFiles(changeset: Changeset): string[] {
+  return changeset.files.filter((f) => f.generated).map((f) => f.path);
+}
+
+/**
+ * What a reader is owed about those files, and no more than `isMachineWritten`
+ * can tell: they were not read, because their shape says a tool wrote them.
+ * `effectsAnalyzer`, `guardsAnalyzer`, and the citations candidate pass all
+ * skip a file carrying the mark (see `ChangedFile.generated`), and a program
+ * built for the type checker excludes it from the roots it walks too — the
+ * program layer calls `isMachineWritten` itself rather than reading the mark,
+ * since it is built from a revision alone and never sees the changeset that
+ * carries it. Both layers apply the same rule; this sentence describes what
+ * that rule leaves unread, not why either layer applies it.
+ */
+export function generatedFilesNote(paths: string[]): string {
+  if (paths.length === 1) {
+    return `${paths[0]} is a single line of machine-written JavaScript, so no analyzer read it.`;
+  }
+  return `${paths.join(", ")} are each a single line of machine-written JavaScript, so no analyzer read them.`;
+}
+
 function plural(n: number, noun: string): string {
   return `${n} ${noun}${n === 1 ? "" : "s"}`;
 }

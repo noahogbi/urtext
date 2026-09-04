@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { git, readAt } from "../extract/git.js";
-import { isJavaScriptFile, isTypeScriptFile } from "../extract/symbols.js";
+import { isJavaScriptFile, isMachineWritten, isTypeScriptFile } from "../extract/symbols.js";
 import { WORKTREE } from "../types.js";
 
 /**
@@ -289,8 +289,16 @@ export async function createProgramAt(
     // manifests stay readable and resolvable — an ambient .d.ts is part of
     // the revision's type surface — without inflating the program. A
     // JavaScript file becomes a root on the same condition it was let into
-    // `contents` above.
-    if (isTypeScriptFile(p) || (js && isJavaScriptFile(p))) rootNames.push(abs);
+    // `contents` above, minus one more: `createProgramAt` never receives a
+    // changeset, so it cannot read `ChangedFile.generated` and instead calls
+    // `isMachineWritten` itself against the text already read into `text`
+    // above — the same rule the changeset layer applies, run a second time
+    // because this layer has no other way to reach it. A machine-written file
+    // still lands in `contents`, resolvable if something imports it; only its
+    // standing as a program root is withdrawn.
+    if ((isTypeScriptFile(p) || (js && isJavaScriptFile(p))) && !isMachineWritten(p, text)) {
+      rootNames.push(abs);
+    }
 
     const segments = key.split("/");
     for (let i = segments.length - 1; i > 0; i--) {

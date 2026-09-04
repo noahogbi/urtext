@@ -749,14 +749,24 @@ export async function findCitationRot(
   // notice they mistyped one, and it is only trustworthy if the note never
   // fires for a filter that changed no result.
   const exclude = options.sweep ? (options.exclude ?? []) : [];
-  const candidates = options.sweep
+  const rawCandidates = options.sweep
     ? await sweepCandidates(cwd, exclude)
     : await touchedCandidates(cwd, now, touched);
   if (exclude.length > 0) {
     const unfiltered = await sweepCandidates(cwd);
-    const dropped = unfiltered.length - candidates.length;
+    const dropped = unfiltered.length - rawCandidates.length;
     if (dropped > 0) note?.(citationsExcludedNote(exclude, dropped));
   }
+  // Machine-written JavaScript in the reviewed changeset (see
+  // `ChangedFile.generated`) is dropped from the candidate list itself,
+  // after the exclude-note comparison above so a generated file is never
+  // misreported as something `--citations-exclude` removed. A bundle's
+  // comments, if it has any past its long first line, are not prose anyone
+  // wrote to point at this repository.
+  const generatedPaths = new Set(
+    changeset.files.filter((f) => f.generated).map((f) => f.path),
+  );
+  const candidates = rawCandidates.filter((path) => !generatedPaths.has(path));
   if (candidates.length === 0) return [];
 
   const scanned = candidates.slice(0, MAX_CITING_FILES);

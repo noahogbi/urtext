@@ -263,6 +263,10 @@ export const effectsAnalyzer: Analyzer = async (
 
   for (const file of changeset.files) {
     if (!isSyntacticSource(file.path)) continue;
+    // A file marked generated is machine-written JavaScript (see
+    // `ChangedFile.generated`); whatever it calls arrived compiled in, not
+    // introduced by this change, so it is not evidence of anything.
+    if (file.generated) continue;
 
     const beforePath = file.previousPath ?? file.path;
     const beforeText =

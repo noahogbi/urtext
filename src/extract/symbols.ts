@@ -36,6 +36,38 @@ export function isSyntacticSource(path: string): boolean {
 }
 
 /**
+ * A first line this long is not something a person typed. Deliberately weak:
+ * it catches the common shape, one enormous line, and nothing else. A bundle
+ * behind a banner comment, or minified output a tool line-wrapped, has a
+ * short first line and is not caught. This is not a general test for
+ * generated code and must not be described as one.
+ *
+ * First line rather than any line: a hand-written file can carry one long
+ * embedded string or data URI, and skipping it under a note calling it
+ * generated would be a false statement about someone's source.
+ */
+const MACHINE_WRITTEN_FIRST_LINE = 400;
+
+/**
+ * Whether a file's shape says a tool wrote it. JavaScript only — minified
+ * TypeScript is not a thing that occurs, so extending this to `.ts` would
+ * change existing behaviour for no reason it could point to.
+ *
+ * Called twice in this codebase rather than once: `extract/index.ts` calls it
+ * at extraction, on the after-side text it already holds, and sets
+ * `ChangedFile.generated` so the changeset-facing analyzers can skip the file
+ * without re-reading it. `analyze/program.ts` calls it again, directly, when
+ * deciding a program's root files — it never receives a changeset and so has
+ * no way to read that field. Both call sites share this one rule; neither
+ * keeps a copy of it.
+ */
+export function isMachineWritten(path: string, text: string): boolean {
+  if (!isJavaScriptFile(path)) return false;
+  const first = text.indexOf("\n");
+  return (first === -1 ? text.length : first) > MACHINE_WRITTEN_FIRST_LINE;
+}
+
+/**
  * The ScriptKind a path must be parsed under.
  *
  * `.jsx` is tested before the general JavaScript case because it is both, and

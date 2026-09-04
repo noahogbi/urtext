@@ -3,6 +3,8 @@ import {
   citationDistributionNote,
   deletedFilesNote,
   deletedTypeScriptFiles,
+  generatedFiles,
+  generatedFilesNote,
   suppressionNote,
   unanalyzedFiles,
   unanalyzedFilesNote,
@@ -292,6 +294,14 @@ export interface ReportModel {
    * one a reader learns to skip.
    */
   unanalyzedNote?: string;
+  /**
+   * The machine-written-JavaScript note from `generatedFilesNote`; absent
+   * when no changed file was marked `ChangedFile.generated`. Kept out of
+   * `notes` for the same reason `coverageNote` and `unanalyzedNote` are: a
+   * committed bundle is scope urtext declines rather than a shortfall in a
+   * run that covered everything it could.
+   */
+  generatedNote?: string;
   /**
    * Composed by `suppressionNote`; absent when nothing was suppressed.
    * Deliberately NOT in `notes`: the filter running as designed is not a
@@ -846,6 +856,10 @@ export function buildReportModel(
       ? labelConcealed(unanalyzedFilesNote(unanalyzed, changeset.files.length))
       : undefined;
 
+  const generated = generatedFiles(changeset);
+  const generatedNote =
+    generated.length > 0 ? labelConcealed(generatedFilesNote(generated)) : undefined;
+
   const suppressed = meta.suppressed ?? 0;
   const filterNote = suppressed > 0 ? suppressionNote(suppressed) : undefined;
   // `subjectOf` is the same id-prefix routing every finding's lens comes
@@ -895,6 +909,7 @@ export function buildReportModel(
   if (modelName) model.modelName = modelName;
   if (coverageNote) model.coverageNote = coverageNote;
   if (unanalyzedNote) model.unanalyzedNote = unanalyzedNote;
+  if (generatedNote) model.generatedNote = generatedNote;
   if (filterNote) model.filterNote = filterNote;
   if (distributionNote) model.distributionNote = distributionNote;
   if (model.findings.some((f) => f.beyondIntent)) {

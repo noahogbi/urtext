@@ -157,6 +157,10 @@ export const guardsAnalyzer: Analyzer = async (
 
   for (const file of changeset.files) {
     if (!isSyntacticSource(file.path)) continue;
+    // See `ChangedFile.generated`: machine-written JavaScript carries no
+    // guard a person wrote, so counting one lost from it would blame this
+    // change for a tool's output.
+    if (file.generated) continue;
     if (file.status === "added" || file.status === "deleted") continue;
 
     const beforePath = file.previousPath ?? file.path;

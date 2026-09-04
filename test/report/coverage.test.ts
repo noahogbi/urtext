@@ -1,8 +1,15 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { review } from "../../src/cli.js";
 import {
   citationDistributionNote,
   deletedFilesNote,
   deletedTypeScriptFiles,
+  generatedFiles,
+  generatedFilesNote,
   unanalyzedFiles,
   unanalyzedFilesNote,
 } from "../../src/report/coverage.js";
@@ -70,6 +77,54 @@ describe("deletedFilesNote", () => {
     expect(note).not.toContain("every analyzer");
     expect(note).not.toContain("nothing");
     expect(note).toContain("only effects that vanished with it are reported");
+  });
+});
+
+describe("generatedFiles", () => {
+  it("picks files marked generated and nothing else", () => {
+    const cs = changesetWith([
+      { path: "bundle.js", status: "added", hunks: [], symbols: [], generated: true },
+      { path: "kept.ts", status: "modified", hunks: [], symbols: [] },
+    ]);
+    expect(generatedFiles(cs)).toEqual(["bundle.js"]);
+  });
+
+  it("returns nothing when no file carries the mark", () => {
+    const cs = changesetWith([
+      { path: "kept.ts", status: "modified", hunks: [], symbols: [] },
+    ]);
+    expect(generatedFiles(cs)).toEqual([]);
+  });
+});
+
+describe("generatedFilesNote", () => {
+  it("names the one file, in the exact wording the shape justifies", () => {
+    expect(generatedFilesNote(["bundle.js"])).toBe(
+      "bundle.js is a single line of machine-written JavaScript, so no analyzer read it.",
+    );
+  });
+
+  it("names every file in the plural", () => {
+    const note = generatedFilesNote(["a.js", "b.js"]);
+    expect(note).toContain("a.js");
+    expect(note).toContain("b.js");
+    expect(note).toContain("no analyzer read them");
+  });
+
+  it("issues no verdict about the code and none of the six forbidden words", () => {
+    // The same register `test/report/copy-guard.test.ts` holds every other
+    // reader-facing sentence to.
+    const note = generatedFilesNote(["bundle.js"]).toLowerCase();
+    for (const word of [
+      "unsanctioned",
+      "unauthorized",
+      "approved",
+      "permission",
+      "forbidden",
+      "allowed",
+    ]) {
+      expect(note).not.toContain(word);
+    }
   });
 });
 
@@ -241,5 +296,52 @@ describe("unanalyzedFiles and renames", () => {
     ]);
     const f = findingOn("pkgs/a/package.json", "verified");
     expect(unanalyzedFiles(cs, [f])).toEqual([]);
+  });
+});
+
+describe("the generated-file note, carried through review() into --json", () => {
+  // `generatedFilesNote`'s own unit tests above prove the sentence exists;
+  // they cannot prove a reader of `--json` ever receives it. `src/cli.ts`
+  // composes it into `coverage` separately from this module, and that wiring
+  // is exactly what this drives — the real pipeline, not a fabricated model.
+  const ISOLATION = ["-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"];
+
+  function gitIn(cwd: string, args: string[]) {
+    execFileSync("git", [...ISOLATION, ...args], { cwd, stdio: "pipe" });
+  }
+
+  it("names the file and its sentence under coverage.generatedFiles / coverage.generatedNote", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "urtext-coverage-generated-"));
+    gitIn(dir, ["init", "-b", "main"]);
+    gitIn(dir, ["config", "user.email", "test@example.com"]);
+    gitIn(dir, ["config", "user.name", "Test"]);
+    writeFileSync(join(dir, "base.ts"), "export const base = 1;\n");
+    gitIn(dir, ["add", "-A"]);
+    gitIn(dir, ["commit", "-m", "first"]);
+    writeFileSync(join(dir, "bundle.js"), `const a=${"x".repeat(400)};\n`);
+    gitIn(dir, ["add", "-A"]);
+
+    const r = await review(dir, { command: "review", json: true, noLlm: true, help: false });
+    const parsed = JSON.parse(r.output);
+    expect(parsed.coverage.generatedFiles).toEqual(["bundle.js"]);
+    expect(parsed.coverage.generatedNote).toBe(
+      "bundle.js is a single line of machine-written JavaScript, so no analyzer read it.",
+    );
+  });
+
+  it("carries an empty array and no sentence when nothing is generated", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "urtext-coverage-not-generated-"));
+    gitIn(dir, ["init", "-b", "main"]);
+    gitIn(dir, ["config", "user.email", "test@example.com"]);
+    gitIn(dir, ["config", "user.name", "Test"]);
+    writeFileSync(join(dir, "base.ts"), "export const base = 1;\n");
+    gitIn(dir, ["add", "-A"]);
+    gitIn(dir, ["commit", "-m", "first"]);
+    writeFileSync(join(dir, "base.ts"), "export const base = 2;\n");
+
+    const r = await review(dir, { command: "review", json: true, noLlm: true, help: false });
+    const parsed = JSON.parse(r.output);
+    expect(parsed.coverage.generatedFiles).toEqual([]);
+    expect(parsed.coverage.generatedNote).toBeUndefined();
   });
 });

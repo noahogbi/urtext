@@ -3,7 +3,7 @@ import { WORKTREE, type AnalysisContext, type Changeset, type ChangedFile, type 
 import { createProgramAt } from "../analyze/program.js";
 import { countUntracked, diffText, parseUnifiedDiff } from "./diff.js";
 import { readAt, repoRoot, resolveRange } from "./git.js";
-import { isSyntacticSource, mapSymbols } from "./symbols.js";
+import { isMachineWritten, isSyntacticSource, mapSymbols } from "./symbols.js";
 
 export { resolveRange, readAt, repoRoot } from "./git.js";
 
@@ -56,9 +56,15 @@ export async function extract(
       !wanted || p.status === "deleted"
         ? null
         : await readAt(root, range.to, p.path);
+    // The after-side text is already in hand from the read above, so the
+    // machine-written check costs nothing extra here — and this is the only
+    // place a `ChangedFile` is ever built, so it is the only place that can
+    // set the mark the analyzers read it from.
+    const generated = after !== null && isMachineWritten(p.path, after);
     files.push({
       ...p,
       symbols: mapSymbols(p.path, before, after, p.hunks),
+      ...(generated ? { generated: true } : {}),
     });
   }
 

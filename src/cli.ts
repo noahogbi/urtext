@@ -16,6 +16,8 @@ import { DEFAULT_MODEL, interpret } from "./interpret/index.js";
 import {
   deletedFilesNote,
   deletedTypeScriptFiles,
+  generatedFiles,
+  generatedFilesNote,
   unanalyzedFiles,
   unanalyzedFilesNote,
 } from "./report/coverage.js";
@@ -654,6 +656,10 @@ export async function review(
     // urtext has no analyzer for, which is the distinction that decides
     // whether a model-only finding about it is worth anything.
     const unanalyzed = unanalyzedFiles(changeset, findings);
+    // A third disclosure, same rule as the two above: always an array, a
+    // sentence only when it is non-empty. See `ChangedFile.generated` for
+    // what puts a file in this list — no analyzer read it.
+    const generated = generatedFiles(changeset);
     return {
       output: JSON.stringify(
         {
@@ -687,6 +693,8 @@ export async function review(
             ...(unanalyzed.length > 0
               ? { unanalyzedNote: unanalyzedFilesNote(unanalyzed, changeset.files.length) }
               : {}),
+            generatedFiles: generated,
+            ...(generated.length > 0 ? { generatedNote: generatedFilesNote(generated) } : {}),
           },
           // What each kind of finding means, once per kind. This text used to
           // close every body of its kind, and `findings` above carries bodies
