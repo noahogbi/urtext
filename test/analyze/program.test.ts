@@ -118,6 +118,42 @@ describe("createProgramAt", () => {
     expect(errors).toEqual([]);
   });
 
+  it("excludes a single-line JavaScript file from program roots under allowJs, but keeps it resolvable", async () => {
+    // `createProgramAt` never receives a `Changeset`, so it cannot read
+    // `ChangedFile.generated` the way the analyzers do — it calls
+    // `isMachineWritten` itself, against text it has already read into
+    // `contents`. This is the layer the field cannot reach; see
+    // `src/extract/index.ts` for the layer that sets it.
+    const dir = mkCanonicalTempDir("urtext-generated-root-");
+    runIn(dir, ["init", "-b", "main"]);
+    runIn(dir, ["config", "user.email", "t@e.com"]);
+    runIn(dir, ["config", "user.name", "T"]);
+    writeFileSync(
+      join(dir, "tsconfig.json"),
+      JSON.stringify({ compilerOptions: { allowJs: true } }),
+    );
+    writeFileSync(join(dir, "bundle.js"), `const a=${"x".repeat(400)};`);
+    writeFileSync(
+      join(dir, "src.ts"),
+      'import "./bundle.js";\nexport const ok = true;\n',
+    );
+    runIn(dir, ["add", "-A"]);
+    runIn(dir, ["commit", "-m", "first"]);
+
+    const program = await createProgramAt(dir, "main");
+    const roots = program.getRootFileNames().map((f) => f.replace(/\\/g, "/"));
+    expect(roots.some((f) => f.endsWith("bundle.js"))).toBe(false);
+    expect(roots.some((f) => f.endsWith("src.ts"))).toBe(true);
+
+    // Excluded from the roots, but not deleted from the world: something
+    // that imports it still resolves with no diagnostic.
+    const sf = program.getSourceFile(join(dir, "src.ts"))!;
+    const errors = program
+      .getSemanticDiagnostics(sf)
+      .map((d) => ts.flattenDiagnosticMessageText(d.messageText, " "));
+    expect(errors.join("\n")).not.toContain("Cannot find module");
+  });
+
   it("never resolves a repository file the revision does not have", async () => {
     // `src/help.ts` exists only in the working tree. Serving it to a program
     // built at `main` would make the "before" side of a diff type-check

@@ -123,6 +123,9 @@ export function renderTerminal(m: ReportModel): string {
   if (m.unanalyzedNote) {
     out.push(`  Note: ${m.unanalyzedNote}`);
   }
+  if (m.generatedNote) {
+    out.push(`  Note: ${m.generatedNote}`);
+  }
   // Spacing only. Gated on the notes as a whole, not on analyzer warnings
   // alone as it was: the model merges warnings and the untracked note into
   // one `notes` array because "they are one thing to a reader", so a walker

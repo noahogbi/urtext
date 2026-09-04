@@ -1045,3 +1045,38 @@ describe("excluding paths from a sweep", () => {
     expect(notes.some((n) => /exclud/i.test(n))).toBe(false);
   });
 });
+
+describe("a single-line JavaScript file is not a citation candidate", () => {
+  it("drops a machine-written file even though it cites a real drift", async () => {
+    // `bundle.js` cites `src/target.ts:1` accurately when both are first
+    // committed; the second commit drifts the target's content but leaves
+    // the citing line untouched, so `git blame` still attributes it to the
+    // first commit — a real, resolvable baseline, not an uncommitted line
+    // the analyzer would skip for an unrelated reason. If this file were
+    // scanned, that citation would rot for real: this proves it is not
+    // scanned at all, which is `ChangedFile.generated`'s job.
+    const repo = makeRepo("urtext-citations-generated-");
+    write(repo, "src/target.ts", ["export const LIMIT = 1;"]);
+    write(repo, "bundle.js", [
+      "// see src/target.ts:1 " + "x".repeat(500),
+      "const version = 1;",
+    ]);
+    commit(repo, "first");
+    write(repo, "src/target.ts", ["export const LIMIT = 99;"]);
+    // A second, unrelated line changes so the file counts as touched in this
+    // diff — the citing first line is untouched, so blame still finds it in
+    // the first commit above.
+    write(repo, "bundle.js", [
+      "// see src/target.ts:1 " + "x".repeat(500),
+      "const version = 2;",
+    ]);
+    commit(repo, "drift the target, touch the bundle elsewhere");
+
+    const cs = await extract(repo, "HEAD^..HEAD");
+    const bundle = cs.files.find((f) => f.path === "bundle.js");
+    expect(bundle?.generated).toBe(true);
+
+    const facts = await makeCitationsAnalyzer()(cs, createContext(repo, cs.range));
+    expect(facts.some((f) => f.evidence.some((e) => e.file === "bundle.js"))).toBe(false);
+  });
+});

@@ -458,6 +458,10 @@ function headerHtml(m: ReportModel): string {
   // Same line treatment and the same reasoning as `coverage` above: what the
   // analyzers could not reach is coverage, not a partial review.
   const unanalyzed = m.unanalyzedNote ? `<p class="coverage">${esc(m.unanalyzedNote)}</p>` : "";
+  // Same line treatment again: a machine-written file urtext declined to
+  // read is coverage too, not a shortfall in a run that covered everything
+  // it could.
+  const generated = m.generatedNote ? `<p class="coverage">${esc(m.generatedNote)}</p>` : "";
 
   // Inside the header, so it spans the three lens panes rather than sitting in
   // one of them — it indexes findings across all three. Below the legend for
@@ -503,6 +507,7 @@ function headerHtml(m: ReportModel): string {
     provenance,
     coverage,
     unanalyzed,
+    generated,
     banner,
     filterNote,
     distributionNote,
