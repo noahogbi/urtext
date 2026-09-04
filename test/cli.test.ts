@@ -630,13 +630,9 @@ describe("review", () => {
 
     // And the surface that cannot read prose. A script had no way to see this
     // gap at all, which made "stated the same way on every surface" false.
-    // The JSON key keeps its original, TypeScript-specific name even though
-    // `deletedSourceFiles` now also lists deleted JavaScript — renaming a
-    // shipped `--json` key is a different kind of change than widening what
-    // it discloses.
     const json = await review(delRepo, { command: "review", json: true, noLlm: true, help: false });
     const parsed = JSON.parse(json.output);
-    expect(parsed.coverage.deletedTypeScriptFiles).toEqual(["doomed.ts"]);
+    expect(parsed.coverage.deletedSourceFiles).toEqual(["doomed.ts"]);
     expect(parsed.coverage.note).toContain("doomed.ts");
   });
 
@@ -644,7 +640,7 @@ describe("review", () => {
     // Always present, so a consumer reads it without branching on the key.
     const r = await review(repo, { command: "review", json: true, noLlm: true, help: false });
     const parsed = JSON.parse(r.output);
-    expect(parsed.coverage.deletedTypeScriptFiles).toEqual([]);
+    expect(parsed.coverage.deletedSourceFiles).toEqual([]);
     expect(parsed.coverage.note).toBeUndefined();
   });
 

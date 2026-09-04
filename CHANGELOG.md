@@ -45,14 +45,19 @@ dates are the release date.
 
   A deleted `.mjs` earns the same disclosure a deleted `.ts` always has: its exports,
   callers, and guards go unexamined, and only the effect that vanished with the file, if
-  any, is reported. `coverage.deletedTypeScriptFiles` keeps its name under `--json` but now
-  lists deleted JavaScript files too.
+  any, is reported. See the breaking change below: the `--json` key that reports this was
+  renamed to carry both languages honestly.
 
 ### `--json` additions
 
-All additive; no existing key changed shape.
-
 - `coverage.generatedFiles` (always present, empty included) and `coverage.generatedNote`.
+
+### `--json` breaking change
+
+- `coverage.deletedTypeScriptFiles` is renamed to `coverage.deletedSourceFiles`. The array
+  now lists deleted JavaScript files alongside deleted TypeScript ones, and the old name
+  would have been a false claim about its own contents — the same defect class this release
+  closes in the analyzers themselves. A consumer reading the old key gets `undefined`.
 
 ## 0.4.0 — 2026-09-02
 

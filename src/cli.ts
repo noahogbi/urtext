@@ -685,11 +685,7 @@ export async function review(
           untrackedCount: changeset.untrackedCount ?? 0,
           warnings,
           coverage: {
-            // The key keeps its original name though `deletedSourceFiles`
-            // now widens the list to deleted JavaScript too: renaming a
-            // shipped `--json` key is the kind of change `CHANGELOG.md`
-            // calls out as non-additive, and nothing asked for one here.
-            deletedTypeScriptFiles: deleted,
+            deletedSourceFiles: deleted,
             ...(deleted.length > 0 ? { note: deletedFilesNote(deleted) } : {}),
             // Always present, empty included, by the same rule as the array
             // above it; the sentence only when there is one.
