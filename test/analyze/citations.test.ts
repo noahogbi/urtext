@@ -9,6 +9,7 @@ import {
   maskUrls,
   normalizeText,
 } from "../../src/analyze/citations.js";
+import { isSyntacticSource } from "../../src/extract/symbols.js";
 
 describe("Form A — a path and a line", () => {
   it("captures the path and the line", () => {
@@ -296,6 +297,43 @@ describe("citationsIn", () => {
     // along: isTypeScriptFile accepts .mts, no pathspec named it.
     expect([...CITATION_PATHSPECS]).toContain("*.mts");
     expect(citationsIn("a.mts", "// see src/x.ts:3\n")).toHaveLength(1);
+  });
+});
+
+describe("CITATION_PATHSPECS stays in step with isSyntacticSource", () => {
+  it("has a pathspec entry for every extension isSyntacticSource accepts", () => {
+    // The comment above CITATION_PATHSPECS calls the two lists an invariant
+    // "the two lists must stay in step" and names a history of them
+    // drifting apart. That sentence alone enforces nothing — deleting an
+    // entry from the pathspec list left the whole suite green until now.
+    // This derives the check from the predicate itself rather than from a
+    // second hand-copied list of extensions: candidates that are not real
+    // source extensions (prose, data, and near-miss suffixes) are included
+    // on purpose, to prove the loop below is checking what the predicate
+    // says yes to, not merely echoing the pathspec back at itself.
+    const candidates = [
+      "ts",
+      "tsx",
+      "mts",
+      "cts",
+      "js",
+      "mjs",
+      "cjs",
+      "jsx",
+      "json",
+      "md",
+      "markdown",
+      "txt",
+      "yml",
+      "py",
+    ];
+    const accepted = candidates.filter((ext) => isSyntacticSource(`a.${ext}`));
+    // A sanity floor: an empty `accepted` would make the loop below vacuous
+    // and let this test pass no matter what CITATION_PATHSPECS contains.
+    expect(accepted.length).toBeGreaterThan(0);
+    for (const ext of accepted) {
+      expect([...CITATION_PATHSPECS]).toContain(`*.${ext}`);
+    }
   });
 });
 

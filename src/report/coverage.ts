@@ -133,11 +133,18 @@ export function citationDistributionNote(findingFiles: string[]): string | undef
  *
  * Two clauses, and the second is the one that took a review to get right.
  *
- * The first is the extension gate every TypeScript analyzer applies, so a
- * `.d.ts` lists: `isTypeScriptFile` excludes declaration files, and
- * `citationsIn` dispatches on `isProseFile` then `isSyntacticSource`, so a
- * `.d.ts` is swept into candidates by the `*.ts` pathspec and then scanned by
- * nothing at all.
+ * The first is `isTypeScriptFile` alone, which is no longer a gate any
+ * analyzer applies uniformly: effects, guards, citations, and extraction now
+ * read via `isSyntacticSource`, which admits JavaScript too, and surface and
+ * blast radius add JavaScript conditionally, only when the project's own
+ * compiler admits it. A TypeScript file is covered by every one of those
+ * unconditionally, so this clause excludes it outright and needs no evidence
+ * check; a JavaScript file's coverage varies analyzer to analyzer, so it is
+ * left as a candidate for the second clause below to resolve rather than
+ * assumed covered here. This clause still means a `.d.ts` lists:
+ * `isTypeScriptFile` excludes declaration files, and `citationsIn` dispatches
+ * on `isProseFile` then `isSyntacticSource`, so a `.d.ts` is swept into
+ * candidates by the `*.ts` pathspec and then scanned by nothing at all.
  *
  * The second drops any file carrying evidence for a fact-backed finding.
  * An earlier design of this function took `citationSweep` instead and
@@ -191,10 +198,16 @@ export function unanalyzedFiles(changeset: Changeset, findings: Finding[]): stri
  * on exactly these files, which is why the sentence names whose judgement any
  * such finding is rather than telling the reader to disregard it.
  *
- * `total` counts every changed file, deleted source files included. Those
- * belong to `deletedFilesNote`, which says something narrower and truer about
- * them; the denominator here is the size of the diff, not the size of what
- * this sentence owns.
+ * `total` counts every changed file, deleted source files included. A deleted
+ * TypeScript file is excluded by this function's own first clause and so is
+ * named by `deletedFilesNote` alone, but a deleted JavaScript file is not —
+ * this function narrows only `isTypeScriptFile`, not the wider
+ * `isSyntacticSource` that `deletedSourceFiles` uses — and, absent a reported
+ * finding, lands in both notes at once. That overlap is deliberate, not a
+ * partition this sentence can claim: see `unanalyzedFiles`, "names a deleted
+ * JavaScript file too, deliberately overlapping deletedFilesNote". The
+ * denominator here is still the size of the diff, not the size of what this
+ * sentence owns alone.
  */
 export function unanalyzedFilesNote(paths: string[], total: number): string {
   return (
@@ -205,12 +218,35 @@ export function unanalyzedFilesNote(paths: string[], total: number): string {
 
 /**
  * Changed files whose shape says a tool wrote them — see `isMachineWritten`
- * in `../extract/symbols.ts` — in the order the diff listed them. Reads only
- * `ChangedFile.generated`, which `extract/index.ts` sets; this function makes
- * no judgement of its own.
+ * in `../extract/symbols.ts` — minus any file a non-`model`-tier finding's
+ * evidence names, in the order the diff listed them.
+ *
+ * `ChangedFile.generated` is flag-driven, not evidence-driven, and that gap
+ * is exactly the bug this subtraction closes: a generated file can still be
+ * the cited *target* of a citation finding. `citations.ts` drops it from the
+ * citing candidate list, but nothing stops some other file from citing it,
+ * and a citation finding quotes the cited file as a second evidence ref. A
+ * generated `dist/bundle.js` cited by a changed `README.md` would otherwise
+ * be named here — "no analyzer reported on it" — beside a `verified` finding
+ * quoting that same file, the identical contradiction `unanalyzedFiles`
+ * above exists to prevent. See that function's doc comment for why every
+ * evidence ref counts and not only the anchor, and why a `model`-tier
+ * finding does not count at all; the reasoning is not repeated here.
  */
-export function generatedFiles(changeset: Changeset): string[] {
-  return changeset.files.filter((f) => f.generated).map((f) => f.path);
+export function generatedFiles(changeset: Changeset, findings: Finding[]): string[] {
+  const reported = new Set<string>();
+  for (const finding of findings) {
+    if (finding.tier === "model") continue;
+    for (const ref of finding.evidence) reported.add(ref.file);
+  }
+  return changeset.files
+    .filter(
+      (f) =>
+        f.generated &&
+        !reported.has(f.path) &&
+        !(f.previousPath !== undefined && reported.has(f.previousPath)),
+    )
+    .map((f) => f.path);
 }
 
 /**

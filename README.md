@@ -24,20 +24,22 @@ matters — ranked, with every claim labeled by the kind of evidence behind it:
 - `model` — a model claim nothing mechanical confirms
 
 **It analyses TypeScript projects, including the JavaScript in them.** Guards, effects, and
-citations read `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.mjs`, `.cjs` and `.jsx`
-unconditionally. Surface and blast radius read the same TypeScript extensions always, and
-the JavaScript ones only when the project's own compiler options admit them — both need the
-type checker, not just a file they can parse on their own. Point urtext at a Python, Go or
-Rust repository and the code analyzers find nothing; the citations analyzer still checks
-prose in `.md` and `.txt`, and the dependencies and lockfile analyzers still read
-`package.json` and `package-lock.json` — three of the seven. That is a limit, not a
-roadmap item.
+citations read `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.mjs`, `.cjs` and `.jsx` without
+consulting the project's tsconfig at all. Surface and blast radius read the same TypeScript
+extensions always, and the JavaScript ones only when the project's own compiler options
+admit them — both need the type checker, not just a file they can parse on their own. Point
+urtext at a Python, Go or Rust repository and the code analyzers find nothing; the citations
+analyzer still checks prose in `.md` and `.txt`, and the dependencies and lockfile analyzers
+still read `package.json` and `package-lock.json` — three of the seven. That is a limit, not
+a roadmap item.
 
 **And every review says where that limit fell.** A report names the changed files no
 analyzer reported on — a `package.json`, a workflow YAML, a SQL migration — so silence
 about a file is never mistaken for a clean bill of health. It claims non-reporting, not
 non-reading, and it says plainly that anything the report does say about those files came
-from the model alone.
+from the model alone. A report also names any changed file whose shape says a tool wrote
+it — a bundle, a generated client — and says the same of it: no analyzer reported on it,
+because code a build produced is not something a person wrote for a reviewer to read.
 
 Seven analyzers run over the change:
 

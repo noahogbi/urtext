@@ -856,7 +856,9 @@ export function buildReportModel(
       ? labelConcealed(unanalyzedFilesNote(unanalyzed, changeset.files.length))
       : undefined;
 
-  const generated = generatedFiles(changeset);
+  // Same evidence subtraction `unanalyzedFiles` makes above, and for the
+  // same reason: see `generatedFiles`'s own doc comment.
+  const generated = generatedFiles(changeset, findings);
   const generatedNote =
     generated.length > 0 ? labelConcealed(generatedFilesNote(generated)) : undefined;
 

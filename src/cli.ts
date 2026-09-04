@@ -658,8 +658,10 @@ export async function review(
     const unanalyzed = unanalyzedFiles(changeset, findings);
     // A third disclosure, same rule as the two above: always an array, a
     // sentence only when it is non-empty. See `ChangedFile.generated` for
-    // what puts a file in this list — no analyzer reported on it.
-    const generated = generatedFiles(changeset);
+    // what puts a file in this list — no analyzer reported on it — and
+    // `generatedFiles`'s own doc comment for why `findings` is passed here
+    // too: a generated file can still be a citation finding's cited target.
+    const generated = generatedFiles(changeset, findings);
     return {
       output: JSON.stringify(
         {
