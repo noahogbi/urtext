@@ -2,7 +2,7 @@ import { labelConcealed, segmentConcealed, type ConcealSegment } from "./conceal
 import {
   citationDistributionNote,
   deletedFilesNote,
-  deletedTypeScriptFiles,
+  deletedSourceFiles,
   generatedFiles,
   generatedFilesNote,
   suppressionNote,
@@ -278,8 +278,8 @@ export interface ReportModel {
   notes: string[];
   /**
    * The deleted-file coverage note from `deletedFilesNote`; absent when no
-   * TypeScript file was deleted. Deliberately NOT in `notes`: deleting a
-   * TypeScript file is routine, and a partial-review banner that fires on
+   * source file was deleted. Deliberately NOT in `notes`: deleting a
+   * source file is routine, and a partial-review banner that fires on
    * every such diff is a banner a reader learns to skip. See
    * `test/report/model.test.ts`, "carries each disclosure exactly once, in
    * the field renderers must read it from".
@@ -846,7 +846,7 @@ export function buildReportModel(
     );
   }
 
-  const deleted = deletedTypeScriptFiles(changeset);
+  const deleted = deletedSourceFiles(changeset);
   const coverageNote = deleted.length > 0 ? labelConcealed(deletedFilesNote(deleted)) : undefined;
   // Asks what was reported rather than predicting what was read; the reasons
   // that distinction is load-bearing are on `unanalyzedFiles` itself.

@@ -7,7 +7,7 @@ import { review } from "../../src/cli.js";
 import {
   citationDistributionNote,
   deletedFilesNote,
-  deletedTypeScriptFiles,
+  deletedSourceFiles,
   generatedFiles,
   generatedFilesNote,
   unanalyzedFiles,
@@ -43,7 +43,7 @@ const changesetWith = (files: Changeset["files"]): Changeset => ({
   files,
 });
 
-describe("deletedTypeScriptFiles", () => {
+describe("deletedSourceFiles", () => {
   it("picks deleted TypeScript files and nothing else", () => {
     const cs = changesetWith([
       { path: "kept.ts", status: "modified", hunks: [], symbols: [] },
@@ -52,17 +52,39 @@ describe("deletedTypeScriptFiles", () => {
       { path: "types.d.ts", status: "deleted", hunks: [], symbols: [] },
       { path: "second.tsx", status: "deleted", hunks: [], symbols: [] },
     ]);
-    expect(deletedTypeScriptFiles(cs)).toEqual(["gone.ts", "second.tsx"]);
+    expect(deletedSourceFiles(cs)).toEqual(["gone.ts", "second.tsx"]);
+  });
+
+  it("picks a deleted JavaScript file too, closing the gap a deleted .mjs used to fall through", () => {
+    // Before this predicate widened from `isTypeScriptFile` to
+    // `isSyntacticSource`, a deleted `.mjs` lost its effects finding with the
+    // file — the same loss a deleted `.ts` suffers — and nothing told the
+    // reader its exports, callers, and guards went unexamined. See
+    // `deletedFilesNote`, whose wording had to widen along with this.
+    const cs = changesetWith([
+      { path: "kept.ts", status: "modified", hunks: [], symbols: [] },
+      { path: "scripts/build.mjs", status: "deleted", hunks: [], symbols: [] },
+      { path: "gone.ts", status: "deleted", hunks: [], symbols: [] },
+    ]);
+    expect(deletedSourceFiles(cs)).toEqual(["scripts/build.mjs", "gone.ts"]);
   });
 });
 
 describe("deletedFilesNote", () => {
   it("names every file, in singular and plural", () => {
-    expect(deletedFilesNote(["a.ts"])).toContain("1 deleted TypeScript file: a.ts");
+    expect(deletedFilesNote(["a.ts"])).toContain("1 deleted source file: a.ts");
     const two = deletedFilesNote(["a.ts", "b.ts"]);
-    expect(two).toContain("2 deleted TypeScript files: a.ts, b.ts");
+    expect(two).toContain("2 deleted source files: a.ts, b.ts");
     expect(two).toContain("their exports, callers, and guards are not analyzed");
     expect(deletedFilesNote(["a.ts"])).toContain("its exports, callers, and guards");
+  });
+
+  it("names a deleted JavaScript file exactly as it would a TypeScript one", () => {
+    // The note's wording no longer commits to a language, so a mixed list —
+    // or a JavaScript-only one — earns the same sentence a TypeScript-only
+    // list did.
+    expect(deletedFilesNote(["build.mjs"])).toContain("1 deleted source file: build.mjs");
+    expect(deletedFilesNote(["build.mjs"])).not.toContain("TypeScript");
   });
 
   it("does not claim no finding can describe a deleted file", () => {
@@ -184,7 +206,7 @@ describe("unanalyzedFiles", () => {
       { path: "package.json", status: "modified", hunks: [], symbols: [] },
       { path: ".github/workflows/publish.yml", status: "added", hunks: [], symbols: [] },
     ]);
-    // Diff order, the order `deletedTypeScriptFiles` above documents. Two
+    // Diff order, the order `deletedSourceFiles` above documents. Two
     // coverage sentences in one report listing paths by different rules would
     // read as one of them being sorted for a reason.
     expect(unanalyzedFiles(cs, [])).toEqual([
@@ -195,7 +217,7 @@ describe("unanalyzedFiles", () => {
 
   it("lists a declaration file, which no analyzer scans in any mode", () => {
     // `isTypeScriptFile` excludes `.d.ts`, and `citationsIn` dispatches on
-    // `isProseFile` then `isTypeScriptFile` — so a `.d.ts` is swept into
+    // `isProseFile` then `isSyntacticSource` — so a `.d.ts` is swept into
     // candidates by the `*.ts` pathspec and then scanned by nothing.
     const cs = changesetWith([
       { path: "types.d.ts", status: "modified", hunks: [], symbols: [] },
@@ -251,6 +273,23 @@ describe("unanalyzedFiles", () => {
       { path: "gone.yml", status: "deleted", hunks: [], symbols: [] },
     ]);
     expect(unanalyzedFiles(cs, [])).toEqual(["gone.yml"]);
+  });
+
+  it("names a deleted JavaScript file too, deliberately overlapping deletedFilesNote", () => {
+    // This function's exclusion still checks `isTypeScriptFile`, not the
+    // wider `isSyntacticSource` `deletedSourceFiles` now uses — left narrow
+    // on purpose. So a deleted `.mjs` with no vanished effects finding is
+    // named twice: once here, and once by `deletedFilesNote`, which now
+    // covers it too. Both sentences are true — "no analyzer reported on it"
+    // and "only effects that vanished with it are reported" hold at once for
+    // the same file — so this is not a defect and no future fix should
+    // change either side to make one of them disappear. A deleted TypeScript
+    // file never hits this overlap, because the exclusion above already
+    // removes it.
+    const cs = changesetWith([
+      { path: "scripts/build.mjs", status: "deleted", hunks: [], symbols: [] },
+    ]);
+    expect(unanalyzedFiles(cs, [])).toEqual(["scripts/build.mjs"]);
   });
 });
 

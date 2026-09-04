@@ -1,4 +1,4 @@
-import { isTypeScriptFile } from "../extract/symbols.js";
+import { isSyntacticSource, isTypeScriptFile } from "../extract/symbols.js";
 import type { Changeset, Finding } from "../types.js";
 
 /**
@@ -20,20 +20,31 @@ import type { Changeset, Finding } from "../types.js";
  * in both.
  */
 
-/** Deleted TypeScript files in this range, in the order the diff listed them. */
-export function deletedTypeScriptFiles(changeset: Changeset): string[] {
+/**
+ * Deleted source files in this range — TypeScript or JavaScript, whatever
+ * `isSyntacticSource` admits — in the order the diff listed them.
+ *
+ * Named for what it now covers rather than for the language it used to:
+ * a deleted `.mjs` loses its effects finding with the file exactly as a
+ * deleted `.ts` does, and narrowing this to TypeScript left that loss
+ * undisclosed. See `deletedFilesNote` below, whose wording this predicate's
+ * widening had to bring along with it.
+ */
+export function deletedSourceFiles(changeset: Changeset): string[] {
   return changeset.files
-    .filter((f) => f.status === "deleted" && isTypeScriptFile(f.path))
+    .filter((f) => f.status === "deleted" && isSyntacticSource(f.path))
     .map((f) => f.path);
 }
 
 /**
- * What a reader is owed about a deleted TypeScript file, and no more than is
+ * What a reader is owed about a deleted source file, and no more than is
  * true. `guardsAnalyzer` and `surfaceAnalyzer` skip a file whose status is
  * "deleted", `blastRadiusAnalyzer` skips it too, and `mapSymbols` returns no
  * symbols for one — so its exports, its callers, and its guards go unexamined,
  * and without a word about it a reader cannot tell that gap from "nothing in it
- * was worth reporting".
+ * was worth reporting". None of that is TypeScript-specific: every one of
+ * those analyzers reads JavaScript too, so a deleted `.mjs` earns the same
+ * sentence as a deleted `.ts`.
  *
  * `effectsAnalyzer` is the exception and the reason this sentence was rewritten:
  * it reads the before side of a deletion on purpose (see the `file.status !==
@@ -49,8 +60,8 @@ export function deletedTypeScriptFiles(changeset: Changeset): string[] {
 export function deletedFilesNote(paths: string[]): string {
   const count =
     paths.length === 1
-      ? "1 deleted TypeScript file"
-      : `${paths.length} deleted TypeScript files`;
+      ? "1 deleted source file"
+      : `${paths.length} deleted source files`;
   const subject = paths.length === 1 ? "it" : "them";
   const possessive = paths.length === 1 ? "its" : "their";
   return `${count}: ${paths.join(", ")} — only effects that vanished with ${subject} are reported; ${possessive} exports, callers, and guards are not analyzed.`;
@@ -117,14 +128,14 @@ export function citationDistributionNote(findingFiles: string[]): string | undef
 
 /**
  * Changed files that no analyzer reported on, in the order the diff listed
- * them — the order `deletedTypeScriptFiles` above uses, so two coverage
+ * them — the order `deletedSourceFiles` above uses, so two coverage
  * sentences in one report do not list paths by different rules.
  *
  * Two clauses, and the second is the one that took a review to get right.
  *
  * The first is the extension gate every TypeScript analyzer applies, so a
  * `.d.ts` lists: `isTypeScriptFile` excludes declaration files, and
- * `citationsIn` dispatches on `isProseFile` then `isTypeScriptFile`, so a
+ * `citationsIn` dispatches on `isProseFile` then `isSyntacticSource`, so a
  * `.d.ts` is swept into candidates by the `*.ts` pathspec and then scanned by
  * nothing at all.
  *
@@ -180,10 +191,10 @@ export function unanalyzedFiles(changeset: Changeset, findings: Finding[]): stri
  * on exactly these files, which is why the sentence names whose judgement any
  * such finding is rather than telling the reader to disregard it.
  *
- * `total` counts every changed file, deleted TypeScript included. Those belong
- * to `deletedFilesNote`, which says something narrower and truer about them;
- * the denominator here is the size of the diff, not the size of what this
- * sentence owns.
+ * `total` counts every changed file, deleted source files included. Those
+ * belong to `deletedFilesNote`, which says something narrower and truer about
+ * them; the denominator here is the size of the diff, not the size of what
+ * this sentence owns.
  */
 export function unanalyzedFilesNote(paths: string[], total: number): string {
   return (

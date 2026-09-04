@@ -15,7 +15,7 @@ import { collectIntent } from "./extract/intent.js";
 import { DEFAULT_MODEL, interpret } from "./interpret/index.js";
 import {
   deletedFilesNote,
-  deletedTypeScriptFiles,
+  deletedSourceFiles,
   generatedFiles,
   generatedFilesNote,
   unanalyzedFiles,
@@ -649,7 +649,7 @@ export async function review(
     // surface" false and left the one consumer that cannot read prose blind to
     // the gap. The array is always present so a consumer can test it without
     // branching on the key; the sentence is there only when there is one.
-    const deleted = deletedTypeScriptFiles(changeset);
+    const deleted = deletedSourceFiles(changeset);
     // The other half of the same disclosure, and the half the human surfaces
     // gained first: which changed files no analyzer reported on at all. A
     // script reading this could otherwise not tell a clean file from one
@@ -685,6 +685,10 @@ export async function review(
           untrackedCount: changeset.untrackedCount ?? 0,
           warnings,
           coverage: {
+            // The key keeps its original name though `deletedSourceFiles`
+            // now widens the list to deleted JavaScript too: renaming a
+            // shipped `--json` key is the kind of change `CHANGELOG.md`
+            // calls out as non-additive, and nothing asked for one here.
             deletedTypeScriptFiles: deleted,
             ...(deleted.length > 0 ? { note: deletedFilesNote(deleted) } : {}),
             // Always present, empty included, by the same rule as the array

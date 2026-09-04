@@ -23,8 +23,11 @@ matters — ranked, with every claim labeled by the kind of evidence behind it:
 - `inferred` — a model claim that analysis corroborates but does not prove
 - `model` — a model claim nothing mechanical confirms
 
-**It analyses TypeScript projects.** The four code analyzers below read the TypeScript
-compiler, so they fire on `.ts`, `.tsx`, `.mts` and `.cts`. Point urtext at a Python, Go or
+**It analyses TypeScript projects, including the JavaScript in them.** Guards, effects, and
+citations read `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.mjs`, `.cjs` and `.jsx`
+unconditionally. Surface and blast radius read the same TypeScript extensions always, and
+the JavaScript ones only when the project's own compiler options admit them — both need the
+type checker, not just a file they can parse on their own. Point urtext at a Python, Go or
 Rust repository and the code analyzers find nothing; the citations analyzer still checks
 prose in `.md` and `.txt`, and the dependencies and lockfile analyzers still read
 `package.json` and `package-lock.json` — three of the seven. That is a limit, not a
