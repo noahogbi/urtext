@@ -450,7 +450,7 @@ function headerHtml(m: ReportModel): string {
 
   // Its own line, deliberately outside the banner — the model carries this
   // as `coverageNote`, apart from `notes`, for exactly this placement:
-  // deleting a TypeScript file is routine, and "This review is partial."
+  // deleting a source file is routine, and "This review is partial."
   // fired on every diff that did. A banner that a normal change trips is a
   // banner a reader learns to skip, and the things it exists for — a dead
   // analyzer, a model never asked — are the ones that would go unread.
@@ -458,6 +458,10 @@ function headerHtml(m: ReportModel): string {
   // Same line treatment and the same reasoning as `coverage` above: what the
   // analyzers could not reach is coverage, not a partial review.
   const unanalyzed = m.unanalyzedNote ? `<p class="coverage">${esc(m.unanalyzedNote)}</p>` : "";
+  // Same line treatment again: a machine-written file urtext declined to
+  // read is coverage too, not a shortfall in a run that covered everything
+  // it could.
+  const generated = m.generatedNote ? `<p class="coverage">${esc(m.generatedNote)}</p>` : "";
 
   // Inside the header, so it spans the three lens panes rather than sitting in
   // one of them — it indexes findings across all three. Below the legend for
@@ -503,6 +507,7 @@ function headerHtml(m: ReportModel): string {
     provenance,
     coverage,
     unanalyzed,
+    generated,
     banner,
     filterNote,
     distributionNote,

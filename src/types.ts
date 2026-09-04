@@ -74,8 +74,18 @@ export interface ChangedFile {
   status: FileStatus;
   previousPath?: string;
   hunks: Hunk[];
-  /** Empty for files that are not TypeScript. */
+  /** Empty for files that are neither TypeScript nor JavaScript. */
   symbols: ChangedSymbol[];
+  /**
+   * Set when this file's shape says a tool wrote it — `isMachineWritten` on
+   * the after-side text `extract/index.ts` already reads — so the
+   * changeset-facing analyzers skip it and the review says why. The program
+   * layer (`analyze/program.ts`) builds no changeset and so cannot read this
+   * field; it calls the same predicate itself, against text it already
+   * holds. Two call sites of one shared rule, not one place that decides for
+   * both.
+   */
+  generated?: boolean;
 }
 
 export interface Changeset {

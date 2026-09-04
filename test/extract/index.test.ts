@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { runAnalyzers } from "../../src/analyze/index.js";
 import { createContext, extract, repoRoot } from "../../src/extract/index.js";
+import { isMachineWritten } from "../../src/extract/symbols.js";
 import { REPORT_DIR } from "../../src/types.js";
 
 // Keep the developer's global git config out of these repos: commit signing
@@ -37,6 +38,10 @@ beforeAll(() => {
     "export function load(id: string) {\n  return id;\n}\n",
   );
   writeFileSync(join(repo, "notes.md"), "hello\n");
+  writeFileSync(
+    join(repo, "util.mjs"),
+    "export function helper(a) {\n  return a;\n}\n",
+  );
   run(["add", "-A"]);
   run(["commit", "-m", "first"]);
 
@@ -45,21 +50,35 @@ beforeAll(() => {
     "export function load(id: string) {\n  return fetch(id);\n}\n",
   );
   writeFileSync(join(repo, "notes.md"), "hello there\n");
+  writeFileSync(
+    join(repo, "util.mjs"),
+    "export function helper(a) {\n  return fetch(a);\n}\n",
+  );
 });
 
 describe("extract", () => {
   it("returns changed files with hunks", async () => {
     const cs = await extract(repo);
     expect(cs.range.label).toBe("vs main");
-    expect(cs.files.map((f) => f.path).sort()).toEqual(["notes.md", "svc.ts"]);
+    expect(cs.files.map((f) => f.path).sort()).toEqual([
+      "notes.md",
+      "svc.ts",
+      "util.mjs",
+    ]);
     expect(cs.files.find((f) => f.path === "svc.ts")!.hunks.length).toBeGreaterThan(0);
   });
 
-  it("attaches symbols to TypeScript files only", async () => {
+  it("attaches symbols to TypeScript and JavaScript files, not to prose", async () => {
+    // Reads through the real `extract()` pipeline, not `mapSymbols` directly
+    // — the read gate that decides whether a file's text is even fetched
+    // from git lives one layer above `mapSymbols`'s own gate, and only this
+    // path exercises both.
     const cs = await extract(repo);
     const ts = cs.files.find((f) => f.path === "svc.ts")!;
+    const js = cs.files.find((f) => f.path === "util.mjs")!;
     const md = cs.files.find((f) => f.path === "notes.md")!;
     expect(ts.symbols.map((s) => s.name)).toContain("load");
+    expect(js.symbols.map((s) => s.name)).toContain("helper");
     expect(md.symbols).toEqual([]);
   });
 
@@ -210,5 +229,61 @@ describe("extract with a non-ASCII path", () => {
     const facts = await runAnalyzers(cs, createContext(dir, cs.range));
     expect(facts.map((f) => f.file)).toEqual([name]);
     expect(facts[0].kind).toBe("effect_added");
+  });
+});
+
+describe("isMachineWritten", () => {
+  it("marks a single-line JavaScript file as machine-written", () => {
+    const long = `const a=${"x".repeat(400)};`;
+    expect(isMachineWritten("bundle.js", long)).toBe(true);
+  });
+
+  it("does not mark a normal file, a short one, or TypeScript", () => {
+    expect(isMachineWritten("a.js", "const a = 1;\nconst b = 2;\n")).toBe(false);
+    expect(isMachineWritten("a.js", "const a = 1;\n")).toBe(false);
+    // Minified TypeScript is not a thing that occurs, and testing for it would
+    // change existing behaviour for no reason.
+    expect(isMachineWritten("a.ts", `const a=${"x".repeat(400)};`)).toBe(false);
+  });
+});
+
+describe("extract and machine-written JavaScript", () => {
+  let dir: string;
+
+  beforeAll(() => {
+    dir = newRepo("urtext-generated-");
+    writeFileSync(join(dir, "base.ts"), "export const base = 1;\n");
+    // Committed with a guard already in it, so the later edit can remove one
+    // — proof that `guardsAnalyzer`'s skip fires too, not only the
+    // added-file path `effectsAnalyzer` takes.
+    writeFileSync(
+      join(dir, "bundle.js"),
+      `const a=${"x".repeat(400)};\nfunction run(ok) {\n  if (!ok) throw new Error("no");\n}\n`,
+    );
+    gitIn(dir, ["add", "-A"]);
+    gitIn(dir, ["commit", "-m", "first"]);
+    // Same overlong first line — still the shape `isMachineWritten` catches
+    // — but the guard is gone and a network call has appeared in its place.
+    // Either change, read by an analyzer that did not skip this file, is a
+    // fact this test would see.
+    writeFileSync(
+      join(dir, "bundle.js"),
+      `const a=${"x".repeat(400)};\nfunction run(ok) {\n  return fetch(ok);\n}\n`,
+    );
+  });
+
+  it("marks the bundle generated and leaves an untouched file alone", async () => {
+    const cs = await extract(dir);
+    const bundle = cs.files.find((f) => f.path === "bundle.js");
+    expect(bundle?.generated).toBe(true);
+    // base.ts never changed in this diff, so it never entered the changeset
+    // at all — this is not asserting `generated` is false on it.
+    expect(cs.files.find((f) => f.path === "base.ts")).toBeUndefined();
+  });
+
+  it("keeps every analyzer from reporting on the generated file", async () => {
+    const cs = await extract(dir);
+    const facts = await runAnalyzers(cs, createContext(dir, cs.range));
+    expect(facts.some((f) => f.file === "bundle.js")).toBe(false);
   });
 });

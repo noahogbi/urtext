@@ -1,8 +1,15 @@
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { review } from "../../src/cli.js";
 import {
   citationDistributionNote,
   deletedFilesNote,
-  deletedTypeScriptFiles,
+  deletedSourceFiles,
+  generatedFiles,
+  generatedFilesNote,
   unanalyzedFiles,
   unanalyzedFilesNote,
 } from "../../src/report/coverage.js";
@@ -36,7 +43,7 @@ const changesetWith = (files: Changeset["files"]): Changeset => ({
   files,
 });
 
-describe("deletedTypeScriptFiles", () => {
+describe("deletedSourceFiles", () => {
   it("picks deleted TypeScript files and nothing else", () => {
     const cs = changesetWith([
       { path: "kept.ts", status: "modified", hunks: [], symbols: [] },
@@ -45,17 +52,39 @@ describe("deletedTypeScriptFiles", () => {
       { path: "types.d.ts", status: "deleted", hunks: [], symbols: [] },
       { path: "second.tsx", status: "deleted", hunks: [], symbols: [] },
     ]);
-    expect(deletedTypeScriptFiles(cs)).toEqual(["gone.ts", "second.tsx"]);
+    expect(deletedSourceFiles(cs)).toEqual(["gone.ts", "second.tsx"]);
+  });
+
+  it("picks a deleted JavaScript file too, closing the gap a deleted .mjs used to fall through", () => {
+    // Before this predicate widened from `isTypeScriptFile` to
+    // `isSyntacticSource`, a deleted `.mjs` lost its effects finding with the
+    // file — the same loss a deleted `.ts` suffers — and nothing told the
+    // reader its exports, callers, and guards went unexamined. See
+    // `deletedFilesNote`, whose wording had to widen along with this.
+    const cs = changesetWith([
+      { path: "kept.ts", status: "modified", hunks: [], symbols: [] },
+      { path: "scripts/build.mjs", status: "deleted", hunks: [], symbols: [] },
+      { path: "gone.ts", status: "deleted", hunks: [], symbols: [] },
+    ]);
+    expect(deletedSourceFiles(cs)).toEqual(["scripts/build.mjs", "gone.ts"]);
   });
 });
 
 describe("deletedFilesNote", () => {
   it("names every file, in singular and plural", () => {
-    expect(deletedFilesNote(["a.ts"])).toContain("1 deleted TypeScript file: a.ts");
+    expect(deletedFilesNote(["a.ts"])).toContain("1 deleted source file: a.ts");
     const two = deletedFilesNote(["a.ts", "b.ts"]);
-    expect(two).toContain("2 deleted TypeScript files: a.ts, b.ts");
+    expect(two).toContain("2 deleted source files: a.ts, b.ts");
     expect(two).toContain("their exports, callers, and guards are not analyzed");
     expect(deletedFilesNote(["a.ts"])).toContain("its exports, callers, and guards");
+  });
+
+  it("names a deleted JavaScript file exactly as it would a TypeScript one", () => {
+    // The note's wording no longer commits to a language, so a mixed list —
+    // or a JavaScript-only one — earns the same sentence a TypeScript-only
+    // list did.
+    expect(deletedFilesNote(["build.mjs"])).toContain("1 deleted source file: build.mjs");
+    expect(deletedFilesNote(["build.mjs"])).not.toContain("TypeScript");
   });
 
   it("does not claim no finding can describe a deleted file", () => {
@@ -70,6 +99,87 @@ describe("deletedFilesNote", () => {
     expect(note).not.toContain("every analyzer");
     expect(note).not.toContain("nothing");
     expect(note).toContain("only effects that vanished with it are reported");
+  });
+});
+
+describe("generatedFiles", () => {
+  it("picks files marked generated and nothing else", () => {
+    const cs = changesetWith([
+      { path: "bundle.js", status: "added", hunks: [], symbols: [], generated: true },
+      { path: "kept.ts", status: "modified", hunks: [], symbols: [] },
+    ]);
+    expect(generatedFiles(cs, [])).toEqual(["bundle.js"]);
+  });
+
+  it("returns nothing when no file carries the mark", () => {
+    const cs = changesetWith([
+      { path: "kept.ts", status: "modified", hunks: [], symbols: [] },
+    ]);
+    expect(generatedFiles(cs, [])).toEqual([]);
+  });
+
+  it("still lists an ordinary generated file no finding names", () => {
+    // The plain case, alongside the citation case below: a generated file
+    // cited by nothing still earns the note. The fix for the finding right
+    // below must not make every generated file disappear, only the ones a
+    // finding actually quotes.
+    const cs = changesetWith([
+      { path: "dist/bundle.js", status: "modified", hunks: [], symbols: [], generated: true },
+    ]);
+    expect(generatedFiles(cs, [])).toEqual(["dist/bundle.js"]);
+  });
+
+  it("drops a generated file quoted as a citation finding's second evidence ref", () => {
+    // The whole-branch review's blocking finding: `ChangedFile.generated` is
+    // flag-driven, but a generated file can still be the cited *target* of a
+    // citation finding — the citations analyzer only drops it from the
+    // *citing* candidate list, and a citation drift quotes the cited file as
+    // a second evidence ref. Left unfixed, this printed "no analyzer
+    // reported on it" beside a `verified` finding quoting that exact file:
+    // a generated bundle with a changed line, cited from a README, produced
+    // a false coverage note directly above the true finding disproving it.
+    // Same evidence subtraction `unanalyzedFiles` already makes, applied
+    // here for the first time.
+    const cs = changesetWith([
+      { path: "dist/bundle.js", status: "modified", hunks: [], symbols: [], generated: true },
+    ]);
+    const findings = [findingOn("README.md", "verified", ["README.md", "dist/bundle.js"])];
+    expect(generatedFiles(cs, findings)).toEqual([]);
+  });
+});
+
+describe("generatedFilesNote", () => {
+  it("names the one file, claiming only what the measurement supports", () => {
+    // Neither "read" (the text is read, to test its shape and, for an
+    // imported file, by the program that resolves it) nor "single line"
+    // (the predicate measures the first line's length, not the line count)
+    // is a claim this sentence is entitled to make.
+    expect(generatedFilesNote(["bundle.js"])).toBe(
+      "bundle.js begins with a line long enough that a tool wrote it, so no analyzer reported on it.",
+    );
+  });
+
+  it("names every file in the plural", () => {
+    const note = generatedFilesNote(["a.js", "b.js"]);
+    expect(note).toContain("a.js");
+    expect(note).toContain("b.js");
+    expect(note).toContain("no analyzer reported on them");
+  });
+
+  it("issues no verdict about the code and none of the six forbidden words", () => {
+    // The same register `test/report/copy-guard.test.ts` holds every other
+    // reader-facing sentence to.
+    const note = generatedFilesNote(["bundle.js"]).toLowerCase();
+    for (const word of [
+      "unsanctioned",
+      "unauthorized",
+      "approved",
+      "permission",
+      "forbidden",
+      "allowed",
+    ]) {
+      expect(note).not.toContain(word);
+    }
   });
 });
 
@@ -125,7 +235,7 @@ describe("unanalyzedFiles", () => {
       { path: "package.json", status: "modified", hunks: [], symbols: [] },
       { path: ".github/workflows/publish.yml", status: "added", hunks: [], symbols: [] },
     ]);
-    // Diff order, the order `deletedTypeScriptFiles` above documents. Two
+    // Diff order, the order `deletedSourceFiles` above documents. Two
     // coverage sentences in one report listing paths by different rules would
     // read as one of them being sorted for a reason.
     expect(unanalyzedFiles(cs, [])).toEqual([
@@ -136,7 +246,7 @@ describe("unanalyzedFiles", () => {
 
   it("lists a declaration file, which no analyzer scans in any mode", () => {
     // `isTypeScriptFile` excludes `.d.ts`, and `citationsIn` dispatches on
-    // `isProseFile` then `isTypeScriptFile` — so a `.d.ts` is swept into
+    // `isProseFile` then `isSyntacticSource` — so a `.d.ts` is swept into
     // candidates by the `*.ts` pathspec and then scanned by nothing.
     const cs = changesetWith([
       { path: "types.d.ts", status: "modified", hunks: [], symbols: [] },
@@ -193,6 +303,23 @@ describe("unanalyzedFiles", () => {
     ]);
     expect(unanalyzedFiles(cs, [])).toEqual(["gone.yml"]);
   });
+
+  it("names a deleted JavaScript file too, deliberately overlapping deletedFilesNote", () => {
+    // This function's exclusion still checks `isTypeScriptFile`, not the
+    // wider `isSyntacticSource` `deletedSourceFiles` now uses — left narrow
+    // on purpose. So a deleted `.mjs` with no vanished effects finding is
+    // named twice: once here, and once by `deletedFilesNote`, which now
+    // covers it too. Both sentences are true — "no analyzer reported on it"
+    // and "only effects that vanished with it are reported" hold at once for
+    // the same file — so this is not a defect and no future fix should
+    // change either side to make one of them disappear. A deleted TypeScript
+    // file never hits this overlap, because the exclusion above already
+    // removes it.
+    const cs = changesetWith([
+      { path: "scripts/build.mjs", status: "deleted", hunks: [], symbols: [] },
+    ]);
+    expect(unanalyzedFiles(cs, [])).toEqual(["scripts/build.mjs"]);
+  });
 });
 
 describe("unanalyzedFilesNote", () => {
@@ -241,5 +368,100 @@ describe("unanalyzedFiles and renames", () => {
     ]);
     const f = findingOn("pkgs/a/package.json", "verified");
     expect(unanalyzedFiles(cs, [f])).toEqual([]);
+  });
+});
+
+describe("the generated-file note, carried through review() into --json", () => {
+  // `generatedFilesNote`'s own unit tests above prove the sentence exists;
+  // they cannot prove a reader of `--json` ever receives it. `src/cli.ts`
+  // composes it into `coverage` separately from this module, and that wiring
+  // is exactly what this drives — the real pipeline, not a fabricated model.
+  const ISOLATION = ["-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"];
+
+  function gitIn(cwd: string, args: string[]) {
+    execFileSync("git", [...ISOLATION, ...args], { cwd, stdio: "pipe" });
+  }
+
+  it("names the file and its sentence under coverage.generatedFiles / coverage.generatedNote", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "urtext-coverage-generated-"));
+    gitIn(dir, ["init", "-b", "main"]);
+    gitIn(dir, ["config", "user.email", "test@example.com"]);
+    gitIn(dir, ["config", "user.name", "Test"]);
+    writeFileSync(join(dir, "base.ts"), "export const base = 1;\n");
+    gitIn(dir, ["add", "-A"]);
+    gitIn(dir, ["commit", "-m", "first"]);
+    writeFileSync(join(dir, "bundle.js"), `const a=${"x".repeat(400)};\n`);
+    gitIn(dir, ["add", "-A"]);
+
+    const r = await review(dir, { command: "review", json: true, noLlm: true, help: false });
+    const parsed = JSON.parse(r.output);
+    expect(parsed.coverage.generatedFiles).toEqual(["bundle.js"]);
+    expect(parsed.coverage.generatedNote).toBe(
+      "bundle.js begins with a line long enough that a tool wrote it, so no analyzer reported on it.",
+    );
+  });
+
+  it("carries an empty array and no sentence when nothing is generated", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "urtext-coverage-not-generated-"));
+    gitIn(dir, ["init", "-b", "main"]);
+    gitIn(dir, ["config", "user.email", "test@example.com"]);
+    gitIn(dir, ["config", "user.name", "Test"]);
+    writeFileSync(join(dir, "base.ts"), "export const base = 1;\n");
+    gitIn(dir, ["add", "-A"]);
+    gitIn(dir, ["commit", "-m", "first"]);
+    writeFileSync(join(dir, "base.ts"), "export const base = 2;\n");
+
+    const r = await review(dir, { command: "review", json: true, noLlm: true, help: false });
+    const parsed = JSON.parse(r.output);
+    expect(parsed.coverage.generatedFiles).toEqual([]);
+    expect(parsed.coverage.generatedNote).toBeUndefined();
+  });
+
+  it("drops a generated bundle cited by a README from coverage.generatedFiles, and prints the citation drift instead", async () => {
+    // The whole-branch review's reproduction, rebuilt against the real
+    // pipeline: a generated bundle whose cited line changed used to print
+    // "dist/bundle.js begins with a line long enough that a tool wrote it,
+    // so no analyzer reported on it" and, a few lines below, a `verified`
+    // citation finding quoting that same file and line — contradicting
+    // itself on one screen.
+    const dir = mkdtempSync(join(tmpdir(), "urtext-coverage-generated-cited-"));
+    gitIn(dir, ["init", "-b", "main"]);
+    gitIn(dir, ["config", "user.email", "test@example.com"]);
+    gitIn(dir, ["config", "user.name", "Test"]);
+    mkdirSync(join(dir, "dist"));
+    writeFileSync(
+      join(dir, "dist", "bundle.js"),
+      `const a=${"x".repeat(400)};\nconsole.log("marker one");\n`,
+    );
+    writeFileSync(join(dir, "README.md"), "See dist/bundle.js:2 for the marker.\n");
+    gitIn(dir, ["add", "-A"]);
+    gitIn(dir, ["commit", "-m", "first"]);
+    // Only the bundle's cited line changes; the README is left untouched so
+    // the citation is found the way default mode finds it — by grepping
+    // prose for the touched file's basename, not by the README itself
+    // having changed.
+    writeFileSync(
+      join(dir, "dist", "bundle.js"),
+      `const a=${"x".repeat(400)};\nconsole.log("marker two");\n`,
+    );
+
+    const r = await review(dir, { command: "review", json: true, noLlm: true, help: false });
+    const parsed = JSON.parse(r.output);
+
+    // The false note is gone: the bundle is still flagged generated by
+    // `isMachineWritten`, but a finding now names it, so `generatedFiles`
+    // excludes it.
+    expect(parsed.coverage.generatedFiles).toEqual([]);
+    expect(parsed.coverage.generatedNote).toBeUndefined();
+
+    // And the true finding it would have contradicted is really there:
+    // a citation drift anchored on the README, quoting the bundle's changed
+    // line as its second evidence ref.
+    const drift = parsed.findings.find(
+      (f: { id: string }) => f.id === "citation_rot:README.md:1:content_drift",
+    );
+    expect(drift).toBeDefined();
+    expect(drift.tier).toBe("verified");
+    expect(drift.evidence.some((e: { file: string; line: number }) => e.file === "dist/bundle.js" && e.line === 2)).toBe(true);
   });
 });

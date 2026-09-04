@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { detectEffects, effectsAnalyzer } from "../../src/analyze/effects.js";
 import { MAX_EVIDENCE } from "../../src/analyze/fact.js";
@@ -49,6 +50,16 @@ describe("detectEffects", () => {
 
   it("ignores non-TypeScript files", () => {
     expect(detectEffects("a.md", "fetch(u)")).toEqual([]);
+  });
+
+  it("reads this repository's own shipped JavaScript", () => {
+    // compose-comment-bin.mjs, NOT compose-comment.mjs. The composer imports
+    // nothing — its own header says so — and detectEffects fires only on import
+    // bindings and known global/object/qualified calls, so asserting a finding
+    // there asserts something that cannot happen. The bin wrapper imports
+    // node:fs and does have an effect site.
+    const path = "action/compose-comment-bin.mjs";
+    expect(detectEffects(path, readFileSync(path, "utf8")).length).toBeGreaterThan(0);
   });
 
   it("resolves a named import from a known effectful module", () => {
@@ -173,6 +184,19 @@ describe("effectsAnalyzer", () => {
       ctxFor({ "a.md": { before: "x", after: "fetch(u)" } }),
     );
     expect(facts).toEqual([]);
+  });
+
+  it("emits effect_added for a JavaScript file, not only detectEffects", async () => {
+    // The analyzer's own per-file gate is a separate call site from
+    // detectEffects's — a `.mjs` path has to clear both before this fact can
+    // exist at all.
+    const facts = await effectsAnalyzer(
+      changesetFor("a.mjs"),
+      ctxFor({ "a.mjs": { before: "export const x = 1;\n", after: "export const x = fetch(u);\n" } }),
+    );
+    expect(facts).toHaveLength(1);
+    expect(facts[0].kind).toBe("effect_added");
+    expect(facts[0].detail.effect).toBe("network");
   });
 
   it("gives every fact a distinct id", async () => {

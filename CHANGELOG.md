@@ -28,6 +28,37 @@ dates are the release date.
   entry, so its dependencies were not checked against package.json.` — since there is nothing
   recorded in that older format to check the manifest's ranges against.
 
+- **JavaScript, read by the analyzers that already read this project's TypeScript.** Guards,
+  effects, and citations read `.js`, `.mjs`, `.cjs` and `.jsx` unconditionally, the same as
+  `.ts`, `.tsx`, `.mts` and `.cts` — each builds its own source file and never consults a
+  compiler option. Surface and blast radius read those same JavaScript extensions only when
+  the project's own `tsconfig.json` sets `allowJs` or `checkJs`, since both need the type
+  checker rather than a file either can parse on its own. Citations also checks comments in
+  `.mts` and `.cts` for the first time, closing a gap those two extensions carried on their
+  own.
+
+  A changed file whose first line is long enough that a tool plainly wrote it — bundler
+  output and the like — is skipped by every analyzer that would otherwise read it, and every
+  surface now says so when one is skipped: the terminal, HTML, Markdown, and PDF reports each
+  gain a line naming the file, and `--json` gains `coverage.generatedFiles` and
+  `coverage.generatedNote`.
+
+  A deleted `.mjs` earns the same disclosure a deleted `.ts` always has: its exports,
+  callers, and guards go unexamined, and only the effect that vanished with the file, if
+  any, is reported. See the breaking change below: the `--json` key that reports this was
+  renamed to carry both languages honestly.
+
+### `--json` additions
+
+- `coverage.generatedFiles` (always present, empty included) and `coverage.generatedNote`.
+
+### `--json` breaking change
+
+- `coverage.deletedTypeScriptFiles` is renamed to `coverage.deletedSourceFiles`. The array
+  now lists deleted JavaScript files alongside deleted TypeScript ones, and the old name
+  would have been a false claim about its own contents — the same defect class this release
+  closes in the analyzers themselves. A consumer reading the old key gets `undefined`.
+
 ## 0.4.0 — 2026-09-02
 
 ### Added

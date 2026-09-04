@@ -13,6 +13,7 @@ import {
   INTENT_WORKTREE_CAVEAT,
 } from "../../src/interpret/prompt.js";
 import type { Intent } from "../../src/extract/intent.js";
+import { mapSymbols } from "../../src/extract/symbols.js";
 import type { Changeset, Fact } from "../../src/types.js";
 
 const changeset = (files: Changeset["files"] = []): Changeset => ({
@@ -92,6 +93,20 @@ describe("buildPrompt", () => {
     const prompt = buildPrompt(changeset(files), []);
     expect(prompt).toContain("src/a.ts");
     expect(prompt).toContain("src/b.ts");
+  });
+
+  it("includes a JavaScript file's exported symbol, not just TypeScript's", () => {
+    // Goes through the real `mapSymbols`, the producer this task changed,
+    // rather than a hand-built symbol literal.
+    const path = "a.mjs";
+    const after = "export function send(a) {\n  return a;\n}\n";
+    const hunk = [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 3 }];
+    const prompt = buildPrompt(
+      changeset([{ path, status: "added", hunks: [], symbols: mapSymbols(path, null, after, hunk) }]),
+      [],
+    );
+    expect(prompt).toContain(path);
+    expect(prompt).toContain("send");
   });
 
   it("caps a large fact list and says so in the prompt", () => {

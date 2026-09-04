@@ -174,3 +174,107 @@ describe("blastRadiusAnalyzer on a named default export", () => {
     expect(facts.map((f) => f.qualifiedSymbol)).toEqual(["main"]);
   });
 });
+
+describe("blastRadiusAnalyzer over JavaScript, gated by the project's own compiler options", () => {
+  // Otherwise identical repos: `used`, exported from a JavaScript module and
+  // imported by three separate .mjs consumers, then changed. Only the
+  // tsconfig differs between them, so the difference in outcome across the
+  // two `it`s below is attributable to that one setting, not to anything
+  // else in the fixture.
+  let allowedRepo: string;
+  let disallowedRepo: string;
+
+  function populate(dir: string, compilerOptions: Record<string, unknown>): void {
+    const runIn = (args: string[]) =>
+      execFileSync("git", ["-c", "commit.gpgsign=false", ...args], { cwd: dir, stdio: "pipe" });
+    runIn(["init", "-b", "main"]);
+    runIn(["config", "user.email", "t@e.com"]);
+    runIn(["config", "user.name", "T"]);
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions }));
+    writeFileSync(join(dir, "src", "core.mjs"), "export function used(n) {\n  return n;\n}\n");
+    for (const c of ["a", "b", "c"]) {
+      writeFileSync(
+        join(dir, "src", `${c}.mjs`),
+        `import { used } from "./core.mjs";\nexport const ${c} = used(1);\n`,
+      );
+    }
+    runIn(["add", "-A"]);
+    runIn(["commit", "-m", "first"]);
+    writeFileSync(join(dir, "src", "core.mjs"), "export function used(n) {\n  return n + 1;\n}\n");
+  }
+
+  beforeAll(() => {
+    allowedRepo = mkdtempSync(join(tmpdir(), "urtext-blast-js-allowed-"));
+    populate(allowedRepo, { allowJs: true });
+    disallowedRepo = mkdtempSync(join(tmpdir(), "urtext-blast-js-disallowed-"));
+    populate(disallowedRepo, {});
+  });
+
+  it("counts references to a changed export across .mjs consumers when the tsconfig allows JavaScript", async () => {
+    // This is the case dropping the widening in blast-radius.ts's filter
+    // would silently break: the full suite stays green without it because
+    // nothing else exercises blast radius over JavaScript at all.
+    const cs = await extract(allowedRepo);
+    const facts = await blastRadiusAnalyzer(cs, createContext(allowedRepo, cs.range));
+    const f = facts.find((x) => x.qualifiedSymbol === "used");
+    expect(f).toBeDefined();
+    expect(f!.kind).toBe("blast_radius");
+    expect(f!.detail.references).toBe(3);
+  });
+
+  it("reports nothing for the identical change, and does not throw, when the tsconfig admits neither allowJs nor checkJs", async () => {
+    const cs = await extract(disallowedRepo);
+    const facts = await blastRadiusAnalyzer(cs, createContext(disallowedRepo, cs.range));
+    expect(facts).toEqual([]);
+  });
+});
+
+describe("blastRadiusAnalyzer and machine-written JavaScript", () => {
+  // Same shape as "over JavaScript, gated by the project's own compiler
+  // options" above — a change to an exported function, referenced by three
+  // consumers — except `core.mjs`'s first line is now the machine-written
+  // shape. Doubly guarded today: `extract/index.ts` withholds symbols for a
+  // generated file, so `f.symbols.some(...)` alone would already exclude it,
+  // and this analyzer's own `!f.generated` check does too — belt and
+  // suspenders, per the ruling that added the second one after the first
+  // proved insufficient for `surfaceAnalyzer`, which does not key on symbols
+  // at all.
+  it("reports no blast radius for an export changed in a generated file, even though three files reference it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "urtext-blast-generated-"));
+    const runIn = (args: string[]) =>
+      execFileSync("git", ["-c", "commit.gpgsign=false", ...args], { cwd: dir, stdio: "pipe" });
+    runIn(["init", "-b", "main"]);
+    runIn(["config", "user.email", "t@e.com"]);
+    runIn(["config", "user.name", "T"]);
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(
+      join(dir, "tsconfig.json"),
+      JSON.stringify({ compilerOptions: { allowJs: true } }),
+    );
+    writeFileSync(
+      join(dir, "src", "core.mjs"),
+      `export function used(n) { return n; } // ${"x".repeat(420)}\n`,
+    );
+    for (const c of ["a", "b", "c"]) {
+      writeFileSync(
+        join(dir, "src", `${c}.mjs`),
+        `import { used } from "./core.mjs";\nexport const ${c} = used(1);\n`,
+      );
+    }
+    runIn(["add", "-A"]);
+    runIn(["commit", "-m", "first"]);
+    writeFileSync(
+      join(dir, "src", "core.mjs"),
+      `export function used(n) { return n + 1; } // ${"x".repeat(420)}\n`,
+    );
+
+    const cs = await extract(dir);
+    const core = cs.files.find((f) => f.path === "src/core.mjs");
+    expect(core?.generated).toBe(true);
+    expect(core?.symbols).toEqual([]);
+
+    const facts = await blastRadiusAnalyzer(cs, createContext(dir, cs.range));
+    expect(facts.some((f) => f.qualifiedSymbol === "used")).toBe(false);
+  });
+});

@@ -1,4 +1,4 @@
-import { isTypeScriptFile } from "../extract/symbols.js";
+import { isSyntacticSource, isTypeScriptFile } from "../extract/symbols.js";
 import type { Changeset, Finding } from "../types.js";
 
 /**
@@ -20,20 +20,31 @@ import type { Changeset, Finding } from "../types.js";
  * in both.
  */
 
-/** Deleted TypeScript files in this range, in the order the diff listed them. */
-export function deletedTypeScriptFiles(changeset: Changeset): string[] {
+/**
+ * Deleted source files in this range — TypeScript or JavaScript, whatever
+ * `isSyntacticSource` admits — in the order the diff listed them.
+ *
+ * Named for what it now covers rather than for the language it used to:
+ * a deleted `.mjs` loses its effects finding with the file exactly as a
+ * deleted `.ts` does, and narrowing this to TypeScript left that loss
+ * undisclosed. See `deletedFilesNote` below, whose wording this predicate's
+ * widening had to bring along with it.
+ */
+export function deletedSourceFiles(changeset: Changeset): string[] {
   return changeset.files
-    .filter((f) => f.status === "deleted" && isTypeScriptFile(f.path))
+    .filter((f) => f.status === "deleted" && isSyntacticSource(f.path))
     .map((f) => f.path);
 }
 
 /**
- * What a reader is owed about a deleted TypeScript file, and no more than is
+ * What a reader is owed about a deleted source file, and no more than is
  * true. `guardsAnalyzer` and `surfaceAnalyzer` skip a file whose status is
  * "deleted", `blastRadiusAnalyzer` skips it too, and `mapSymbols` returns no
  * symbols for one — so its exports, its callers, and its guards go unexamined,
  * and without a word about it a reader cannot tell that gap from "nothing in it
- * was worth reporting".
+ * was worth reporting". None of that is TypeScript-specific: every one of
+ * those analyzers reads JavaScript too, so a deleted `.mjs` earns the same
+ * sentence as a deleted `.ts`.
  *
  * `effectsAnalyzer` is the exception and the reason this sentence was rewritten:
  * it reads the before side of a deletion on purpose (see the `file.status !==
@@ -49,8 +60,8 @@ export function deletedTypeScriptFiles(changeset: Changeset): string[] {
 export function deletedFilesNote(paths: string[]): string {
   const count =
     paths.length === 1
-      ? "1 deleted TypeScript file"
-      : `${paths.length} deleted TypeScript files`;
+      ? "1 deleted source file"
+      : `${paths.length} deleted source files`;
   const subject = paths.length === 1 ? "it" : "them";
   const possessive = paths.length === 1 ? "its" : "their";
   return `${count}: ${paths.join(", ")} — only effects that vanished with ${subject} are reported; ${possessive} exports, callers, and guards are not analyzed.`;
@@ -117,16 +128,23 @@ export function citationDistributionNote(findingFiles: string[]): string | undef
 
 /**
  * Changed files that no analyzer reported on, in the order the diff listed
- * them — the order `deletedTypeScriptFiles` above uses, so two coverage
+ * them — the order `deletedSourceFiles` above uses, so two coverage
  * sentences in one report do not list paths by different rules.
  *
  * Two clauses, and the second is the one that took a review to get right.
  *
- * The first is the extension gate every TypeScript analyzer applies, so a
- * `.d.ts` lists: `isTypeScriptFile` excludes declaration files, and
- * `citationsIn` dispatches on `isProseFile` then `isTypeScriptFile`, so a
- * `.d.ts` is swept into candidates by the `*.ts` pathspec and then scanned by
- * nothing at all.
+ * The first is `isTypeScriptFile` alone, which is no longer a gate any
+ * analyzer applies uniformly: effects, guards, citations, and extraction now
+ * read via `isSyntacticSource`, which admits JavaScript too, and surface and
+ * blast radius add JavaScript conditionally, only when the project's own
+ * compiler admits it. A TypeScript file is covered by every one of those
+ * unconditionally, so this clause excludes it outright and needs no evidence
+ * check; a JavaScript file's coverage varies analyzer to analyzer, so it is
+ * left as a candidate for the second clause below to resolve rather than
+ * assumed covered here. This clause still means a `.d.ts` lists:
+ * `isTypeScriptFile` excludes declaration files, and `citationsIn` dispatches
+ * on `isProseFile` then `isSyntacticSource`, so a `.d.ts` is swept into
+ * candidates by the `*.ts` pathspec and then scanned by nothing at all.
  *
  * The second drops any file carrying evidence for a fact-backed finding.
  * An earlier design of this function took `citationSweep` instead and
@@ -180,16 +198,94 @@ export function unanalyzedFiles(changeset: Changeset, findings: Finding[]): stri
  * on exactly these files, which is why the sentence names whose judgement any
  * such finding is rather than telling the reader to disregard it.
  *
- * `total` counts every changed file, deleted TypeScript included. Those belong
- * to `deletedFilesNote`, which says something narrower and truer about them;
- * the denominator here is the size of the diff, not the size of what this
- * sentence owns.
+ * `total` counts every changed file, deleted source files included. A deleted
+ * TypeScript file is excluded by this function's own first clause and so is
+ * named by `deletedFilesNote` alone, but a deleted JavaScript file is not —
+ * this function narrows only `isTypeScriptFile`, not the wider
+ * `isSyntacticSource` that `deletedSourceFiles` uses — and, absent a reported
+ * finding, lands in both notes at once. That overlap is deliberate, not a
+ * partition this sentence can claim: see `unanalyzedFiles`, "names a deleted
+ * JavaScript file too, deliberately overlapping deletedFilesNote". The
+ * denominator here is still the size of the diff, not the size of what this
+ * sentence owns alone.
  */
 export function unanalyzedFilesNote(paths: string[], total: number): string {
   return (
     `No analyzer reported on ${paths.length} of ${total} changed files: ${paths.join(", ")} — ` +
     `anything below about them comes from the model alone.`
   );
+}
+
+/**
+ * Changed files whose shape says a tool wrote them — see `isMachineWritten`
+ * in `../extract/symbols.ts` — minus any file a non-`model`-tier finding's
+ * evidence names, in the order the diff listed them.
+ *
+ * `ChangedFile.generated` is flag-driven, not evidence-driven, and that gap
+ * is exactly the bug this subtraction closes: a generated file can still be
+ * the cited *target* of a citation finding. `citations.ts` drops it from the
+ * citing candidate list, but nothing stops some other file from citing it,
+ * and a citation finding quotes the cited file as a second evidence ref. A
+ * generated `dist/bundle.js` cited by a changed `README.md` would otherwise
+ * be named here — "no analyzer reported on it" — beside a `verified` finding
+ * quoting that same file, the identical contradiction `unanalyzedFiles`
+ * above exists to prevent. See that function's doc comment for why every
+ * evidence ref counts and not only the anchor, and why a `model`-tier
+ * finding does not count at all; the reasoning is not repeated here.
+ */
+export function generatedFiles(changeset: Changeset, findings: Finding[]): string[] {
+  const reported = new Set<string>();
+  for (const finding of findings) {
+    if (finding.tier === "model") continue;
+    for (const ref of finding.evidence) reported.add(ref.file);
+  }
+  return changeset.files
+    .filter(
+      (f) =>
+        f.generated &&
+        !reported.has(f.path) &&
+        !(f.previousPath !== undefined && reported.has(f.previousPath)),
+    )
+    .map((f) => f.path);
+}
+
+/**
+ * What a reader is owed about those files, and no more than `isMachineWritten`
+ * can tell.
+ *
+ * Claims non-reporting, not non-reading — the same distinction
+ * `unanalyzedFilesNote` draws for its own files, and for the same reason:
+ * the text is still read, to test its shape and, for an imported file under
+ * `allowJs`, by the program that resolves it. "Unread" would be false;
+ * "not reported on" is what every gate below actually delivers.
+ *
+ * Also does not say "a single line": `isMachineWritten` measures the length
+ * up to the file's first newline (or the whole text when there is none), not
+ * how many lines follow it — real bundler output commonly carries a
+ * `//# sourceMappingURL=` comment on a second line, and two of this
+ * predicate's own test fixtures are themselves multi-line. "Begins with a
+ * line long enough" is the claim the measurement actually supports.
+ *
+ * Currently every gate that checks `ChangedFile.generated`, or calls
+ * `isMachineWritten` directly: `effectsAnalyzer`, `guardsAnalyzer`,
+ * `surfaceAnalyzer`, `blastRadiusAnalyzer`, the citations candidate pass, and
+ * `extract/index.ts`'s own symbol extraction (all read the field);
+ * `analyze/program.ts`'s program-root selection (calls the predicate itself,
+ * since it never receives a changeset). `surfaceAnalyzer` and
+ * `blastRadiusAnalyzer` need their own check — not only the root exclusion —
+ * because excluding a file from a program's *roots* leaves it resolvable,
+ * and an import under `allowJs` pulls it back into the same program those two
+ * analyzers walk. This enumeration is a liability disguised as documentation:
+ * an earlier version of it named three of these six and was still accurate
+ * prose, right up until a `verified` finding on an imported bundle proved two
+ * of them had never been guarded at all. Whoever adds a seventh gate and
+ * skips updating this comment reintroduces exactly that gap — undetectably.
+ */
+export function generatedFilesNote(paths: string[]): string {
+  if (paths.length === 1) {
+    return `${paths[0]} begins with a line long enough that a tool wrote it, so no analyzer reported on it.`;
+  }
+  return `${paths.join(", ")} each begin with a line long enough that a tool wrote it, so no analyzer reported on them.`;
 }
 
 function plural(n: number, noun: string): string {

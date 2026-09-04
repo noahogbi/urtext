@@ -13,6 +13,7 @@ import { renderHtml } from "../../src/report/html.js";
 import { renderMarkdown } from "../../src/report/markdown.js";
 import { renderTerminal } from "../../src/report/terminal.js";
 import { makeFact } from "../../src/analyze/fact.js";
+import { mapSymbols } from "../../src/extract/symbols.js";
 import { reconcile } from "../../src/score/reconcile.js";
 import {
   WORKTREE,
@@ -331,6 +332,25 @@ describe("buildReportModel surface symbols", () => {
     expect(plainText(m.surfaceSymbols[0].kind)).toBe("function");
     expect(plainText(m.surfaceSymbols[0].file)).toBe("a.ts");
     expect(m.surfaceSymbols[0].change).toBe("modified");
+  });
+
+  it("carries a JavaScript file's exported symbol, not just TypeScript's", () => {
+    // Goes through the real `mapSymbols`, the producer this task changed,
+    // rather than a hand-built symbol literal — the fixtures above already
+    // show `surfaceSymbols` has no extension filter of its own; what needed
+    // covering is that a real JavaScript symbol actually reaches it.
+    const path = "a.mjs";
+    const after = "export function send(a) {\n  return a;\n}\n";
+    const hunk = [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 3 }];
+    const cs = changeset({
+      files: [
+        { path, status: "added", hunks: hunk, symbols: mapSymbols(path, null, after, hunk) },
+      ],
+    });
+    const m = buildReportModel(cs, [], { warnings: [] });
+    expect(m.surfaceSymbols).toHaveLength(1);
+    expect(plainText(m.surfaceSymbols[0].qualifiedName)).toBe("send");
+    expect(plainText(m.surfaceSymbols[0].file)).toBe("a.mjs");
   });
 
   it("leaves an unexported declaration out, as the symbol table always has", () => {

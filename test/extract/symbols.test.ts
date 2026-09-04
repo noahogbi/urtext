@@ -1,6 +1,13 @@
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { LOCAL_SCOPE } from "../../src/extract/scope.js";
-import { isTypeScriptFile, mapSymbols } from "../../src/extract/symbols.js";
+import {
+  isJavaScriptFile,
+  isSyntacticSource,
+  isTypeScriptFile,
+  mapSymbols,
+  scriptKindFor,
+} from "../../src/extract/symbols.js";
 
 const BEFORE = `export function alpha() {
   return 1;
@@ -421,5 +428,63 @@ export const keep = 1;
     expect(m!.name).toBe("#unlock");
     expect(m!.kind).toBe("method");
     expect(m!.exported).toBe(false);
+  });
+});
+
+describe("isJavaScriptFile", () => {
+  it("accepts every extension the language has", () => {
+    for (const p of ["a.js", "a.mjs", "a.cjs", "a.jsx", "deep/dir/a.mjs"]) {
+      expect(isJavaScriptFile(p)).toBe(true);
+    }
+  });
+
+  it("rejects TypeScript, data, prose, and near-misses", () => {
+    for (const p of ["a.ts", "a.tsx", "a.mts", "a.cts", "a.json", "a.md", "a.js.map", "ajs"]) {
+      expect(isJavaScriptFile(p)).toBe(false);
+    }
+  });
+});
+
+describe("isSyntacticSource", () => {
+  it("is the union of the two languages", () => {
+    for (const p of ["a.ts", "a.mts", "a.tsx", "a.js", "a.mjs", "a.jsx"]) {
+      expect(isSyntacticSource(p)).toBe(true);
+    }
+    for (const p of ["a.json", "a.md", "a.yml", "a.d.ts"]) {
+      expect(isSyntacticSource(p)).toBe(false);
+    }
+  });
+});
+
+describe("scriptKindFor", () => {
+  it("gives each extension the kind that parses it", () => {
+    expect(scriptKindFor("a.tsx")).toBe(ts.ScriptKind.TSX);
+    expect(scriptKindFor("a.jsx")).toBe(ts.ScriptKind.JSX);
+    expect(scriptKindFor("a.js")).toBe(ts.ScriptKind.JS);
+    expect(scriptKindFor("a.mjs")).toBe(ts.ScriptKind.JS);
+    expect(scriptKindFor("a.cjs")).toBe(ts.ScriptKind.JS);
+    expect(scriptKindFor("a.ts")).toBe(ts.ScriptKind.TS);
+    expect(scriptKindFor("a.mts")).toBe(ts.ScriptKind.TS);
+  });
+
+  it("parses JSX with no diagnostics, in both the .jsx and .js spellings", () => {
+    // The assertion is on diagnostics, not on findings. TypeScript's error
+    // recovery salvages top-level names from mis-parsed JSX, so a
+    // findings-based test passes while the parse is garbage.
+    //
+    // `parseDiagnostics` is NOT in TypeScript's public typed API. It is
+    // internal, exactly like `getAllowJSCompilerOption`, and reading it off a
+    // bare SourceFile is TS2339. The cast is deliberate and confined to this
+    // test; production code must not depend on it.
+    type Parsed = ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] };
+    const jsx = 'const el = <div className="a">hi</div>;\n';
+    const parseAs = (path: string, kind: ts.ScriptKind): Parsed =>
+      ts.createSourceFile(path, jsx, ts.ScriptTarget.ES2022, true, kind) as Parsed;
+
+    for (const path of ["a.jsx", "a.js"]) {
+      expect(parseAs(path, scriptKindFor(path)).parseDiagnostics ?? []).toHaveLength(0);
+    }
+    // And the old behaviour is genuinely broken, so the test above means something.
+    expect((parseAs("a.jsx", ts.ScriptKind.TS).parseDiagnostics ?? []).length).toBeGreaterThan(0);
   });
 });

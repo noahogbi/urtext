@@ -335,6 +335,31 @@ describe("coverage disclosures reach every surface", () => {
       ).toBe(true);
     }
   });
+
+  // The same drift, one note later: `generatedNote` reached `ReportModel`
+  // and `--json`, but no renderer read it until this fixture caught it —
+  // the guard is total over copy only if the fixture produces the copy.
+  const withGenerated = buildReportModel(
+    {
+      range: { from: "abc123", to: WORKTREE, label: "vs origin/main" },
+      files: [
+        { path: "a.ts", status: "modified", hunks: [], symbols: [] },
+        { path: "bundle.js", status: "added", hunks: [], symbols: [], generated: true },
+      ],
+    },
+    findings,
+    meta,
+  );
+
+  it("states which file was skipped as machine-written, identically on all four", async () => {
+    expect(withGenerated.generatedNote).toBeDefined();
+    for (const [name, rendered] of await surfaces(withGenerated)) {
+      expect(
+        scannable(rendered).includes(scannable(withGenerated.generatedNote ?? "")),
+        `${name} omits the generated-file disclosure`,
+      ).toBe(true);
+    }
+  });
 });
 
 describe("the intent-gap index", () => {

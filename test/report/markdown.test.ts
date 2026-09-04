@@ -220,7 +220,7 @@ describe("renderMarkdown disclosures", () => {
     for (const disclosure of [
       "claude-opus-5 interpreted this change.",
       "the effects analyzer failed",
-      "1 deleted TypeScript file: gone.ts",
+      "1 deleted source file: gone.ts",
       suppressionNote(2),
     ]) {
       const at = md.indexOf(disclosure);

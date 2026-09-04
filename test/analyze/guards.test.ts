@@ -23,6 +23,29 @@ const AFTER_KEPT = `export function validate(token: string) {
 }
 `;
 
+// No type annotation on the parameter — this is JavaScript, parsed under
+// the JS ScriptKind rather than TS.
+const MJS_THROWING_GUARD = `export function validate(token) {
+  if (!token) {
+    throw new Error("missing token");
+  }
+  return token;
+}
+`;
+
+const MJS_BEFORE = `export function validate(token) {
+  if (!token) {
+    throw new Error("missing token");
+  }
+  return { token, ok: true };
+}
+`;
+
+const MJS_AFTER = `export function validate(token) {
+  return { token, ok: true };
+}
+`;
+
 describe("collectGuards", () => {
   it("finds an if-guard and attributes it to its enclosing function", () => {
     const guards = collectGuards("a.ts", BEFORE);
@@ -42,6 +65,15 @@ describe("collectGuards", () => {
 
   it("ignores non-TypeScript files", () => {
     expect(collectGuards("a.md", BEFORE)).toEqual([]);
+  });
+
+  it("finds a throwing early guard in a .mjs file, at its real line", () => {
+    const guards = collectGuards("a.mjs", MJS_THROWING_GUARD);
+    const g = guards.find((x) => x.signature.startsWith("throw"));
+    expect(g).toBeDefined();
+    expect(g!.qualifiedOwner).toBe("validate");
+    expect(g!.line).toBe(3);
+    expect(g!.excerpt).toContain("missing token");
   });
 });
 
@@ -75,6 +107,23 @@ describe("guardsAnalyzer", () => {
     expect(facts.every((f) => f.kind === "guard_removed")).toBe(true);
     expect(facts[0].qualifiedSymbol).toBe("validate");
     expect(facts[0].evidence[0].excerpt).toContain("if (!token)");
+  });
+
+  it("reports a guard removed from a surviving JavaScript symbol", async () => {
+    // Same shape as the TypeScript case above, but the function's *last*
+    // guard is the one removed — the function itself is untouched otherwise,
+    // so it carries no guards at all in the after-side `collectGuards`
+    // output. Recognising it as surviving (rather than as a vanished symbol)
+    // depends on `collectDeclaredOwners` parsing the after-text as
+    // JavaScript, which only happens if both the analyzer's own per-file
+    // gate and `collectDeclaredOwners`'s gate admit a `.mjs` path.
+    const facts = await guardsAnalyzer(
+      changesetFor("a.mjs"),
+      ctxFor({ "a.mjs": { before: MJS_BEFORE, after: MJS_AFTER } }),
+    );
+    expect(facts).toHaveLength(2);
+    expect(facts.every((f) => f.kind === "guard_removed")).toBe(true);
+    expect(facts[0].qualifiedSymbol).toBe("validate");
   });
 
   it("stays silent when the guard survives", async () => {

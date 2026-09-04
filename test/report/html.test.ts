@@ -271,7 +271,7 @@ describe("renderHtml header", () => {
         [finding()],
       ),
     );
-    expect(html).toContain("1 deleted TypeScript file: gone.ts");
+    expect(html).toContain("1 deleted source file: gone.ts");
     expect(html).not.toContain("This review is partial.");
     // And it no longer claims nothing describes the file — `effectsAnalyzer`
     // can contradict that on the same screen.

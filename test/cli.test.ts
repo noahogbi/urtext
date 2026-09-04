@@ -616,23 +616,23 @@ describe("review", () => {
 
     const r = await review(delRepo, { command: "review", json: false, noLlm: true, help: false });
     expect(r.output).toContain("doomed.ts");
-    expect(r.output).toContain("deleted TypeScript file");
+    expect(r.output).toContain("deleted source file");
     // The finding the old wording told the reader to disregard.
     expect(r.output).toContain("no longer has a network effect");
     expect(r.output).not.toContain("every analyzer skips");
     const html = readFileSync(r.reportPath!, "utf8");
     expect(html).toContain("doomed.ts");
-    expect(html).toContain("1 deleted TypeScript file: doomed.ts");
+    expect(html).toContain("1 deleted source file: doomed.ts");
     // Routine, so it does not escalate the whole review to partial: the
     // banner here holds the `--no-llm` skip reason and nothing else.
     const banner = html.slice(html.indexOf(`<div class="banner">`));
-    expect(banner.slice(0, banner.indexOf("</div>"))).not.toContain("deleted TypeScript");
+    expect(banner.slice(0, banner.indexOf("</div>"))).not.toContain("deleted source");
 
     // And the surface that cannot read prose. A script had no way to see this
     // gap at all, which made "stated the same way on every surface" false.
     const json = await review(delRepo, { command: "review", json: true, noLlm: true, help: false });
     const parsed = JSON.parse(json.output);
-    expect(parsed.coverage.deletedTypeScriptFiles).toEqual(["doomed.ts"]);
+    expect(parsed.coverage.deletedSourceFiles).toEqual(["doomed.ts"]);
     expect(parsed.coverage.note).toContain("doomed.ts");
   });
 
@@ -640,7 +640,7 @@ describe("review", () => {
     // Always present, so a consumer reads it without branching on the key.
     const r = await review(repo, { command: "review", json: true, noLlm: true, help: false });
     const parsed = JSON.parse(r.output);
-    expect(parsed.coverage.deletedTypeScriptFiles).toEqual([]);
+    expect(parsed.coverage.deletedSourceFiles).toEqual([]);
     expect(parsed.coverage.note).toBeUndefined();
   });
 

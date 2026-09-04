@@ -2,7 +2,9 @@ import { labelConcealed, segmentConcealed, type ConcealSegment } from "./conceal
 import {
   citationDistributionNote,
   deletedFilesNote,
-  deletedTypeScriptFiles,
+  deletedSourceFiles,
+  generatedFiles,
+  generatedFilesNote,
   suppressionNote,
   unanalyzedFiles,
   unanalyzedFilesNote,
@@ -276,8 +278,8 @@ export interface ReportModel {
   notes: string[];
   /**
    * The deleted-file coverage note from `deletedFilesNote`; absent when no
-   * TypeScript file was deleted. Deliberately NOT in `notes`: deleting a
-   * TypeScript file is routine, and a partial-review banner that fires on
+   * source file was deleted. Deliberately NOT in `notes`: deleting a
+   * source file is routine, and a partial-review banner that fires on
    * every such diff is a banner a reader learns to skip. See
    * `test/report/model.test.ts`, "carries each disclosure exactly once, in
    * the field renderers must read it from".
@@ -292,6 +294,14 @@ export interface ReportModel {
    * one a reader learns to skip.
    */
   unanalyzedNote?: string;
+  /**
+   * The machine-written-JavaScript note from `generatedFilesNote`; absent
+   * when no changed file was marked `ChangedFile.generated`. Kept out of
+   * `notes` for the same reason `coverageNote` and `unanalyzedNote` are: a
+   * committed bundle is scope urtext declines rather than a shortfall in a
+   * run that covered everything it could.
+   */
+  generatedNote?: string;
   /**
    * Composed by `suppressionNote`; absent when nothing was suppressed.
    * Deliberately NOT in `notes`: the filter running as designed is not a
@@ -836,7 +846,7 @@ export function buildReportModel(
     );
   }
 
-  const deleted = deletedTypeScriptFiles(changeset);
+  const deleted = deletedSourceFiles(changeset);
   const coverageNote = deleted.length > 0 ? labelConcealed(deletedFilesNote(deleted)) : undefined;
   // Asks what was reported rather than predicting what was read; the reasons
   // that distinction is load-bearing are on `unanalyzedFiles` itself.
@@ -845,6 +855,12 @@ export function buildReportModel(
     unanalyzed.length > 0
       ? labelConcealed(unanalyzedFilesNote(unanalyzed, changeset.files.length))
       : undefined;
+
+  // Same evidence subtraction `unanalyzedFiles` makes above, and for the
+  // same reason: see `generatedFiles`'s own doc comment.
+  const generated = generatedFiles(changeset, findings);
+  const generatedNote =
+    generated.length > 0 ? labelConcealed(generatedFilesNote(generated)) : undefined;
 
   const suppressed = meta.suppressed ?? 0;
   const filterNote = suppressed > 0 ? suppressionNote(suppressed) : undefined;
@@ -895,6 +911,7 @@ export function buildReportModel(
   if (modelName) model.modelName = modelName;
   if (coverageNote) model.coverageNote = coverageNote;
   if (unanalyzedNote) model.unanalyzedNote = unanalyzedNote;
+  if (generatedNote) model.generatedNote = generatedNote;
   if (filterNote) model.filterNote = filterNote;
   if (distributionNote) model.distributionNote = distributionNote;
   if (model.findings.some((f) => f.beyondIntent)) {

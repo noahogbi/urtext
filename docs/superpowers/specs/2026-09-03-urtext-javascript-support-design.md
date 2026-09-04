@@ -29,6 +29,30 @@
 > report through, a positioning claim stronger than the code supports, and an acceptance
 > range that moves.
 
+## As built
+
+Executed 2026-09-03, across several follow-on commits and a final whole-branch review. Three
+of this document's own sentences did not survive execution; they are recorded here because the
+spec is a record of intent, not a description of the shipped code, and "### Coverage needs no
+change" below is the section that no longer holds.
+
+- **`coverage.ts` was edited.** The section's opening claim — "So `coverage.ts` is not edited"
+  — is false. `generatedFiles` and `generatedFilesNote` were added for the machine-written-
+  JavaScript disclosure, `deletedTypeScriptFiles` was renamed, and both functions' doc comments
+  were rewritten more than once as the review process found sharper wording.
+- **`deletedTypeScriptFiles` did not stay narrow**, contradicting both places the section below
+  says so. It was renamed to `deletedSourceFiles` and widened from `isTypeScriptFile` to
+  `isSyntacticSource`, so a deleted `.mjs` now earns the same "exports, callers, and guards not
+  analyzed" sentence a deleted `.ts` always has — resolving the gap the section's own "second
+  case" describes, rather than leaving it stated in the review as the section's other option
+  describes.
+- **A further coverage defect surfaced only in a later whole-branch review and was fixed
+  separately from this design.** `generatedFiles` filtered on `ChangedFile.generated` alone, so
+  a generated file that was also the *cited target* of a citation finding could be named "no
+  analyzer reported on it" beside a `verified` finding quoting that exact file. It now
+  subtracts evidence the same way `unanalyzedFiles` already did, closing a gap this section did
+  not anticipate.
+
 ## Why this exists
 
 urtext ships JavaScript it cannot read. `action/compose-comment.mjs` and

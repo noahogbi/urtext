@@ -131,8 +131,7 @@ describe("scriptKindFor", () => {
     // bare SourceFile is TS2339. The cast is deliberate and confined to this
     // test; production code must not depend on it.
     type Parsed = ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] };
-    const jsx = 'const el = <div className="a">hi</div>;
-';
+    const jsx = 'const el = <div className="a">hi</div>;\n';
     const parseAs = (path: string, kind: ts.ScriptKind): Parsed =>
       ts.createSourceFile(path, jsx, ts.ScriptTarget.ES2022, true, kind) as Parsed;
 

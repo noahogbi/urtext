@@ -895,3 +895,111 @@ describe("surfaceAnalyzer long string-literal signatures", () => {
     expect(lone.test(stored)).toBe(false);
   });
 });
+
+describe("surfaceAnalyzer and the project's own compiler options", () => {
+  /** Commits one export in a JavaScript module, then adds a second beside it, uncommitted. */
+  function commitThenAddExport(dir: string, run2: (args: string[]) => void, path: string): void {
+    writeFileSync(
+      join(dir, path),
+      ["export function helper() {", "  return true;", "}", ""].join("\n"),
+    );
+    run2(["add", "-A"]);
+    run2(["commit", "-m", "first"]);
+    writeFileSync(
+      join(dir, path),
+      [
+        "export function helper() {",
+        "  return true;",
+        "}",
+        "export function addedInJs() {",
+        "  return false;",
+        "}",
+        "",
+      ].join("\n"),
+    );
+  }
+
+  it("reports the added export in a .mjs file when the project's tsconfig allows JavaScript", async () => {
+    const { dir, run: run2 } = makeRepo();
+    writeFileSync(
+      join(dir, "tsconfig.json"),
+      JSON.stringify({ compilerOptions: { allowJs: true } }),
+    );
+    commitThenAddExport(dir, run2, "src/util.mjs");
+
+    const cs = await extract(dir);
+    const facts = await surfaceAnalyzer(cs, createContext(dir, cs.range));
+    expect(
+      facts.filter((f) => f.kind === "export_added").map((f) => f.detail.export),
+    ).toContain("addedInJs");
+  });
+
+  it("does not throw on the same .mjs change when the tsconfig admits neither allowJs nor checkJs (TypeScript itself, not this analyzer's gate, is what excludes the file)", async () => {
+    // Not a test of allowsJavaScript's false direction: TypeScript's own
+    // program construction already drops a .mjs root when neither allowJs
+    // nor checkJs is set, before surfaceAnalyzer's own gate ever gets a
+    // chance to matter — this passes identically even with that gate forced
+    // to always return true. The gate's false direction is pinned directly,
+    // against the shipped implementation, by the allowsJavaScript tests in
+    // program.test.ts. All this test pins is that the analyzer degrades to
+    // no facts, rather than throwing, once the compiler drops the file.
+    const { dir, run: run2 } = makeRepo();
+    writeFileSync(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: {} }));
+    commitThenAddExport(dir, run2, "src/util.mjs");
+
+    const cs = await extract(dir);
+    const facts = await surfaceAnalyzer(cs, createContext(dir, cs.range));
+    expect(facts).toEqual([]);
+  });
+});
+
+describe("surfaceAnalyzer and machine-written JavaScript", () => {
+  // The exact shape that produced a `verified signature_changed` finding
+  // anchored in a bundle, printed beneath a note claiming no analyzer read
+  // it: excluding a file from a program's *roots* (see `analyze/program.ts`)
+  // only withdraws root status, not resolvability. `app.ts` importing
+  // `bundle.js` is what pulls the bundle back into the very program this
+  // analyzer walks, so this analyzer's own `!f.generated` check is what
+  // actually has to keep it out. `normal.mjs` is not generated and sits in
+  // the same fixture so a fix that widened the skip — excluding more than
+  // generated files — would be caught by the same test that pins the fix.
+  it("reports no signature change for a generated file pulled into the program by an import, but still reports a normal one", async () => {
+    const { dir, run: run2 } = makeRepo();
+    writeFileSync(
+      join(dir, "tsconfig.json"),
+      JSON.stringify({ compilerOptions: { allowJs: true } }),
+    );
+    writeFileSync(
+      join(dir, "src", "app.ts"),
+      'import { value } from "./bundle.js";\nexport const used = value;\n',
+    );
+    writeFileSync(
+      join(dir, "src", "bundle.js"),
+      `export const value = 1; // ${"x".repeat(420)}\n`,
+    );
+    writeFileSync(
+      join(dir, "src", "normal.mjs"),
+      "export const flag = 1;\n",
+    );
+    run2(["add", "-A"]);
+    run2(["commit", "-m", "first"]);
+    // The exported value's type changes, number to string — exactly the
+    // shape `signature_changed` exists to catch — on a file whose first
+    // line is still the machine-written shape throughout.
+    writeFileSync(
+      join(dir, "src", "bundle.js"),
+      `export const value = "changed"; // ${"x".repeat(420)}\n`,
+    );
+    writeFileSync(join(dir, "src", "normal.mjs"), 'export const flag = "changed";\n');
+
+    const cs = await extract(dir);
+    const bundle = cs.files.find((f) => f.path === "src/bundle.js");
+    expect(bundle?.generated).toBe(true);
+
+    const facts = await surfaceAnalyzer(cs, createContext(dir, cs.range));
+    expect(facts.some((f) => f.file === "src/bundle.js")).toBe(false);
+    expect(
+      facts.some((f) => f.file === "src/normal.mjs" && f.kind === "signature_changed"),
+    ).toBe(true);
+  });
+});
