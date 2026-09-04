@@ -358,3 +358,11 @@ and first committed to version control August 15, 2026. In August 2026 it was
 re-aimed at the problem that had become the real bottleneck: reviewing
 AI-written diffs rather than authoring code in an IR. The prototype lives in
 `archive/prototype/`.
+
+## Contributing
+
+Bug reports, and especially a review that stated something it could not
+support, are welcome: [open an issue](https://github.com/noahogbi/urtext/issues).
+For a vulnerability, use the private channel in [SECURITY.md](SECURITY.md)
+instead. [CONTRIBUTING.md](CONTRIBUTING.md) covers the process, what CI
+enforces, and the test policy.
