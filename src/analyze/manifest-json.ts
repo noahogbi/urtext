@@ -84,17 +84,20 @@ export function mapOf(
  * string value would "degrade the anchor rather than misplacing it". That was
  * false in both halves, and the counterexamples are now fixtures below: an
  * unbalanced `}` in a value collapses the counted depth, after which a nested
- * key matches as though it sat at the root. `{"}": {"b": "in"}, "b": "out"}`
- * anchored `["b"]` on the nested copy, two lines above the real one — a
- * confidently wrong line number, which is the worst thing anything here can
- * produce.
+ * key matches as though it sat at the root. `{"}": {"b": "in"}, "b": "out"}`,
+ * pretty-printed the way npm writes — which is the only form this scan reads,
+ * since a key has to start a line to match at all — anchored `["b"]` on the
+ * nested copy, two lines above the real one. A confidently wrong line number
+ * is the worst thing anything here can produce.
  *
  * That class is narrowed, not closed. A document that declares the same key
  * twice is still valid JSON, and this scan anchors on the first occurrence
  * while `JSON.parse` resolves to the last — so the finding can quote a range
- * the manifest no longer means. Nothing npm writes repeats a key, and the
- * callers read their values from the parse rather than from the line, so what
- * drifts is the anchor rather than the fact.
+ * the manifest no longer means. Nothing npm writes repeats a key, and both
+ * callers take the versions they report from the parse rather than from the
+ * line, so a duplicate moves where the finding points and not what it says it
+ * found. The excerpt is read off the anchored line, though, so on such a
+ * document the quoted text can disagree with the versions beside it.
  *
  * A key whose own name contains an escaped character does not resolve, because
  * the scan compares against the raw key while JSON stores it escaped. That
