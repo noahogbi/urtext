@@ -184,8 +184,14 @@ export function lockfileFactsFor(
   let moved = 0;
   for (const key of new Set([...Object.keys(beforePkgs), ...Object.keys(afterPkgs)])) {
     if (key === "" || enumerated.has(key)) continue;
-    const inBefore = key in beforePkgs;
-    const inAfter = key in afterPkgs;
+    // `Object.hasOwn`, not `in`: `packagesOf` hands back the parsed object
+    // with its prototype intact, and `in` walks that chain. A workspace
+    // directory named `toString` or `hasOwnProperty` produces a `packages`
+    // key of exactly that name, which `in` then reports as present on the
+    // side that does not have it — so an arrival or a departure was counted
+    // as a version move, in a fact whose counts a reader cannot check.
+    const inBefore = Object.hasOwn(beforePkgs, key);
+    const inAfter = Object.hasOwn(afterPkgs, key);
     if (!inBefore && inAfter) entered++;
     else if (inBefore && !inAfter) left++;
     else if (versionOf(beforePkgs[key]) !== versionOf(afterPkgs[key])) moved++;

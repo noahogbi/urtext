@@ -293,6 +293,32 @@ describe("lockfileFactsFor", () => {
     expect(tree[0].detail).toMatchObject({ entered: 1, left: 2, moved: 0 });
   });
 
+  it("counts a workspace named after an inherited member as arriving, not moving", () => {
+    // A workspace directory at the repository root becomes a `packages` key of
+    // exactly its own name, so one called `toString` or `hasOwnProperty` is a
+    // key that Object.prototype already answers for. Asking `in` reported it
+    // present on the side that lacks it, so an arrival was counted as a
+    // version move — wrong counts in a fact whose whole content is counts.
+    const manifest = mkManifest({ dependencies: { a: "^1.0.0" } });
+    const base = { "node_modules/a": { version: "1.0.0" } };
+    for (const name of ["toString", "hasOwnProperty"]) {
+      const before = mkLock({ dependencies: { a: "^1.0.0" } }, base);
+      const after = mkLock({ dependencies: { a: "^1.0.0" } }, { ...base, [name]: { version: "2.0.0" } });
+      const arrived = lockfileFactsFor("package-lock.json", manifest, manifest, before, after);
+      expect(arrived.find((f) => f.kind === "lockfile_tree_changed")?.detail).toMatchObject({
+        entered: 1,
+        left: 0,
+        moved: 0,
+      });
+      const departed = lockfileFactsFor("package-lock.json", manifest, manifest, after, before);
+      expect(departed.find((f) => f.kind === "lockfile_tree_changed")?.detail).toMatchObject({
+        entered: 0,
+        left: 1,
+        moved: 0,
+      });
+    }
+  });
+
   it("does not let the bound-exit guard leak past an empty map into a sibling map's same-named key", () => {
     // A weakened exit guard would let the scan continue past the closed,
     // empty dependencies block and match b inside the sibling

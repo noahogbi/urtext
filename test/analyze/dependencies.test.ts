@@ -11,6 +11,21 @@ const manifest = (maps: Record<string, Record<string, string>>): string =>
   JSON.stringify({ name: "fixture", version: "1.0.0", ...maps }, null, 2);
 
 describe("dependencyFactsFor", () => {
+  it("reports a package named after an inherited member as added, not changed", () => {
+    // The end of the defect the null-prototype map in manifest-json.ts fixes,
+    // stated where a reader meets it as a finding. Looking the name up on an
+    // ordinary object returned Object.prototype's own member instead of
+    // undefined, so an added package was reported as a changed one whose
+    // previous version was a function — a verified-tier claim that is false,
+    // and one JSON.stringify drops from the detail without complaint.
+    const before = manifest({ dependencies: { "left-pad": "^1.0.0" } });
+    const after = manifest({ dependencies: { "left-pad": "^1.0.0", toString: "^2.0.0" } });
+    const facts = dependencyFactsFor("package.json", before, after);
+    const added = facts.find((f) => f.detail.name === "toString");
+    expect(added?.kind).toBe("dependency_added");
+    expect(added?.detail).not.toHaveProperty("from");
+  });
+
   it("reports added, removed, and changed entries per map", () => {
     const before = manifest({ dependencies: { keep: "^1.0.0", gone: "^2.0.0", bump: "^1.0.0" } });
     const after = manifest({ dependencies: { keep: "^1.0.0", added: "^3.0.0", bump: "^2.0.0" } });
