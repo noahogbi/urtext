@@ -54,6 +54,20 @@ describe("scoreFact", () => {
     expect(isFinite(score)).toBe(true);
     expect(typeof score).toBe("number");
   });
+
+  it("weights a dependency map named after an inherited member as an unknown map", () => {
+    // The map multiplier is read with `detail.map`. A nullish fallback does not
+    // catch an inherited member, so the multiplier became a function and the
+    // score NaN — which does not merely read wrong, it unsorts the report,
+    // since every comparison against NaN is false. Unreachable from the
+    // analyzers today, and pinned here because that is a property of the
+    // callers rather than of this function.
+    for (const map of ["toString", "constructor", "valueOf"]) {
+      const score = scoreFact(fact({ kind: "dependency_changed", detail: { map, name: "x" } }));
+      expect(Number.isNaN(score)).toBe(false);
+      expect(isFinite(score)).toBe(true);
+    }
+  });
 });
 
 describe("tierFor", () => {
@@ -63,6 +77,24 @@ describe("tierFor", () => {
 });
 
 describe("toFinding", () => {
+  it("names a scope segment that Object.prototype also answers to", () => {
+    // Every class constructor is a scope segment called `constructor`, so this
+    // needed no unusual code at all: the label table returned the inherited
+    // function and the title read "removed from function Object() { [native
+    // code] } in Account", on the highest-weighted kind this tool emits.
+    // Methods named toString or valueOf did the same.
+    // Three distinct inherited names, so a fix that special-cased `constructor`
+    // alone would still fail here.
+    for (const symbol of ["Account.constructor", "Bar.toString", "Baz.valueOf"]) {
+      const f = toFinding(
+        fact({ kind: "guard_removed", detail: { guard: "throw", symbol }, qualifiedSymbol: symbol }),
+      );
+      expect(f.title).toBe(`a throw guard was removed from ${symbol}`);
+      expect(f.title).not.toContain("native code");
+      expect(f.body).not.toContain("native code");
+    }
+  });
+
   it("writes a readable title naming the effect, leaving location to the renderer", () => {
     const f = toFinding(fact());
     expect(f.title).toBe("introduces a network effect");

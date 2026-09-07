@@ -6,6 +6,7 @@ import {
   SETTER_FRAME_PREFIX,
 } from "../extract/scope.js";
 import { SIGNATURE_TRUNCATION_MARKER } from "../analyze/surface.js";
+import { table } from "../lookup.js";
 import type { Claim, EffectKind, Fact, Finding, Tier } from "../types.js";
 import {
   typeUnresolvedNoteFor,
@@ -150,7 +151,7 @@ export function scoreFact(fact: Fact): number {
     fact.kind === "dependency_resolved_changed"
   ) {
     const map = typeof fact.detail.map === "string" ? fact.detail.map : "dependencies";
-    return base * (WEIGHTS.dependencyMap[map] ?? 1);
+    return base * (Object.hasOwn(WEIGHTS.dependencyMap, map) ? WEIGHTS.dependencyMap[map] : 1);
   }
 
   return base;
@@ -377,11 +378,11 @@ function capitalize(s: string): string {
  * `test/score/index.test.ts` walks that list rather than this table — so a new
  * sentinel with no entry here fails a test instead of reaching a report.
  */
-const SEGMENT_LABEL: Record<string, string> = {
+const SEGMENT_LABEL: Record<string, string> = table({
   [MODULE_OWNER]: "the top level of this file",
   [ANONYMOUS_OWNER]: "an anonymous function",
   [LOCAL_SCOPE]: "an unnamed block",
-};
+});
 
 /**
  * "the value getter" for an accessor's `get value` frame — the second family
