@@ -3,6 +3,47 @@
 Notable changes to urtext. Versions follow [semantic versioning](https://semver.org/);
 dates are the release date.
 
+## 0.5.1 — 2026-09-07
+
+### Fixed
+
+Six defects that each put a `verified`-tier claim on screen that was not true. They share one
+cause: text taken from the repository under review — a dependency name, a workspace directory,
+an identifier, a scope segment — used as a key into an ordinary JavaScript object, which
+answers to a dozen names of its own. None was found by the test suite, which was green before
+and after every one of them.
+
+- **A dependency or lockfile finding could point at the wrong line.** The line lookup counted
+  braces inside string values as structure, so an unbalanced one collapsed its depth counter
+  and a nested key matched as though it sat at the top level. A manifest whose `scripts` held
+  an unbalanced brace could anchor a finding several lines from the entry it named. Braces are
+  now counted only outside strings. Duplicate keys remain a known limit, documented where the
+  lookup is defined.
+
+- **A dependency named `__proto__` disappeared from the review**, with nothing said about it.
+
+- **A dependency whose name collides with a built-in member** — `toString`, `constructor`,
+  `valueOf` — **was reported as changed rather than added**, and the previous version it named
+  was a JavaScript function rather than a version range.
+
+- **A workspace directory named after a built-in member was counted as a version move** rather
+  than as arriving or leaving, in a lockfile finding whose entire content is those counts.
+
+- **A guard removed from a class constructor rendered as
+  `function Object() { [native code] }`.** Every constructor is a scope segment named
+  `constructor`, so this needed no unusual code at all — any class — and it landed on
+  `guard_removed`, the highest-weighted finding urtext emits. Methods named `toString` or
+  `valueOf` did the same.
+
+- **`hasOwnProperty.call(o, k)` produced a false timing effect.** One of the oldest idioms in
+  JavaScript, and reachable since 0.5.0 taught the analyzers to read JavaScript. The finding's
+  id carried the function text into `--json`.
+
+### Changed
+
+- `CONTRIBUTING.md` records the contribution process and the test policy; `RELEASING.md`
+  records the release checklist, including the two steps that had already been missed once.
+
 ## 0.5.0 — 2026-09-04
 
 ### Added
