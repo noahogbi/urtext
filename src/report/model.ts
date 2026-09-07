@@ -1,3 +1,4 @@
+import { table } from "../lookup.js";
 import { labelConcealed, segmentConcealed, type ConcealSegment } from "./conceal.js";
 import {
   citationDistributionNote,
@@ -563,7 +564,7 @@ const DEPENDENCY_NOTE =
 const LOCKFILE_NOTE =
   "Lockfile findings report what package-lock.json records, which is not always what package.json declares.";
 
-export const KIND_NOTES: Record<string, string> = {
+export const KIND_NOTES: Record<string, string> = table({
   blast_radius: "Reach findings report how widely a changed export is used. Wide reach is not a defect; it is the cost of getting one wrong.",
   signature_changed:
     "A changed contract can break callers without breaking the build at the file that changed, so check the call sites.",
@@ -576,7 +577,7 @@ export const KIND_NOTES: Record<string, string> = {
   dependency_resolved_changed: LOCKFILE_NOTE,
   lockfile_version_stale: LOCKFILE_NOTE,
   lockfile_tree_changed: LOCKFILE_NOTE,
-};
+});
 
 /**
  * The kind a finding's id names, with a grouping pass's suffix removed: a

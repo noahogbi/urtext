@@ -13,6 +13,36 @@ describe("detectEffects", () => {
     expect(sites[0].excerpt).toBe("await fetch(u);");
   });
 
+  it("reports nothing for a name Object.prototype happens to answer to", () => {
+    // These tables are read with identifiers and module specifiers lifted out
+    // of the reviewed repository, and an ordinary object hands back an
+    // inherited member for any of these names. The site was pushed with that
+    // member where its kind belonged, which rendered as a timing effect the
+    // code does not have, and carried the function into --json inside the
+    // finding's id. The first of them is among the oldest idioms in
+    // JavaScript, and urtext began reading JavaScript one release before this.
+    expect(detectEffects("a.ts", "const o = {};\nhasOwnProperty.call(o, k);\n")).toEqual([]);
+    expect(detectEffects("a.ts", "toString.call(v);\n")).toEqual([]);
+    expect(detectEffects("a.ts", "valueOf.call(v);\n")).toEqual([]);
+    expect(detectEffects("a.ts", "constructor(x);\n")).toEqual([]);
+    expect(detectEffects("a.ts", "__proto__.push(x);\n")).toEqual([]);
+    // The module table is read with a specifier, which is its own vector: the
+    // identifier cases above all pass while it alone still carries a prototype.
+    expect(detectEffects("a.ts", 'import * as zz from "constructor";\nzz.run();\n')).toEqual([]);
+    expect(detectEffects("a.ts", 'import * as pp from "__proto__";\npp.run();\n')).toEqual([]);
+  });
+
+  it("still resolves a real effect after the tables lost their prototype", () => {
+    // The other half of the same change: emptying the prototype must not empty
+    // the table. One entry from each lookup the fix touched.
+    expect(detectEffects("a.ts", "fetch(u);\n")[0].kind).toBe("network");
+    expect(detectEffects("a.ts", "fs.writeFileSync(p, d);\n")[0].kind).toBe("filesystem");
+    expect(detectEffects("a.ts", "Date.now();\n")[0].kind).toBe("timing");
+    expect(detectEffects("a.ts", 'import { readFile } from "node:fs";\nreadFile(p);\n')[0].kind).toBe(
+      "filesystem",
+    );
+  });
+
   it("finds axios-shaped network calls", () => {
     const sites = detectEffects("a.ts", "axios.get(url);\n");
     expect(sites[0].kind).toBe("network");
