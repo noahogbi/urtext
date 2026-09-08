@@ -295,7 +295,18 @@ function commentSpans(source: string, fileName: string): CommentSpan[] {
 
   const visit = (node: ts.Node): void => {
     const children = node.getChildren(sourceFile);
-    if (children.length === 0) {
+    // The end-of-file token is the one token that can have children: a JSDoc
+    // block that precedes nothing else is hung off it as its child. Treating
+    // it as a leaf anyway is what asks it for its leading comments.
+    // Descending instead reaches the JSDoc node, whose position is the
+    // block's own opener — and a leading-comment scan that starts past the
+    // beginning of the file collects nothing until it has crossed a line
+    // break. So the block itself, and every comment between the last
+    // statement and it, went unscanned, while whatever followed the block
+    // was read. Found by the planted-citation property, and pinned:
+    // see `test/analyze/citations.test.ts`, "finds a JSDoc block that ends
+    // the file after its last statement".
+    if (children.length === 0 || node.kind === ts.SyntaxKind.EndOfFileToken) {
       record(ts.getLeadingCommentRanges(source, node.getFullStart()));
       record(ts.getTrailingCommentRanges(source, node.getEnd()));
       return;

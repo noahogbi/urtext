@@ -1,6 +1,8 @@
+import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
   CITATION_PATHSPECS,
+  type Citation,
   citationsIn,
   citationsInComments,
   citationsInProse,
@@ -267,6 +269,36 @@ describe("comment scanning", () => {
     expect(citationsInComments(withTemplate, "b.ts")).toHaveLength(1);
   });
 
+  it("finds a JSDoc block that ends the file after its last statement", () => {
+    // Shrunk from the planted-citation property below, on its first run. A
+    // JSDoc block that precedes nothing but the end of the file is hung off
+    // the end-of-file token as that token's child, so the token is no
+    // longer a leaf: the walk descended to the JSDoc node instead, whose
+    // position is the block's own opener, and a leading-comment scan from
+    // there collects nothing before the first line break. Lost: the block,
+    // and every comment between the last statement and it. Read all along:
+    // whatever followed the block, a plain block or line comment ending the
+    // file in its place, a file holding nothing but the block, and a JSDoc
+    // block anywhere else — which is why no fixture had caught it. The lone
+    // block is asserted so the fix is seen to read it once, not twice.
+    const ending = ["const s = 1;", "/**", " * see src/cli.ts:12", " */", ""].join("\n");
+    const [c] = citationsInComments(ending, "e.ts");
+    expect(c).toBeDefined();
+    expect(c.citingLine).toBe(3);
+    expect(citationsInComments("/**\n * see src/cli.ts:12\n */\n", "f.ts")).toHaveLength(1);
+    const between = ["const s = 1;", "// see src/cli.ts:12", "/**", " * see src/cli.ts:34", " */", ""].join("\n");
+    expect(citationsInComments(between, "g.ts").map((found) => found.citingLine)).toEqual([2, 4]);
+  });
+
+  it("orders the citations of two comments on one line by path", () => {
+    // The walk yields comments in source order and each comment's own
+    // citations come back already sorted, so the sort on the way out is
+    // visible only between two comments that share a line. The property
+    // below holds the line order; this holds the tie-break.
+    const found = citationsInComments("/* a/z.ts:12 */ /* a/a.ts:34 */\n", "o.ts");
+    expect(found.map((c) => c.path)).toEqual(["a/a.ts", "a/z.ts"]);
+  });
+
   it("reports a comment reachable from two leaves exactly once", () => {
     // An empty body's zero-width node ends exactly where the next token
     // starts, so both leaves return the same comment range; without the
@@ -340,5 +372,465 @@ describe("CITATION_PATHSPECS stays in step with isSyntacticSource", () => {
 describe("normalizeText", () => {
   it("collapses every whitespace run, newlines included, and trims", () => {
     expect(normalizeText("  a \n\t b  \r\n c ")).toBe("a b c");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Properties. Each fixture above is one point in a space; these walk the
+// space. The generator owns the ground truth — it decides where every
+// citation is planted and whether the region around it is masked — so the
+// assertion is exact recovery of what was planted, not "found something".
+// A failure prints the seed; pin the counterexample as a fixture above
+// before fixing, so the shrunk case survives the property being rewritten.
+
+/** Runs per property, named once so a change is a change everywhere. */
+const RUNS = 250;
+
+/** What a planted citation must come back as, before its line is known. */
+type Planted = Omit<Citation, "citingLine" | "citingText">;
+
+/** One physical line and the citations it must yield. */
+interface Line {
+  text: string;
+  planted: Planted[];
+}
+
+/**
+ * Prose that cannot hold a citation, by construction. No `/`, so no path can
+ * satisfy CITATION_GUARD_SEPARATOR; no backtick or tilde, so no line can
+ * open a fence the generator did not plant; no parentheses or brackets, so
+ * no accidental link destination — `maskUrls` blanks from `](` to the next
+ * `)` across newlines. Everything the guards do care about stays in: colons,
+ * digits, dots, quotes, and a character outside the BMP, which is two UTF-16
+ * units long and is what separates a length-preserving mask from one that
+ * preserves code points.
+ */
+const fillerUnit = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyzABCDEF0123456789 :._-#*\"'!?,", "😀");
+const filler = fc.string({ unit: fillerUnit, maxLength: 24 });
+
+const segment = fc.string({
+  unit: fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789_-"),
+  minLength: 1,
+  maxLength: 6,
+});
+const path = fc
+  .tuple(fc.array(segment, { minLength: 1, maxLength: 3 }), segment, fc.constantFrom("ts", "md", "js", "json"))
+  .map(([dirs, base, ext]) => `${dirs.join("/")}/${base}.${ext}`);
+const lineNumber = fc.integer({ min: 1, max: 999_999 });
+
+const lineCitation = fc
+  .record({ path, line: lineNumber, endLine: fc.option(lineNumber, { nil: undefined }) })
+  .map(({ path, line, endLine }) => ({
+    text: `${path}:${line}${endLine === undefined ? "" : `-${endLine}`}`,
+    planted: [
+      endLine === undefined
+        ? { form: "line" as const, path, line }
+        : { form: "line" as const, path, line, endLine },
+    ],
+  }));
+
+const word = fc.string({ unit: fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz"), minLength: 1, maxLength: 8 });
+const words = fc.array(word, { minLength: 2, maxLength: 6 });
+const quoteCitation = fc
+  .record({
+    path,
+    words,
+    separator: fc.constantFrom("", ",", ";", ":"),
+    gap: fc.constantFrom("", " ", "  ", "   "),
+    joiner: fc.constantFrom(" ", "  "),
+    open: fc.constantFrom('"', "“"),
+    close: fc.constantFrom('"', "”"),
+  })
+  .map(({ path, words, separator, gap, joiner, open, close }) => ({
+    text: `\`${path}\`${separator}${gap}${open}${words.join(joiner)}${close}`,
+    planted: [{ form: "quote" as const, path, quote: words.join(" ") }],
+  }));
+
+const citation: fc.Arbitrary<Line> = fc.oneof(lineCitation, quoteCitation);
+
+/** Leading indent, and sometimes prose, which then ends in a space so the lookbehind sees one. */
+const prefix = fc
+  .tuple(fc.constantFrom("", " ", "    ", "\t"), fc.option(filler))
+  .map(([indent, text]) => indent + (text === null ? "" : `${text} `));
+/** What may touch a citation's tail: nothing, sentence punctuation, or a space and prose. */
+const suffix = fc.oneof(fc.constant(""), fc.constantFrom(".", ","), filler.map((text) => ` ${text}`));
+
+const plainLine: fc.Arbitrary<Line> = filler.map((text) => ({ text, planted: [] }));
+
+const citationLine: fc.Arbitrary<Line> = fc
+  .tuple(prefix, fc.array(citation, { minLength: 1, maxLength: 2 }), suffix)
+  .map(([before, cited, after]) => ({
+    text: before + cited.map((c) => c.text).join(" ") + after,
+    planted: cited.flatMap((c) => c.planted),
+  }));
+
+/**
+ * A URL carrying a path-and-line after a query or fragment separator. The
+ * separator matters: after `/` the citation pattern's own lookbehind already
+ * refuses the match, so a URL of that shape would pass with the mask
+ * deleted. After `=`, `?`, `&` or `#` only the mask stands between the URL
+ * and a false finding. A real citation may follow on the same line, and must
+ * survive the mask.
+ */
+const urlLine: fc.Arbitrary<Line> = fc
+  .record({
+    before: prefix,
+    scheme: fc.constantFrom("https", "http", "ftp", "git+ssh"),
+    host: fc.constantFrom("example.com", "x.io", "😀.dev"),
+    separator: fc.constantFrom("?", "=", "&", "#"),
+    inside: fc.tuple(path, lineNumber),
+    after: fc.option(citation),
+  })
+  .map(({ before, scheme, host, separator, inside, after }) => ({
+    text: `${before}${scheme}://${host}/q${separator}${inside[0]}:${inside[1]}${after === null ? "" : ` ${after.text}`}`,
+    planted: after === null ? [] : after.planted,
+  }));
+
+const linkLine: fc.Arbitrary<Line> = fc
+  .record({
+    before: prefix,
+    label: word,
+    relative: fc.constantFrom("", "./", "../"),
+    inside: fc.tuple(path, lineNumber),
+    after: fc.option(citation),
+  })
+  .map(({ before, label, relative, inside, after }) => ({
+    text: `${before}[${label}](${relative}${inside[0]}:${inside[1]})${after === null ? "" : ` ${after.text}`}`,
+    planted: after === null ? [] : after.planted,
+  }));
+
+/** A line number too long to be a safe integer is discarded, in either position. */
+const unsafeLine: fc.Arbitrary<Line> = fc
+  .record({ before: prefix, path, digits: fc.integer({ min: 17, max: 20 }), asEnd: fc.boolean() })
+  .map(({ before, path, digits, asEnd }) => ({
+    text: `${before}${path}:${asEnd ? `12-${"9".repeat(digits)}` : "9".repeat(digits)}`,
+    planted: [],
+  }));
+
+/**
+ * A citation glued to a letter, an underscore, a hyphen or a slash: `a/b.ts:12x`,
+ * `a/b.ts:12-34/`. Not a citation, by the trailing boundary in `LINE_CITATION`;
+ * without that boundary the line would match up to the glue.
+ */
+const gluedLine: fc.Arbitrary<Line> = fc
+  .record({
+    before: prefix,
+    path,
+    line: lineNumber,
+    endLine: fc.option(lineNumber),
+    glue: fc.constantFrom("a", "Z", "_", "-", "/"),
+  })
+  .map(({ before, path, line, endLine, glue }) => ({
+    text: `${before}${path}:${line}${endLine === null ? "" : `-${endLine}`}${glue}`,
+    planted: [],
+  }));
+
+/**
+ * A line opening with one or two fence characters, which opens no fence:
+ * `FENCE_LINE` wants a run of three. A shorter run accepted as an opener would
+ * mask every line from here to the next run of the same character.
+ */
+const shortFenceLine: fc.Arbitrary<Line> = fc
+  .tuple(fc.constantFrom("`", "``", "~", "~~"), fc.option(filler))
+  .map(([mark, rest]) => ({ text: rest === null ? mark : `${mark}${rest}`, planted: [] }));
+
+/** Inside a fence every planted citation is masked, whatever else the line holds. */
+const fencedContent: fc.Arbitrary<string> = fc.oneof(
+  filler,
+  citationLine.map((l) => l.text),
+  fc.tuple(prefix, citation).map(([before, c]) => `${before}${c.text}`),
+);
+
+/**
+ * A fenced block, in the shapes `maskFences` documents: three to five of one
+ * character, an optional info string, an optional blockquote prefix, and up
+ * to three spaces of indent. Interior lines may carry runs that do not close
+ * it — the other character, or a shorter run of the same one — and the
+ * close is at least as long as the open.
+ */
+const fencedBlock: fc.Arbitrary<Line[]> = fc
+  .record({
+    mark: fc.constantFrom("`", "~"),
+    length: fc.integer({ min: 3, max: 5 }),
+    extra: fc.integer({ min: 0, max: 2 }),
+    quote: fc.constantFrom("", "> ", "> > "),
+    indent: fc.constantFrom("", " ", "   "),
+    info: fc.constantFrom("", "ts", "json"),
+    interior: fc.array(
+      fc.oneof(
+        fencedContent.map((text) => ({ kind: "content" as const, text })),
+        fc.constant({ kind: "other" as const, text: "" }),
+        fc.constant({ kind: "shorter" as const, text: "" }),
+      ),
+      { maxLength: 3 },
+    ),
+  })
+  .map(({ mark, length, extra, quote, indent, info, interior }) => {
+    const other = mark === "`" ? "~" : "`";
+    const lines = interior.map((item) => {
+      if (item.kind === "other") return other.repeat(length);
+      if (item.kind === "shorter") return mark.repeat(length - 1);
+      return quote + item.text;
+    });
+    return [
+      `${quote}${indent}${mark.repeat(length)}${info}`,
+      ...lines,
+      `${quote}${indent}${mark.repeat(length + extra)}`,
+    ].map((text) => ({ text, planted: [] }));
+  });
+
+/** An unclosed fence blanks to the end of the text, so it can only come last. */
+const unclosedTail: fc.Arbitrary<Line[]> = fc
+  .tuple(fc.constantFrom("```", "~~~"), fc.array(fencedContent, { maxLength: 3 }))
+  .map(([open, rest]) => [open, ...rest].map((text) => ({ text, planted: [] })));
+
+const block: fc.Arbitrary<Line[]> = fc.oneof(
+  { weight: 3, arbitrary: plainLine.map((l) => [l]) },
+  { weight: 4, arbitrary: citationLine.map((l) => [l]) },
+  { weight: 2, arbitrary: urlLine.map((l) => [l]) },
+  { weight: 2, arbitrary: linkLine.map((l) => [l]) },
+  { weight: 1, arbitrary: unsafeLine.map((l) => [l]) },
+  { weight: 1, arbitrary: gluedLine.map((l) => [l]) },
+  { weight: 1, arbitrary: shortFenceLine.map((l) => [l]) },
+  { weight: 2, arbitrary: fencedBlock },
+);
+
+const proseDocument = fc
+  .record({
+    blocks: fc.array(block, { maxLength: 10 }),
+    tail: fc.option(unclosedTail),
+    crlf: fc.boolean(),
+    trailingNewline: fc.boolean(),
+  })
+  .map(({ blocks, tail, crlf, trailingNewline }) => {
+    const lines = [...blocks.flat(), ...(tail ?? [])];
+    const text =
+      lines.map((l) => l.text + (crlf ? "\r" : "")).join("\n") + (trailingNewline ? "\n" : "");
+    const expected: Citation[] = lines.flatMap((l, i) =>
+      l.planted.map((p) => ({ ...p, citingLine: i + 1, citingText: l.text.trim() })),
+    );
+    return { text, expected };
+  });
+
+/** A canonical string per citation, so two lists compare as multisets. */
+const canonical = (c: Citation): string =>
+  JSON.stringify([c.citingLine, c.form, c.path, c.line ?? null, c.endLine ?? null, c.quote ?? null, c.citingText]);
+
+/** Unconstrained text, for the properties that hold whatever the input. */
+const anyText = fc.string({
+  unit: fc.constantFrom(
+    ..."abcdefghijklmnopqrstuvwxyzABC0123456789 \t\n\r:./\\-_`~>#*\"“”'()[]{}!?,;=&@$%",
+    "😀",
+  ),
+  maxLength: 300,
+});
+
+describe("properties: prose", () => {
+  it("recovers every planted citation at its line, and nothing from a masked region", () => {
+    fc.assert(
+      fc.property(proseDocument, ({ text, expected }) => {
+        const found = citationsInProse(text);
+        expect(found.map(canonical).sort()).toEqual(expected.map(canonical).sort());
+        const lines = found.map((c) => c.citingLine);
+        expect(lines).toEqual([...lines].sort((a, b) => a - b));
+      }),
+      { numRuns: RUNS },
+    );
+  });
+
+  it("masks without moving a single UTF-16 unit or newline", () => {
+    // The identity `toSource` in citationsInProse is sound only because of
+    // this. Pinned to `.length` and to newline positions in UTF-16 units,
+    // not code points: a mask that collapsed a surrogate pair to one space
+    // would shift every later line by one. Run over the planted documents
+    // as well as unconstrained text: a fence or a URL almost never forms by
+    // chance in the latter, and a mask that collapsed surrogate pairs went
+    // unnoticed here until the planted documents were added.
+    fc.assert(
+      fc.property(fc.oneof(anyText, proseDocument.map((d) => d.text)), (text) => {
+        for (const masked of [maskFences(text), maskUrls(text), maskUrls(maskFences(text))]) {
+          expect(masked).toHaveLength(text.length);
+          // Indexed by UTF-16 unit on purpose; a spread would walk code points
+          // and drift from `masked[i]` at the first surrogate pair.
+          let moved = -1;
+          for (let i = 0; i < text.length && moved < 0; i++) {
+            if (masked[i] !== text[i] && !(masked[i] === " " && text[i] !== "\n")) moved = i;
+          }
+          expect(moved).toBe(-1);
+        }
+      }),
+      { numRuns: RUNS },
+    );
+  });
+
+  it("never throws, and every reported line exists and holds the path it names", () => {
+    // Arbitrary text rarely holds a citation, so the loop below would seldom
+    // run on it alone; the planted documents are what put reported lines
+    // through the checks.
+    fc.assert(
+      fc.property(fc.oneof(anyText, proseDocument.map((d) => d.text)), (text) => {
+        const lines = text.split("\n");
+        for (const c of citationsInProse(text)) {
+          expect(c.citingLine).toBeGreaterThanOrEqual(1);
+          expect(c.citingLine).toBeLessThanOrEqual(lines.length);
+          const line = lines[c.citingLine - 1];
+          expect(line).toContain(c.path);
+          expect(c.citingText).toBe(line.replace(/\r$/, "").trim());
+        }
+      }),
+      { numRuns: RUNS },
+    );
+  });
+});
+
+/**
+ * Comment prose that can neither end a block comment nor hold a citation: no
+ * `/` or `*`, so nothing in it can close the comment, and no backtick, so a quoted citation
+ * cannot start. The unwrap strips decorations by looking at line starts and
+ * ends, so what a line begins and ends with is exactly what the generator
+ * varies below.
+ */
+const commentFiller = fc.string({
+  unit: fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789 :._-#\"'!?,", "😀"),
+  maxLength: 20,
+});
+
+/**
+ * A URL inside a comment, with a citation-shaped tail after one of the
+ * separators the mask alone protects — `urlLine` again, in the comment
+ * alphabet. The comment scan masks URLs on its own unwrapped text, a
+ * separate call from the prose scan's, and nothing else exercised it: with
+ * that call deleted every fixture still passed.
+ */
+const commentUrl: fc.Arbitrary<Line> = fc
+  .record({
+    before: fc.option(commentFiller),
+    scheme: fc.constantFrom("https", "http", "ftp", "git+ssh"),
+    host: fc.constantFrom("example.com", "x.io", "😀.dev"),
+    separator: fc.constantFrom("?", "=", "&", "#"),
+    inside: fc.tuple(path, lineNumber),
+    after: fc.option(citation),
+  })
+  .map(({ before, scheme, host, separator, inside, after }) => ({
+    text: `${before === null ? "" : before + " "}${scheme}://${host}/q${separator}${inside[0]}:${inside[1]}${after === null ? "" : ` ${after.text}`}`,
+    planted: after === null ? [] : after.planted,
+  }));
+
+/** A content line inside a comment: prose, a URL, or prose and a planted citation. */
+const commentContent: fc.Arbitrary<Line> = fc.oneof(
+  commentFiller.map((text) => ({ text, planted: [] })),
+  commentUrl,
+  fc
+    .tuple(fc.option(commentFiller), citation, fc.option(commentFiller))
+    .map(([before, c, after]) => ({
+      text: (before === null ? "" : before + " ") + c.text + (after === null ? "" : " " + after),
+      planted: c.planted,
+    })),
+);
+
+/**
+ * A quoted citation whose phrase continues onto later comment lines. The
+ * offset map is what makes its reported line the one the path sits on
+ * rather than the comment's first line — the case "reports the line the
+ * path sits on for a quote that wrapped across comment lines" pins once.
+ */
+const wrappedQuote: fc.Arbitrary<Line[]> = fc
+  .record({ path, head: words, tails: fc.array(words, { minLength: 1, maxLength: 2 }) })
+  .map(({ path, head, tails }) => {
+    const all = [...head, ...tails.flat()];
+    const last = tails.length - 1;
+    return [
+      { text: `\`${path}\` "${head.join(" ")}`, planted: [{ form: "quote" as const, path, quote: all.join(" ") }] },
+      ...tails.map((t, i) => ({ text: `${t.join(" ")}${i === last ? '"' : ""}`, planted: [] })),
+    ];
+  });
+
+/**
+ * Every decoration shape `unwrapComment` strips: a JSDoc block with starred
+ * continuations, a bare block with indented continuations, a block whose
+ * close shares the last content line, a run of line comments, and a comment
+ * trailing code. Between them, code — including a string literal holding a
+ * citation-shaped value, which must never be reported, and a template
+ * interpolation, which desynchronizes a raw scanner loop.
+ */
+const commentItem: fc.Arbitrary<Line[]> = fc.oneof(
+  // JSDoc: `/**`, ` * …` lines, ` */`.
+  fc
+    .tuple(fc.array(fc.oneof(commentContent.map((l) => [l]), wrappedQuote), { minLength: 1, maxLength: 3 }), fc.constantFrom(" * ", " *", "\t* "))
+    .map(([body, lead]) => [
+      { text: "/**", planted: [] },
+      ...body.flat().map((l) => ({ ...l, text: `${lead}${l.text}` })),
+      { text: " */", planted: [] },
+    ]),
+  // A bare block whose continuations carry no star.
+  fc
+    .tuple(fc.array(fc.oneof(commentContent.map((l) => [l]), wrappedQuote), { minLength: 1, maxLength: 3 }), fc.boolean())
+    .map(([body, closeOnLast]) => {
+      const lines = body.flat().map((l) => ({ ...l, text: `   ${l.text}` }));
+      if (closeOnLast) {
+        const end = lines[lines.length - 1];
+        return [{ text: "/*", planted: [] }, ...lines.slice(0, -1), { ...end, text: `${end.text} */` }];
+      }
+      return [{ text: "/*", planted: [] }, ...lines, { text: "*/", planted: [] }];
+    }),
+  // A one-line block comment on its own line.
+  commentContent.map((l) => [{ ...l, text: `/* ${l.text} */` }]),
+  // Consecutive line comments, each its own comment to the scanner.
+  fc
+    .array(fc.tuple(fc.constantFrom("// ", "//", "  // "), commentContent), { minLength: 1, maxLength: 3 })
+    .map((lines) => lines.map(([lead, l]) => ({ ...l, text: `${lead}${l.text}` }))),
+  // A comment trailing a statement.
+  fc
+    .tuple(fc.constantFrom("let a = 0;", "a += 1;", "const t = `x${a}y`;"), commentContent)
+    .map(([code, l]) => [{ ...l, text: `${code} // ${l.text}` }]),
+  // Code that is not a comment, holding what would be a citation in prose.
+  fc.tuple(lineCitation, fc.option(commentContent)).map(([c, trailing]) => [
+    trailing === null
+      ? { text: `const s = "${c.text}";`, planted: [] }
+      : { ...trailing, text: `const s = "${c.text}"; // ${trailing.text}` },
+  ]),
+  fc.constant<Line[]>([{ text: "let a = 0;", planted: [] }]),
+  fc.constant<Line[]>([{ text: "", planted: [] }]),
+);
+
+const commentDocument = fc
+  .record({ items: fc.array(commentItem, { maxLength: 8 }), crlf: fc.boolean() })
+  .map(({ items, crlf }) => {
+    const lines = items.flat();
+    const source = lines.map((l) => l.text + (crlf ? "\r" : "")).join("\n") + (crlf ? "\r\n" : "\n");
+    const expected: Citation[] = lines.flatMap((l, i) =>
+      l.planted.map((p) => ({ ...p, citingLine: i + 1, citingText: l.text.trim() })),
+    );
+    return { source, expected };
+  });
+
+describe("properties: comments", () => {
+  it("recovers every planted citation at the line its path sits on, through every decoration", () => {
+    fc.assert(
+      fc.property(commentDocument, fc.constantFrom("a.ts", "a.mts", "a.js", "a.mjs"), ({ source, expected }, name) => {
+        const found = citationsInComments(source, name);
+        expect(found.map(canonical).sort()).toEqual(expected.map(canonical).sort());
+        const lines = found.map((c) => c.citingLine);
+        expect(lines).toEqual([...lines].sort((a, b) => a - b));
+      }),
+      { numRuns: RUNS },
+    );
+  });
+
+  it("never throws on arbitrary source, and every reported line exists and holds the path", () => {
+    // As above: the planted documents are what give the loop lines to check.
+    fc.assert(
+      fc.property(fc.oneof(anyText, commentDocument.map((d) => d.source)), (source) => {
+        const lines = source.split("\n");
+        for (const c of citationsInComments(source, "a.ts")) {
+          expect(c.citingLine).toBeGreaterThanOrEqual(1);
+          expect(c.citingLine).toBeLessThanOrEqual(lines.length);
+          const line = lines[c.citingLine - 1];
+          expect(line).toContain(c.path);
+          expect(c.citingText).toBe(line.replace(/\r$/, "").trim());
+        }
+      }),
+      { numRuns: RUNS },
+    );
   });
 });
