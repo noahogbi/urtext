@@ -27,7 +27,7 @@
 - Fact ids: `dependency_added:<path>:<map>:<name>` — kind prefix, then path, then **map** (ids collide without it: peer+dev same-package is the standard library convention), then name. `<path>` is `file.path` as the changeset lists it.
 - The before side of every read is `file.previousPath ?? file.path`; `status === "added"` skips the before read, `"deleted"` skips the after read. Getting this wrong emits false `verified` findings on renamed manifests.
 - The analyzer never calls `ctx.programAt` (`src/types.ts:243-247` says analyzers that do not need the checker must not).
-- The factory names its analyzer via `Object.defineProperty(fn, "name", { value: "dependencyAnalyzer" })` — an inner const is NOT sufficient; esbuild renames shadowed bindings (`src/analyze/citations.ts:1083-1090`, fix at `:1158`).
+- The factory names its analyzer via `Object.defineProperty(fn, "name", { value: "dependencyAnalyzer" })` — an inner const is NOT sufficient; esbuild renames shadowed bindings (`src/analyze/citations.ts`, "a transform that renames shadowed symbols"; the fix is the written-down name, `src/analyze/citations.ts`, "So the name is written down").
 - New reader-facing copy contains none of: `unsanctioned`, `unauthorized`, `approved`, `permission`, `forbidden`, `allowed` (`test/report/copy-guard.test.ts:29-36`), and never issues a verdict.
 - Comments must not restate a `WEIGHTS` value as a bare numeral — `test/comment-contract.test.ts` fails on it (this bit three times during the intent-gap work; avoid digits in comments near scoring).
 - Weights are uncalibrated by the spec's own admission. Task 6 calibrates against real ranges before the PR.
@@ -513,7 +513,7 @@ git commit -m "feat: pure dependency diffing core"
 - Produces: `export function makeDependencyAnalyzer(options: { onNote?: (note: string) => void } = {}): Analyzer` and `export const dependencyAnalyzer: Analyzer = makeDependencyAnalyzer()`, `.name === "dependencyAnalyzer"` on both.
 - Consumes: `dependencyFactsFor`, `ManifestParseError` from Task 2.
 
-**The factory's loop, per the spec:** for each `changeset.files` entry whose basename is `package.json`: before text = `status === "added" ? null : await ctx.readAt(range.from, file.previousPath ?? file.path)`; after text = `status === "deleted" ? null : await ctx.readAt(range.to, file.path)`; `ManifestParseError` from one manifest becomes one `onNote(...)` line naming the path and side, and the loop continues — other manifests' facts survive. The analyzer name is set with `Object.defineProperty(fn, "name", { value: "dependencyAnalyzer" })`; an inner named const is not enough (esbuild renames shadowed bindings — `src/analyze/citations.ts:1083-1090`, `:1158`).
+**The factory's loop, per the spec:** for each `changeset.files` entry whose basename is `package.json`: before text = `status === "added" ? null : await ctx.readAt(range.from, file.previousPath ?? file.path)`; after text = `status === "deleted" ? null : await ctx.readAt(range.to, file.path)`; `ManifestParseError` from one manifest becomes one `onNote(...)` line naming the path and side, and the loop continues — other manifests' facts survive. The analyzer name is set with `Object.defineProperty(fn, "name", { value: "dependencyAnalyzer" })`; an inner named const is not enough (esbuild renames shadowed bindings — `src/analyze/citations.ts`, "a transform that renames shadowed symbols", and the name is written down instead: `src/analyze/citations.ts`, "So the name is written down").
 
 - [ ] **Step 1: Write the failing tests**
 

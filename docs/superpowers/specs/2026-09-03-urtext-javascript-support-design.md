@@ -1,7 +1,7 @@
 # JavaScript in a TypeScript project — design
 
 **Date:** 2026-09-03
-**Status:** proposed
+**Status:** implemented in 0.5.0 (2026-09-04)
 
 > **Revision 1, after a Fable review returned REVISE with four blocking findings.** Each was
 > checked against the code before being accepted; all four held. Two were caught only by
@@ -105,7 +105,7 @@ the design error here.
 |---|---|---|
 | effects (`src/analyze/effects.ts:157`) | `ts.createSourceFile` | no |
 | guards (`src/analyze/guards.ts:52`, `:252`) | `ts.createSourceFile` | no |
-| citations (`src/analyze/citations.ts:367`) | text and comment scanning | no |
+| citations (`src/analyze/citations.ts`, "return citationsInComments(text, path)") | text and comment scanning | no |
 | surface (`src/analyze/surface.ts:324`) | `ctx.programAt`, type checker | **yes** |
 | blast radius (`src/analyze/blast-radius.ts:144`) | `ctx.programAt`, type checker | **yes** |
 
@@ -163,7 +163,7 @@ Every call site then states which tier it means. The fourteen divide as follows.
 |---|---|
 | `src/analyze/effects.ts:155`, `:265` | syntactic analyzer |
 | `src/analyze/guards.ts:50`, `:159`, `:251` | syntactic analyzer |
-| `src/analyze/citations.ts:367` | comment scanning — but this alone is inert; see below |
+| `src/analyze/citations.ts`, "return citationsInComments(text, path)" | comment scanning — but this alone is inert; see below |
 | `src/extract/symbols.ts:244` | symbol extraction is syntactic |
 | `src/extract/index.ts:48` | the read gate feeding extraction; its comment ("mapSymbols discards non-TypeScript files anyway") stops being true and changes with it |
 
@@ -178,22 +178,22 @@ Every call site then states which tier it means. The fourteen divide as follows.
 
 ### Citations have a second gate, and it is the real one
 
-Widening `citationsIn` (`citations.ts:367`) on its own does nothing. That function only ever
+Widening `citationsIn` (`src/analyze/citations.ts`) on its own does nothing. That function only ever
 receives files already chosen as candidates, and both selection paths — `sweepCandidates`
 (`:823`) and `touchedCandidates` (`:871`) — hand git a fixed pathspec list:
 
 ```ts
 export const CITATION_PATHSPECS = ["*.md", "*.markdown", "*.txt", "*.ts", "*.tsx"] as const;
 ```
-(`src/analyze/citations.ts:68`)
+(`src/analyze/citations.ts`, as it stood at 0.4.0, before this design widened it)
 
 A `.mjs` file never becomes a candidate, so the widened dispatch would be dead code.
 
 The constant's own comment says so, about a different extension: it is "narrower than
 `isTypeScriptFile` accepts — it also takes the module-explicit extensions, which no
 pathspec here names — so a citation written in one of those files is not checked at all.
-An under-report" (`:62-67`). That comment was cited in an earlier draft of this document
-and its meaning missed.
+An under-report" — the constant's comment as it stood then, since rewritten by the work this
+design describes. It was cited in an earlier draft of this document and its meaning missed.
 
 So `CITATION_PATHSPECS` gains `*.js`, `*.mjs`, `*.cjs`, `*.jsx` — **and** `*.mts`, `*.cts`,
 which closes the under-report its comment has been documenting all along. The comment is
