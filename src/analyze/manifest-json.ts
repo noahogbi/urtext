@@ -103,15 +103,41 @@ export function mapOf(
  * the scan compares against the raw key while JSON stores it escaped. That
  * returns undefined and the callers fall back, which is the documented
  * degradation; npm package names cannot contain those characters anyway.
+ *
+ * A path that continues below a key whose value is not an object does not
+ * resolve either, and says so rather than answering with a same-named key from
+ * whichever block opens next. `lockfile.ts` can ask for one: it anchors every
+ * name the manifest declares under the same map in the lockfile's root package
+ * entry, and that map, when it is a string rather than an object, read as
+ * empty and was then asked below. The finding took the line of the next map's
+ * entry.
  */
 export function lineOf(text: string, keys: readonly string[]): number | undefined {
   const lines = text.split("\n");
   let depth = 0;
   let matched = 0;
+  // Set when a key the path continues below ended its line without a value:
+  // the next line must open that key's block.
+  let blockPending = false;
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
-    if (matched < keys.length && depth === matched + 1 && trimmed.startsWith(`"${keys[matched]}":`)) {
+    if (blockPending) {
+      if (!trimmed.startsWith("{")) return undefined;
+      blockPending = false;
+    }
+    const prefix = matched < keys.length ? `"${keys[matched]}":` : "";
+    if (prefix !== "" && depth === matched + 1 && trimmed.startsWith(prefix)) {
       if (matched === keys.length - 1) return i + 1;
+      // The path continues below this key, so its value has to open a block.
+      // A string, number, array or literal here means the path does not
+      // resolve, and that has to be said now: the next key is expected one
+      // level deeper, and whichever `{` came next — a later sibling's — would
+      // have taken the scan there, with nothing tying that brace to this key.
+      // See `test/analyze/manifest-json.test.ts`, "does not continue a path
+      // below a value that opens no block".
+      const rest = trimmed.slice(prefix.length).trim();
+      if (rest === "") blockPending = true;
+      else if (!rest.startsWith("{")) return undefined;
       matched++;
     }
     // JSON forbids a literal newline inside a string, so a line always begins

@@ -3,6 +3,36 @@
 Notable changes to urtext. Versions follow [semantic versioning](https://semver.org/);
 dates are the release date.
 
+## Unreleased
+
+### Fixed
+
+- **A JSDoc block that ended a file went unchecked, and so did the comments before it.** The
+  citations analyzer walks the syntax tree to its leaves and reads the comments around each.
+  A JSDoc block that precedes nothing but the end of the file is attached to the end-of-file
+  token as that token's child, which made the token not a leaf; the walk went to the JSDoc
+  node instead, and a comment scan started at a JSDoc's own position collects nothing before
+  the first line break. So the block, and any line or block comment between the last
+  statement and it, was never read — a stale `path:line` there was not reported — while
+  whatever followed the block was. A file that ended in a plain comment instead was always
+  read, and so was a JSDoc block anywhere else. The test that holds this repository's own
+  comments to their tuning constants used the same walk and had the same blind spot; no
+  comment in the repository sat in it.
+- **A lockfile out-of-sync finding could point at the wrong line.** When a manifest declares
+  a name under one of the four dependency maps and the lockfile's root package entry carries
+  that map as a string rather than an object, the map reads as empty, the name is reported as
+  missing from the lockfile, and the finding is anchored below that map. The line lookup,
+  asked for a path continuing below a value that opens no block, answered with a same-named
+  key from whichever block opened next — the next map's entry. It now returns nothing there,
+  and the finding falls back to the map's own line.
+
+### Changed
+
+- The citation and manifest parsers are now also tested by property: generated prose,
+  comments and pretty-printed JSON whose expected result is known before the parser sees
+  them, a few hundred cases per run, shrunk and pinned as fixtures when one fails. Both
+  defects above were found that way.
+
 ## 0.5.1 — 2026-09-07
 
 ### Fixed

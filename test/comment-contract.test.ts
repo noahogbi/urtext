@@ -72,9 +72,12 @@ interface CommentSpan {
 }
 
 /**
- * Every `//` and `/* *\/` comment in a file, JSDoc included — JSDoc is just
- * a `/**` multi-line comment attached as leading trivia, so no special-
- * casing is needed for it.
+ * Every `//` and `/* *\/` comment in a file, JSDoc included. JSDoc is a
+ * `/**` multi-line comment attached as leading trivia like any other, with
+ * one exception the walk below special-cases: a JSDoc block that precedes
+ * nothing but the end of the file is hung off the end-of-file token as that
+ * token's child, so the token is no longer a leaf and must be asked for its
+ * leading comments anyway.
  *
  * Walked off the parsed AST's leaf tokens rather than the raw scanner: a
  * bare `ts.createScanner().scan()` loop does not track template-literal
@@ -127,7 +130,7 @@ function extractComments(sourceText: string, fileName: string): CommentSpan[] {
 
   function visit(node: ts.Node): void {
     const children = node.getChildren(sourceFile);
-    if (children.length === 0) {
+    if (children.length === 0 || node.kind === ts.SyntaxKind.EndOfFileToken) {
       record(ts.getLeadingCommentRanges(sourceText, node.getFullStart()));
       record(ts.getTrailingCommentRanges(sourceText, node.getEnd()));
       return;
@@ -313,6 +316,23 @@ describe("comment contract", () => {
       const src = "export const x = 1; // 90 trailing at eof, no newline after";
       const violations = findViolationsInText(src, "fixture.ts", "fixture.ts");
       expect(violations.some((v) => v.value === 90)).toBe(true);
+    });
+
+    it("catches a planted weight in a JSDoc block that ends the file after its last statement", () => {
+      // The one token that can have children. A JSDoc block preceding nothing
+      // but the end of the file becomes the end-of-file token's child, so a
+      // leaves-only walk descends to the JSDoc node instead — positioned at
+      // the block's own opener, from where a leading-comment scan collects
+      // nothing before the first line break. The block, and every comment
+      // between the last statement and it, went unread. A file that ends in
+      // a plain block instead was always read; that contrast is asserted so
+      // the fixture cannot pass by being ordinary.
+      const jsdoc = "export const x = 1;\n/**\n * uses 90 under the hood\n */\n";
+      expect(findViolationsInText(jsdoc, "fixture.ts", "fixture.ts").some((v) => v.value === 90)).toBe(true);
+      const before = "export const x = 1;\n// uses 90 under the hood\n/**\n * a doc\n */\n";
+      expect(findViolationsInText(before, "fixture.ts", "fixture.ts").some((v) => v.value === 90)).toBe(true);
+      const plain = "export const x = 1;\n/*\n * uses 90 under the hood\n */\n";
+      expect(findViolationsInText(plain, "fixture.ts", "fixture.ts").some((v) => v.value === 90)).toBe(true);
     });
   });
 
