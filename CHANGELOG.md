@@ -3,7 +3,7 @@
 Notable changes to urtext. Versions follow [semantic versioning](https://semver.org/);
 dates are the release date.
 
-## Unreleased
+## 0.5.2 — 2026-09-09
 
 ### Fixed
 
