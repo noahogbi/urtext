@@ -308,14 +308,15 @@ note keeps those facts and still says what could not be read.
 The factory must also give its returned analyzer a name, and the mechanism matters more than
 it looks. Failure copy reads `.name` (`src/analyze/index.ts:60-66`), which a directly-returned
 closure lacks. An inner named const is **not** the fix, and an earlier draft of this section
-claimed it was: the doc comment above `makeCitationsAnalyzer` (`src/analyze/citations.ts:1083-1090`)
-says NamedEvaluation "is not enough here", because the inner binding shadows the module-level
-singleton and esbuild — which runs this repository's tests — renames shadowed bindings, turning
-the disclosed name into a near-miss of itself. So the name is written down:
-`Object.defineProperty(citationsAnalyzer, "name", { value: "citationsAnalyzer" })`
-(`citations.ts:1158`). This factory proposes the identical shadowing shape — a module-level
-`dependencyAnalyzer` in `ANALYZERS` plus a same-named inner const — so it takes the identical
-fix, and a name-pin test in the shape of `test/analyze/index.test.ts:63-64`.
+claimed it was: the doc comment above `makeCitationsAnalyzer` (`src/analyze/citations.ts`,
+"a transform that renames shadowed symbols") says NamedEvaluation is not enough here — the
+inner binding shadows the module-level singleton, and esbuild, which runs this repository's
+tests, renames shadowed bindings, turning the disclosed name into a near-miss of itself. So the
+name is written down:
+`Object.defineProperty(citationsAnalyzer, "name", { value: "citationsAnalyzer" })`.
+This factory proposes the identical shadowing shape — a module-level `dependencyAnalyzer` in
+`ANALYZERS` plus a same-named inner const — so it takes the identical fix, and a name-pin test
+in the shape of `test/analyze/index.test.ts:63-64`.
 
 Not silence: a run that reports no dependency changes because it could not read the manifest is
 indistinguishable, to a reader, from a run that read it and found none. That is the failure
@@ -415,8 +416,9 @@ postmortem above, which is the point of recording it:
 5. **The corrected naming claim was wrong in the corrected direction.** Revision 2 said the
    inner const's binding supplies the factory's name. The comment above that const says
    NamedEvaluation "is not enough here" — esbuild renames shadowed bindings — and the name is
-   written down with `Object.defineProperty` (`src/analyze/citations.ts:1158`). Fourth instance
-   of the citation class, inside the revision that added a postmortem about it.
+   written down with `Object.defineProperty` (`src/analyze/citations.ts`, "So the name is
+   written down"). Fourth instance of the citation class, inside the revision that added a
+   postmortem about it.
 
 6. **The id format collided.** `dependency_added:<path>:<name>` gives two facts one id when a
    package changes in two maps at once — the standard peer-plus-dev pattern. `reconcile`
