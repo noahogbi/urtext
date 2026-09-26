@@ -3,6 +3,18 @@
 Notable changes to urtext. Versions follow [semantic versioning](https://semver.org/);
 dates are the release date.
 
+## Unreleased
+
+### Breaking change
+
+- **Node 22 or later is now required**, up from Node 20. Node 20 reached end of life in April
+  2026, and from this release no CI job runs it, so `engines: >=20` had become a claim
+  nothing verified. urtext's own code needs nothing newer than Node 20 does; the change is
+  that 20 is no longer tested, not that it is known to fail. npm only warns on an `engines`
+  mismatch unless `engine-strict` is set. The GitHub Action is unaffected in practice: it runs
+  on whatever Node the job provides, and every GitHub-hosted image already defaults to 22 or
+  later.
+
 ## 0.5.2 — 2026-09-09
 
 ### Fixed
